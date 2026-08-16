@@ -25,48 +25,48 @@
 
   <!-- Connecting Lines (Visible) -->
   <!-- 1. Ingestion -->
-  <path d="M 225 570 L 225 530" class="line" marker-end="url(#arrow)" />
-  <path d="M 225 410 L 225 330 L 550 330 L 550 260" class="line" marker-end="url(#arrow)" />
+  <path d="M 215 570 L 215 530" class="line" marker-end="url(#arrow)" />
+  <path d="M 215 410 L 215 330 L 580 330 L 580 260" class="line" marker-end="url(#arrow)" />
   
   <!-- 2 & 3. Reasoning and HITL -->
-  <path d="M 450 160 L 350 160" class="line" marker-end="url(#arrow)" />
-  <path d="M 350 200 L 450 200" class="line" marker-end="url(#arrow)" />
+  <path d="M 480 160 L 330 160" class="line" marker-end="url(#arrow)" />
+  <path d="M 330 200 L 480 200" class="line" marker-end="url(#arrow)" />
   
   <!-- 4. Execution -->
   <path d="M 750 260 L 750 410" class="line" marker-end="url(#arrow)" />
   <path d="M 750 530 L 750 570" class="line" marker-end="url(#arrow)" />
 
-  <!-- Hidden path for animation -->
-  <path id="motionPath" d="M 225 575 L 225 470 L 225 330 L 550 330 L 550 160 L 225 160 L 225 200 L 750 200 L 750 470 L 750 575 L 225 575" fill="none" stroke="none" />
+  <!-- Hidden path for animation (strictly follows arrows and jumps instantly inside boxes) -->
+  <path id="motionPath" d="M 215 570 L 215 530 M 215 410 L 215 330 L 580 330 L 580 260 M 480 160 L 330 160 M 330 200 L 480 200 M 750 260 L 750 410 M 750 530 L 750 570" fill="none" stroke="none" />
 
   <!-- Boxes -->
   <!-- UI Dashboard -->
-  <rect x="100" y="110" width="250" height="150" class="box" />
+  <rect x="100" y="110" width="230" height="150" class="box" />
   <text x="120" y="140" class="box-title">Multi-Tenant UI Dashboard</text>
   <text x="120" y="165" class="box-text">• Incident Triage View</text>
   <text x="120" y="185" class="box-text">• RCA / Proposed Fix</text>
   <text x="120" y="205" class="box-text">• HITL Authorization Gate</text>
 
   <!-- ADK Core -->
-  <rect x="450" y="110" width="450" height="150" class="box" />
-  <text x="470" y="140" class="box-title">ADK Multi-Agent Core</text>
-  <text x="470" y="165" class="box-text">• Frontline Watcher (Perception)</text>
-  <text x="470" y="185" class="box-text">• Troubleshooting Agent (Reasoning)</text>
-  <text x="470" y="205" class="box-text">• Execution Orchestrator (Token Minting)</text>
+  <rect x="480" y="110" width="420" height="150" class="box" />
+  <text x="500" y="140" class="box-title">ADK Multi-Agent Core</text>
+  <text x="500" y="165" class="box-text">• Frontline Watcher (Perception)</text>
+  <text x="500" y="185" class="box-text">• Troubleshooting Agent (Reasoning)</text>
+  <text x="500" y="205" class="box-text">• Execution Orchestrator (Token Minting)</text>
 
   <!-- Telemetry -->
-  <rect x="100" y="410" width="250" height="120" class="box" />
+  <rect x="100" y="410" width="230" height="120" class="box" />
   <text x="120" y="440" class="box-title">Telemetry &amp; Observation</text>
   <text x="120" y="465" class="box-text">• Cloud Logging Sinks</text>
   <text x="120" y="485" class="box-text">• Cloud Monitoring Alerting</text>
   <text x="120" y="505" class="box-text">• Read-Only SA</text>
 
   <!-- Remediation Layer -->
-  <rect x="450" y="410" width="450" height="120" class="box" />
-  <text x="470" y="440" class="box-title">Remediation Layer</text>
-  <text x="470" y="465" class="box-text">• Executioner Webhook (Cloud Run)</text>
-  <text x="470" y="485" class="box-text">• Parameter Validator &amp; Sanitizer</text>
-  <text x="470" y="505" class="box-text">• Least-Privilege IAM SA</text>
+  <rect x="480" y="410" width="420" height="120" class="box" />
+  <text x="500" y="440" class="box-title">Remediation Layer</text>
+  <text x="500" y="465" class="box-text">• Executioner Webhook (Cloud Run)</text>
+  <text x="500" y="485" class="box-text">• Parameter Validator &amp; Sanitizer</text>
+  <text x="500" y="505" class="box-text">• Least-Privilege IAM SA</text>
 
   <!-- Target Resources -->
   <rect x="100" y="570" width="800" height="40" class="box" fill="#e2e8f0" stroke="#cbd5e1" />
@@ -76,19 +76,19 @@
   <!-- Moved ingestion label X and Y to avoid overlap with 'CUSTOMER GCP DATA PLANE (TENANT)' -->
   <text x="240" y="395" class="label">1. INGESTION &amp; DETECTION</text>
   
-  <!-- Adjusted Reasoning and HITL labels to align better with the arrows -->
-  <text x="360" y="150" class="label">2. REASONING</text>
-  <text x="360" y="215" class="label">3. HITL APPROVAL</text>
-  <text x="370" y="180" class="sub-label">A2A Protocol</text>
+  <!-- Centered Reasoning, HITL, and Protocol labels in the 150px gap between columns to eliminate overlaps -->
+  <text x="405" y="145" class="label" text-anchor="middle">2. REASONING</text>
+  <text x="405" y="225" class="label" text-anchor="middle">3. HITL APPROVAL</text>
+  <text x="405" y="185" class="sub-label" text-anchor="middle">A2A Protocol</text>
 
   <text x="760" y="340" class="label">4. CONTROLLED EXECUTION</text>
-  <text x="420" y="630" class="label">5. POST-VERIFICATION (Loop)</text>
+  <text x="500" y="630" class="label" text-anchor="middle">5. POST-VERIFICATION (Loop)</text>
 
   <text x="760" y="360" class="sub-label">Workload Identity / OIDC</text>
 
-  <!-- Animated Data Packet -->
+  <!-- Animated Data Packet (Slowed down to 24s) -->
   <circle r="8" class="anim-dot">
-    <animateMotion dur="12s" repeatCount="indefinite">
+    <animateMotion dur="24s" repeatCount="indefinite">
       <mpath href="#motionPath" />
     </animateMotion>
   </circle>
