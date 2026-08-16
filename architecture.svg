@@ -107,8 +107,8 @@
   <text x="550" y="505" class="box-text">• Least-Privilege IAM SA</text>
 
   <!-- Target Resources -->
-  <rect x="100" y="570" width="800" height="40" class="box" fill="var(--target-rect-fill)" stroke="var(--box-stroke)" />
-  <text x="120" y="595" class="box-title" fill="var(--box-title-fill)">GCP Resources ( GKE / Compute Engine / Cloud SQL / Cloud Storage Resources )</text>
+  <rect x="100" y="570" width="800" height="34" class="box" fill="var(--target-rect-fill)" stroke="var(--box-stroke)" />
+  <text x="120" y="591" class="box-title" fill="var(--box-title-fill)">GCP Resources ( GKE / Compute Engine / Cloud SQL / Cloud Storage Resources )</text>
 
   <!-- Labels -->
   <text x="240" y="395" class="label">1. INGESTION &amp; DETECTION</text>
