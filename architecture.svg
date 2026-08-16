@@ -1,18 +1,57 @@
 <svg viewBox="0 0 1000 650" xmlns="http://www.w3.org/2000/svg">
   <defs>
     <style>
-      .bg-panel { fill: #f8fafc; stroke: #cbd5e1; stroke-width: 2; rx: 12; }
-      .title { font-family: 'Segoe UI', system-ui, sans-serif; font-size: 18px; font-weight: bold; fill: #1e293b; letter-spacing: 0.5px; }
-      .box { fill: #ffffff; stroke: #94a3b8; stroke-width: 2; rx: 8; filter: drop-shadow(0 4px 6px rgba(0,0,0,0.05)); }
-      .box-title { font-family: 'Segoe UI', system-ui, sans-serif; font-size: 15px; font-weight: bold; fill: #0f172a; }
-      .box-text { font-family: 'Segoe UI', system-ui, sans-serif; font-size: 13px; fill: #475569; }
-      .line { fill: none; stroke: #64748b; stroke-width: 2.5; }
-      .anim-dot { fill: #3b82f6; filter: drop-shadow(0 0 6px rgba(59, 130, 246, 0.6)); }
-      .label { font-family: 'Segoe UI', system-ui, sans-serif; font-size: 13px; font-weight: 700; fill: #2563eb; }
-      .sub-label { font-family: 'Segoe UI', system-ui, sans-serif; font-size: 12px; fill: #64748b; font-style: italic; }
+      /* Default Light Mode Colors */
+      :root {
+        --bg-panel-fill: #f8fafc;
+        --bg-panel-stroke: #cbd5e1;
+        --title-fill: #1e293b;
+        --box-fill: #ffffff;
+        --box-stroke: #94a3b8;
+        --box-shadow: rgba(0, 0, 0, 0.05);
+        --box-title-fill: #0f172a;
+        --box-text-fill: #475569;
+        --line-stroke: #64748b;
+        --anim-dot-fill: #2563eb;
+        --anim-dot-shadow: rgba(37, 99, 235, 0.6);
+        --label-fill: #2563eb;
+        --sub-label-fill: #64748b;
+        --target-rect-fill: #e2e8f0;
+      }
+
+      /* Dark Mode Overrides */
+      @media (prefers-color-scheme: dark) {
+        :root {
+          --bg-panel-fill: #0f172a;
+          --bg-panel-stroke: #334155;
+          --title-fill: #f8fafc;
+          --box-fill: #1e293b;
+          --box-stroke: #475569;
+          --box-shadow: rgba(0, 0, 0, 0.3);
+          --box-title-fill: #f1f5f9;
+          --box-text-fill: #cbd5e1;
+          --line-stroke: #94a3b8;
+          --anim-dot-fill: #60a5fa;
+          --anim-dot-shadow: rgba(96, 165, 250, 0.8);
+          --label-fill: #3b82f6;
+          --sub-label-fill: #94a3b8;
+          --target-rect-fill: #334155;
+        }
+      }
+
+      .bg-panel { fill: var(--bg-panel-fill); stroke: var(--bg-panel-stroke); stroke-width: 2; rx: 12; }
+      .title { font-family: 'Segoe UI', system-ui, sans-serif; font-size: 18px; font-weight: bold; fill: var(--title-fill); letter-spacing: 0.5px; }
+      .box { fill: var(--box-fill); stroke: var(--box-stroke); stroke-width: 2; rx: 8; filter: drop-shadow(0 4px 6px var(--box-shadow)); }
+      .box-title { font-family: 'Segoe UI', system-ui, sans-serif; font-size: 15px; font-weight: bold; fill: var(--box-title-fill); }
+      .box-text { font-family: 'Segoe UI', system-ui, sans-serif; font-size: 13px; fill: var(--box-text-fill); }
+      .line { fill: none; stroke: var(--line-stroke); stroke-width: 2.5; }
+      .anim-dot { fill: var(--anim-dot-fill); filter: drop-shadow(0 0 6px var(--anim-dot-shadow)); }
+      .label { font-family: 'Segoe UI', system-ui, sans-serif; font-size: 13px; font-weight: 700; fill: var(--label-fill); }
+      .sub-label { font-family: 'Segoe UI', system-ui, sans-serif; font-size: 12px; fill: var(--sub-label-fill); font-style: italic; }
+      .arrow-head { fill: var(--line-stroke); }
     </style>
     <marker id="arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto">
-      <path d="M 0 0 L 10 5 L 0 10 z" fill="#64748b" />
+      <path d="M 0 0 L 10 5 L 0 10 z" class="arrow-head" />
     </marker>
   </defs>
 
@@ -26,18 +65,15 @@
   <!-- Connecting Lines (Visible) -->
   <!-- 1. Ingestion -->
   <path d="M 215 570 L 215 530" class="line" marker-end="url(#arrow)" />
-  <path d="M 215 410 L 215 330 L 580 330 L 580 260" class="line" marker-end="url(#arrow)" />
+  <path d="M 215 410 L 215 330 L 610 330 L 610 260" class="line" marker-end="url(#arrow)" />
   
   <!-- 2 & 3. Reasoning and HITL -->
-  <path d="M 480 160 L 330 160" class="line" marker-end="url(#arrow)" />
-  <path d="M 330 200 L 480 200" class="line" marker-end="url(#arrow)" />
+  <path d="M 530 160 L 330 160" class="line" marker-end="url(#arrow)" />
+  <path d="M 330 200 L 530 200" class="line" marker-end="url(#arrow)" />
   
   <!-- 4. Execution -->
-  <path d="M 750 260 L 750 410" class="line" marker-end="url(#arrow)" />
-  <path d="M 750 530 L 750 570" class="line" marker-end="url(#arrow)" />
-
-  <!-- Hidden path for animation (strictly follows arrows and jumps instantly inside boxes) -->
-  <path id="motionPath" d="M 215 570 L 215 530 M 215 410 L 215 330 L 580 330 L 580 260 M 480 160 L 330 160 M 330 200 L 480 200 M 750 260 L 750 410 M 750 530 L 750 570" fill="none" stroke="none" />
+  <path d="M 715 260 L 715 410" class="line" marker-end="url(#arrow)" />
+  <path d="M 715 530 L 715 570" class="line" marker-end="url(#arrow)" />
 
   <!-- Boxes -->
   <!-- UI Dashboard -->
@@ -48,11 +84,11 @@
   <text x="120" y="205" class="box-text">• HITL Authorization Gate</text>
 
   <!-- ADK Core -->
-  <rect x="480" y="110" width="420" height="150" class="box" />
-  <text x="500" y="140" class="box-title">ADK Multi-Agent Core</text>
-  <text x="500" y="165" class="box-text">• Frontline Watcher (Perception)</text>
-  <text x="500" y="185" class="box-text">• Troubleshooting Agent (Reasoning)</text>
-  <text x="500" y="205" class="box-text">• Execution Orchestrator (Token Minting)</text>
+  <rect x="530" y="110" width="370" height="150" class="box" />
+  <text x="550" y="140" class="box-title">ADK Multi-Agent Core</text>
+  <text x="550" y="165" class="box-text">• Frontline Watcher (Perception)</text>
+  <text x="550" y="185" class="box-text">• Troubleshooting Agent (Reasoning)</text>
+  <text x="550" y="205" class="box-text">• Execution Orchestrator (Token Minting)</text>
 
   <!-- Telemetry -->
   <rect x="100" y="410" width="230" height="120" class="box" />
@@ -62,34 +98,47 @@
   <text x="120" y="505" class="box-text">• Read-Only SA</text>
 
   <!-- Remediation Layer -->
-  <rect x="480" y="410" width="420" height="120" class="box" />
-  <text x="500" y="440" class="box-title">Remediation Layer</text>
-  <text x="500" y="465" class="box-text">• Executioner Webhook (Cloud Run)</text>
-  <text x="500" y="485" class="box-text">• Parameter Validator &amp; Sanitizer</text>
-  <text x="500" y="505" class="box-text">• Least-Privilege IAM SA</text>
+  <rect x="530" y="410" width="370" height="120" class="box" />
+  <text x="550" y="440" class="box-title">Remediation Layer</text>
+  <text x="550" y="465" class="box-text">• Executioner Webhook (Cloud Run)</text>
+  <text x="550" y="485" class="box-text">• Parameter Validator &amp; Sanitizer</text>
+  <text x="550" y="505" class="box-text">• Least-Privilege IAM SA</text>
 
   <!-- Target Resources -->
-  <rect x="100" y="570" width="800" height="40" class="box" fill="#e2e8f0" stroke="#cbd5e1" />
-  <text x="120" y="595" class="box-title" fill="#1e293b">GCP Resources ( GKE / Compute Engine / Cloud SQL / Cloud Storage Resources )</text>
+  <rect x="100" y="570" width="800" height="40" class="box" fill="var(--target-rect-fill)" stroke="var(--box-stroke)" />
+  <text x="120" y="595" class="box-title" fill="var(--box-title-fill)">GCP Resources ( GKE / Compute Engine / Cloud SQL / Cloud Storage Resources )</text>
 
   <!-- Labels -->
   <!-- Moved ingestion label X and Y to avoid overlap with 'CUSTOMER GCP DATA PLANE (TENANT)' -->
   <text x="240" y="395" class="label">1. INGESTION &amp; DETECTION</text>
   
-  <!-- Centered Reasoning, HITL, and Protocol labels in the 150px gap between columns to eliminate overlaps -->
-  <text x="405" y="145" class="label" text-anchor="middle">2. REASONING</text>
-  <text x="405" y="225" class="label" text-anchor="middle">3. HITL APPROVAL</text>
-  <text x="405" y="185" class="sub-label" text-anchor="middle">A2A Protocol</text>
+  <!-- Centered Reasoning, HITL, and Protocol labels in the 200px gap between columns to eliminate overlaps -->
+  <text x="430" y="145" class="label" text-anchor="middle">2. REASONING</text>
+  <text x="430" y="225" class="label" text-anchor="middle">3. HITL APPROVAL</text>
+  <text x="430" y="185" class="sub-label" text-anchor="middle">A2A Protocol</text>
 
-  <text x="760" y="340" class="label">4. CONTROLLED EXECUTION</text>
+  <text x="725" y="340" class="label">4. CONTROLLED EXECUTION</text>
   <text x="500" y="630" class="label" text-anchor="middle">5. POST-VERIFICATION (Loop)</text>
 
-  <text x="760" y="360" class="sub-label">Workload Identity / OIDC</text>
+  <text x="725" y="360" class="sub-label">Workload Identity / OIDC</text>
 
-  <!-- Animated Data Packet (Slowed down to 24s) -->
-  <circle r="8" class="anim-dot">
-    <animateMotion dur="24s" repeatCount="indefinite">
-      <mpath href="#motionPath" />
-    </animateMotion>
+  <!-- Animated Active Pipeline Dots (Clean Flow, strictly along arrows, small r=3) -->
+  <circle r="3" class="anim-dot">
+    <animateMotion dur="3s" repeatCount="indefinite" path="M 215 570 L 215 530" />
+  </circle>
+  <circle r="3" class="anim-dot">
+    <animateMotion dur="5s" repeatCount="indefinite" path="M 215 410 L 215 330 L 610 330 L 610 260" />
+  </circle>
+  <circle r="3" class="anim-dot">
+    <animateMotion dur="3s" repeatCount="indefinite" path="M 530 160 L 330 160" />
+  </circle>
+  <circle r="3" class="anim-dot">
+    <animateMotion dur="3s" repeatCount="indefinite" path="M 330 200 L 530 200" />
+  </circle>
+  <circle r="3" class="anim-dot">
+    <animateMotion dur="4s" repeatCount="indefinite" path="M 715 260 L 715 410" />
+  </circle>
+  <circle r="3" class="anim-dot">
+    <animateMotion dur="3s" repeatCount="indefinite" path="M 715 530 L 715 570" />
   </circle>
 </svg>
