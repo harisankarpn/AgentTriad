@@ -59,7 +59,7 @@
 
   <!-- Planes -->
   <rect x="50" y="50" width="900" height="250" class="bg-panel" />
-  <text x="70" y="80" class="title">CENTRAL SAAS CONTROL PLANE</text>
+  <text x="70" y="80" class="title">GCP CENTRAL SAAS CONTROL PLANE</text>
 
   <rect x="50" y="350" width="900" height="260" class="bg-panel" />
   <text x="70" y="380" class="title">CUSTOMER GCP DATA PLANE (TENANT)</text>
@@ -117,8 +117,10 @@
   <text x="430" y="225" class="label" text-anchor="middle">3. HITL APPROVAL</text>
   <text x="430" y="185" class="sub-label" text-anchor="middle">A2A Protocol</text>
 
+  <!-- Execution Label Box -->
+  <rect x="720" y="320" width="265" height="50" class="box" />
   <text x="725" y="340" class="label">4. CONTROLLED EXECUTION</text>
-  <text x="500" y="630" class="label" text-anchor="middle">5. POST-VERIFICATION (Loop)</text>
+  <text x="500" y="560" class="label" text-anchor="middle">5. POST-VERIFICATION (Loop)</text>
 
   <text x="725" y="360" class="sub-label">OIDC using Workload Identity Federation</text>
 
