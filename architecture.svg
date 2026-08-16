@@ -1,7 +1,7 @@
 <svg viewBox="0 0 1000 650" xmlns="http://www.w3.org/2000/svg">
   <defs>
     <style>
-      /* Default Light Mode Colors */
+      /* Default Light Mode Colors & Variables */
       :root {
         --bg-panel-fill: #f8fafc;
         --bg-panel-stroke: #cbd5e1;
@@ -19,7 +19,7 @@
         --target-rect-fill: #e2e8f0;
       }
 
-      /* Dark Mode Overrides */
+      /* Dark Mode Overrides (Automatic via media query) */
       @media (prefers-color-scheme: dark) {
         :root {
           --bg-panel-fill: #0f172a;
@@ -39,16 +39,52 @@
         }
       }
 
-      .bg-panel { fill: var(--bg-panel-fill); stroke: var(--bg-panel-stroke); stroke-width: 2; rx: 12; }
-      .title { font-family: 'Segoe UI', system-ui, sans-serif; font-size: 18px; font-weight: bold; fill: var(--title-fill); letter-spacing: 0.5px; }
-      .box { fill: var(--box-fill); stroke: var(--box-stroke); stroke-width: 2; rx: 8; filter: drop-shadow(0 4px 6px var(--box-shadow)); }
-      .box-title { font-family: 'Segoe UI', system-ui, sans-serif; font-size: 15px; font-weight: bold; fill: var(--box-title-fill); }
-      .box-text { font-family: 'Segoe UI', system-ui, sans-serif; font-size: 13px; fill: var(--box-text-fill); }
-      .line { fill: none; stroke: var(--line-stroke); stroke-width: 2.5; }
-      .anim-dot { fill: var(--anim-dot-fill); filter: drop-shadow(0 0 6px var(--anim-dot-shadow)); }
-      .label { font-family: 'Segoe UI', system-ui, sans-serif; font-size: 13px; font-weight: 700; fill: var(--label-fill); }
-      .sub-label { font-family: 'Segoe UI', system-ui, sans-serif; font-size: 12px; fill: var(--sub-label-fill); font-style: italic; }
-      .arrow-head { fill: var(--line-stroke); }
+      /* Explicit Class Overrides (Activated by the toggle button) */
+      .light-theme {
+        --bg-panel-fill: #f8fafc;
+        --bg-panel-stroke: #cbd5e1;
+        --title-fill: #1e293b;
+        --box-fill: #ffffff;
+        --box-stroke: #94a3b8;
+        --box-shadow: rgba(0, 0, 0, 0.05);
+        --box-title-fill: #0f172a;
+        --box-text-fill: #475569;
+        --line-stroke: #64748b;
+        --anim-dot-fill: #2563eb;
+        --anim-dot-shadow: rgba(37, 99, 235, 0.6);
+        --label-fill: #2563eb;
+        --sub-label-fill: #64748b;
+        --target-rect-fill: #e2e8f0;
+      }
+
+      .dark-theme {
+        --bg-panel-fill: #0f172a;
+        --bg-panel-stroke: #334155;
+        --title-fill: #f8fafc;
+        --box-fill: #1e293b;
+        --box-stroke: #475569;
+        --box-shadow: rgba(0, 0, 0, 0.3);
+        --box-title-fill: #f1f5f9;
+        --box-text-fill: #cbd5e1;
+        --line-stroke: #94a3b8;
+        --anim-dot-fill: #60a5fa;
+        --anim-dot-shadow: rgba(96, 165, 250, 0.8);
+        --label-fill: #3b82f6;
+        --sub-label-fill: #94a3b8;
+        --target-rect-fill: #334155;
+      }
+
+      .bg-panel { fill: var(--bg-panel-fill); stroke: var(--bg-panel-stroke); stroke-width: 2; rx: 12; transition: fill 0.3s, stroke 0.3s; }
+      .title { font-family: 'Segoe UI', system-ui, sans-serif; font-size: 18px; font-weight: bold; fill: var(--title-fill); letter-spacing: 0.5px; transition: fill 0.3s; }
+      .box { fill: var(--box-fill); stroke: var(--box-stroke); stroke-width: 2; rx: 8; filter: drop-shadow(0 4px 6px var(--box-shadow)); transition: fill 0.3s, stroke 0.3s; }
+      .box-title { font-family: 'Segoe UI', system-ui, sans-serif; font-size: 15px; font-weight: bold; fill: var(--box-title-fill); transition: fill 0.3s; }
+      .box-text { font-family: 'Segoe UI', system-ui, sans-serif; font-size: 13px; fill: var(--box-text-fill); transition: fill 0.3s; }
+      .line { fill: none; stroke: var(--line-stroke); stroke-width: 2.5; transition: stroke 0.3s; }
+      .anim-dot { fill: var(--anim-dot-fill); filter: drop-shadow(0 0 6px var(--anim-dot-shadow)); transition: fill 0.3s; }
+      .label { font-family: 'Segoe UI', system-ui, sans-serif; font-size: 13px; font-weight: 700; fill: var(--label-fill); transition: fill 0.3s; }
+      .sub-label { font-family: 'Segoe UI', system-ui, sans-serif; font-size: 12px; fill: var(--sub-label-fill); font-style: italic; transition: fill 0.3s; }
+      .arrow-head { fill: var(--line-stroke); transition: fill 0.3s; }
+      .toggle-label { font-family: 'Segoe UI', system-ui, sans-serif; font-size: 11px; font-weight: bold; fill: var(--title-fill); text-anchor: end; transition: fill 0.3s; }
     </style>
     <marker id="arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto">
       <path d="M 0 0 L 10 5 L 0 10 z" class="arrow-head" />
@@ -58,6 +94,13 @@
   <!-- Planes -->
   <rect x="50" y="50" width="900" height="250" class="bg-panel" />
   <text x="70" y="80" class="title">CENTRAL SAAS CONTROL PLANE</text>
+
+  <!-- Interactive Theme Toggle Button -->
+  <g id="theme-toggle" cursor="pointer" transform="translate(0, 0)">
+    <text x="875" y="80" class="toggle-label">DARK MODE</text>
+    <rect id="toggle-bg" x="890" y="66" width="34" height="18" rx="9" fill="#cbd5e1" style="transition: fill 0.3s;" />
+    <circle id="toggle-circle" cx="899" cy="75" r="7" fill="#ffffff" style="transition: cx 0.3s;" filter="drop-shadow(0 1px 2px rgba(0,0,0,0.2))" />
+  </g>
 
   <rect x="50" y="350" width="900" height="260" class="bg-panel" />
   <text x="70" y="380" class="title">CUSTOMER GCP DATA PLANE (TENANT)</text>
@@ -109,10 +152,8 @@
   <text x="120" y="595" class="box-title" fill="var(--box-title-fill)">GCP Resources ( GKE / Compute Engine / Cloud SQL / Cloud Storage Resources )</text>
 
   <!-- Labels -->
-  <!-- Moved ingestion label X and Y to avoid overlap with 'CUSTOMER GCP DATA PLANE (TENANT)' -->
   <text x="240" y="395" class="label">1. INGESTION &amp; DETECTION</text>
   
-  <!-- Centered Reasoning, HITL, and Protocol labels in the 200px gap between columns to eliminate overlaps -->
   <text x="430" y="145" class="label" text-anchor="middle">2. REASONING</text>
   <text x="430" y="225" class="label" text-anchor="middle">3. HITL APPROVAL</text>
   <text x="430" y="185" class="sub-label" text-anchor="middle">A2A Protocol</text>
@@ -141,4 +182,40 @@
   <circle r="3" class="anim-dot">
     <animateMotion dur="3s" repeatCount="indefinite" path="M 715 530 L 715 570" />
   </circle>
+
+  <!-- Client-side Interactive Toggle Script -->
+  <script type="text/javascript">
+    <![CDATA[
+      document.addEventListener('DOMContentLoaded', () => {
+        const toggle = document.getElementById('theme-toggle');
+        const svg = document.querySelector('svg');
+        
+        let isDark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
+        
+        function updateTheme() {
+          if (isDark) {
+            svg.classList.add('dark-theme');
+            svg.classList.remove('light-theme');
+            document.getElementById('toggle-bg').setAttribute('fill', '#2563eb');
+            document.getElementById('toggle-circle').setAttribute('cx', '915');
+          } else {
+            svg.classList.add('light-theme');
+            svg.classList.remove('dark-theme');
+            document.getElementById('toggle-bg').setAttribute('fill', '#cbd5e1');
+            document.getElementById('toggle-circle').setAttribute('cx', '899');
+          }
+        }
+        
+        // Auto-initialize with fallback detection
+        updateTheme();
+        
+        if (toggle) {
+          toggle.addEventListener('click', () => {
+            isDark = !isDark;
+            updateTheme();
+          });
+        }
+      });
+    ]]>
+  </script>
 </svg>
