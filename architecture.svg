@@ -1,0 +1,86 @@
+<svg viewBox="0 0 1000 650" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <style>
+      .bg-panel { fill: #f8f9fa; stroke: #dee2e6; stroke-width: 2; rx: 10; }
+      .title { font-family: sans-serif; font-size: 18px; font-weight: bold; fill: #343a40; }
+      .box { fill: #ffffff; stroke: #adb5bd; stroke-width: 2; rx: 5; }
+      .box-title { font-family: sans-serif; font-size: 15px; font-weight: bold; fill: #212529; }
+      .box-text { font-family: sans-serif; font-size: 13px; fill: #495057; }
+      .line { fill: none; stroke: #adb5bd; stroke-width: 2; }
+      .anim-dot { fill: #0d6efd; filter: drop-shadow(0 0 4px #0d6efd); }
+      .label { font-family: sans-serif; font-size: 12px; font-weight: bold; fill: #0056b3; }
+      .sub-label { font-family: sans-serif; font-size: 12px; fill: #6c757d; }
+    </style>
+    <marker id="arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#adb5bd" />
+    </marker>
+  </defs>
+
+  <!-- Planes -->
+  <rect x="50" y="50" width="900" height="250" class="bg-panel" />
+  <text x="70" y="80" class="title">CENTRAL SAAS CONTROL PLANE</text>
+
+  <rect x="50" y="350" width="900" height="250" class="bg-panel" />
+  <text x="70" y="380" class="title">CUSTOMER GCP DATA PLANE (TENANT)</text>
+
+  <!-- Connecting Lines (Visible) -->
+  <path d="M 225 560 L 225 530" class="line" marker-end="url(#arrow)" />
+  <path d="M 225 410 L 225 330 L 550 330 L 550 260" class="line" marker-end="url(#arrow)" />
+  <path d="M 450 170 L 350 170" class="line" marker-end="url(#arrow)" />
+  <path d="M 350 220 L 450 220" class="line" marker-end="url(#arrow)" />
+  <path d="M 750 260 L 750 410" class="line" marker-end="url(#arrow)" />
+  <path d="M 750 530 L 750 560" class="line" marker-end="url(#arrow)" />
+
+  <!-- Hidden path for animation -->
+  <path id="motionPath" d="M 225 575 L 225 470 L 225 330 L 550 330 L 550 170 L 225 170 L 225 220 L 750 220 L 750 470 L 750 575 L 225 575" fill="none" stroke="none" />
+
+  <!-- Boxes -->
+  <!-- UI Dashboard -->
+  <rect x="100" y="110" width="250" height="150" class="box" />
+  <text x="120" y="140" class="box-title">Multi-Tenant UI Dashboard</text>
+  <text x="120" y="165" class="box-text">• Incident Triage View</text>
+  <text x="120" y="185" class="box-text">• RCA / Proposed Fix</text>
+  <text x="120" y="205" class="box-text">• HITL Authorization Gate</text>
+
+  <!-- ADK Core -->
+  <rect x="450" y="110" width="450" height="150" class="box" />
+  <text x="470" y="140" class="box-title">ADK Multi-Agent Core</text>
+  <text x="470" y="165" class="box-text">• Frontline Watcher (Perception)</text>
+  <text x="470" y="185" class="box-text">• Troubleshooting Agent (Reasoning)</text>
+  <text x="470" y="205" class="box-text">• Execution Orchestrator (Token Minting)</text>
+
+  <!-- Telemetry -->
+  <rect x="100" y="410" width="250" height="120" class="box" />
+  <text x="120" y="440" class="box-title">Telemetry &amp; Observation</text>
+  <text x="120" y="465" class="box-text">• Cloud Logging Sinks</text>
+  <text x="120" y="485" class="box-text">• Cloud Monitoring Alerting</text>
+  <text x="120" y="505" class="box-text">• Read-Only SA</text>
+
+  <!-- Remediation Layer -->
+  <rect x="450" y="410" width="450" height="120" class="box" />
+  <text x="470" y="440" class="box-title">Remediation Layer</text>
+  <text x="470" y="465" class="box-text">• Executioner Webhook (Cloud Run)</text>
+  <text x="470" y="485" class="box-text">• Parameter Validator &amp; Sanitizer</text>
+  <text x="470" y="505" class="box-text">• Least-Privilege IAM SA</text>
+
+  <!-- Target Resources -->
+  <rect x="100" y="560" width="800" height="40" class="box" fill="#e9ecef" />
+  <text x="120" y="585" class="box-title" fill="#495057">GKE / Compute Engine / Cloud SQL / Cloud Storage Resources</text>
+
+  <!-- Labels -->
+  <text x="235" y="380" class="label">1. INGESTION &amp; DETECTION</text>
+  <text x="395" y="160" class="label">2. REASONING</text>
+  <text x="395" y="245" class="label">3. HITL APPROVAL</text>
+  <text x="760" y="340" class="label">4. CONTROLLED EXECUTION</text>
+  <text x="420" y="620" class="label">5. POST-VERIFICATION (Loop)</text>
+
+  <text x="385" y="195" class="sub-label">A2A Protocol</text>
+  <text x="760" y="360" class="sub-label">Workload Identity / OIDC</text>
+
+  <!-- Animated Data Packet -->
+  <circle r="8" class="anim-dot">
+    <animateMotion dur="12s" repeatCount="indefinite">
+      <mpath href="#motionPath" />
+    </animateMotion>
+  </circle>
+</svg>
