@@ -118,11 +118,11 @@
   <text x="430" y="185" class="sub-label" text-anchor="middle">A2A Protocol</text>
 
   <!-- Execution Label Box -->
-  <rect x="720" y="320" width="265" height="50" class="box" />
-  <text x="725" y="340" class="label">4. CONTROLLED EXECUTION</text>
+  <rect x="720" y="300" width="265" height="50" class="box" />
+  <text x="725" y="320" class="label">4. CONTROLLED EXECUTION</text>
   <text x="500" y="560" class="label" text-anchor="middle">5. POST-VERIFICATION (Loop)</text>
 
-  <text x="725" y="360" class="sub-label">OIDC using Workload Identity Federation</text>
+  <text x="725" y="340" class="sub-label">OIDC using Workload Identity Federation</text>
 
   <!-- Animated Active Pipeline Dots (Clean Flow, strictly along arrows, small r=3) -->
   <circle r="3" class="anim-dot">
