@@ -1,0 +1,499 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Cloud GCP Support Workflow: Current vs Agentic Comparison</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <style>
+    body {
+      background-color: #0b1120;
+      color: #f8fafc;
+      font-family: 'Inter', sans-serif;
+    }
+    .flow-dash {
+      stroke-dasharray: 8;
+      animation: dashMove 1.2s linear infinite;
+    }
+    @keyframes dashMove {
+      to { stroke-dashoffset: -16; }
+    }
+    .glow-rose {
+      filter: drop-shadow(0 0 8px rgba(244, 63, 94, 0.7));
+    }
+    .glow-emerald {
+      filter: drop-shadow(0 0 8px rgba(16, 185, 129, 0.7));
+    }
+    .active-curr-card {
+      border-color: #f43f5e !important;
+      background-color: rgba(136, 19, 55, 0.45) !important;
+      box-shadow: 0 0 14px rgba(244, 63, 94, 0.35);
+      transform: translateY(-2px);
+    }
+    .active-agent-card {
+      border-color: #10b981 !important;
+      background-color: rgba(6, 78, 59, 0.45) !important;
+      box-shadow: 0 0 14px rgba(16, 185, 129, 0.35);
+      transform: translateY(-2px);
+    }
+    /* Custom scrollbar */
+    ::-webkit-scrollbar {
+      width: 6px;
+      height: 6px;
+    }
+    ::-webkit-scrollbar-track {
+      background: #0f172a;
+    }
+    ::-webkit-scrollbar-thumb {
+      background: #334155;
+      border-radius: 4px;
+    }
+  </style>
+</head>
+<body class="h-screen flex flex-col justify-between p-4 overflow-y-auto">
+
+  <!-- Header Section -->
+  <header class="max-w-7xl mx-auto w-full mb-3 shrink-0">
+    <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-800 pb-3">
+      <div>
+        <div class="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10px] font-semibold bg-indigo-500/10 text-indigo-400 border border-indigo-500/20 mb-1">
+          <i class="fa-solid fa-code-compare"></i> GCP Support Management Architecture
+        </div>
+        <h1 class="text-lg sm:text-xl font-extrabold text-white tracking-tight">
+          Current Model vs. Agent Triad ( AaaS ) Multi Agent Workflow
+        </h1>
+      </div>
+
+      <!-- Action & Tabs -->
+      <div class="flex items-center gap-2">
+        <div class="inline-flex p-1 bg-slate-900 border border-slate-800 rounded-xl">
+          <button onclick="switchTab('pipeline')" id="tabPipelineBtn" class="px-3 py-1.5 rounded-lg text-xs font-semibold bg-indigo-600 text-white transition">
+            <i class="fa-solid fa-diagram-project mr-1"></i> Pipeline & Workflow
+          </button>
+          <button onclick="switchTab('matrix')" id="tabMatrixBtn" class="px-3 py-1.5 rounded-lg text-xs font-semibold text-slate-400 hover:text-white transition">
+            <i class="fa-solid fa-table mr-1"></i> Comparison Matrix
+          </button>
+        </div>
+
+        <button onclick="startLiveSimulation()" id="simBtn" class="inline-flex items-center gap-1.5 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white text-xs font-bold px-3.5 py-2 rounded-xl shadow-lg transition cursor-pointer">
+          <i class="fa-solid fa-play" id="simIcon"></i>
+          <span id="simBtnText">Run Simulation</span>
+        </button>
+      </div>
+    </div>
+
+    <!-- Metric High-level Cards -->
+    <div class="grid grid-cols-2 lg:grid-cols-4 gap-2.5 mt-2">
+      <div class="bg-slate-900/90 border border-slate-800 rounded-xl p-2.5 flex items-center gap-3">
+        <div class="w-9 h-9 rounded-lg bg-rose-500/10 border border-rose-500/20 flex items-center justify-center text-rose-400 font-bold text-sm shrink-0">
+          <i class="fa-solid fa-stopwatch"></i>
+        </div>
+        <div>
+          <div class="text-[10px] text-slate-400 font-medium">Total Resolution Time</div>
+          <div class="text-xs font-bold text-white">
+            <span class="text-rose-400">4h – 6 Days</span> <span class="text-slate-500 text-[10px]">vs</span> <span class="text-emerald-400">Minutes</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="bg-slate-900/90 border border-slate-800 rounded-xl p-2.5 flex items-center gap-3">
+        <div class="w-9 h-9 rounded-lg bg-amber-500/10 border border-amber-500/20 flex items-center justify-center text-amber-400 font-bold text-sm shrink-0">
+          <i class="fa-solid fa-user-gear"></i>
+        </div>
+        <div>
+          <div class="text-[10px] text-slate-400 font-medium">Human Touchpoints</div>
+          <div class="text-xs font-bold text-white">
+            <span class="text-amber-400">Manual / Ticket</span> <span class="text-slate-500 text-[10px]">vs</span> <span class="text-emerald-400">1-Click Auth</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="bg-slate-900/90 border border-slate-800 rounded-xl p-2.5 flex items-center gap-3">
+        <div class="w-9 h-9 rounded-lg bg-blue-500/10 border border-blue-500/20 flex items-center justify-center text-blue-400 font-bold text-sm shrink-0">
+          <i class="fa-solid fa-layer-group"></i>
+        </div>
+        <div>
+          <div class="text-[10px] text-slate-400 font-medium">Architecture</div>
+          <div class="text-xs font-bold text-white">
+            <span class="text-rose-400">Single Triage</span> <span class="text-slate-500 text-[10px]">vs</span> <span class="text-emerald-400">Agent Triad</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="bg-slate-900/90 border border-slate-800 rounded-xl p-2.5 flex items-center gap-3">
+        <div class="w-9 h-9 rounded-lg bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center text-emerald-400 font-bold text-sm shrink-0">
+          <i class="fa-solid fa-shield-check"></i>
+        </div>
+        <div>
+          <div class="text-[10px] text-slate-400 font-medium">Validation Mode</div>
+          <div class="text-xs font-bold text-white">
+            <span class="text-slate-400">Manual Check</span> <span class="text-slate-500 text-[10px]">vs</span> <span class="text-emerald-400">Watcher Loop</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </header>
+
+  <!-- TAB 1: PIPELINE & WORKFLOW BREAKDOWN -->
+  <main id="pipelineView" class="max-w-7xl mx-auto w-full space-y-3 flex-grow">
+    
+    <!-- SVG Tracer Canvas -->
+    <div class="bg-slate-900/70 border border-slate-800 rounded-xl p-3">
+      <div class="flex items-center justify-between mb-1">
+        <span class="text-[11px] font-bold text-slate-300 uppercase tracking-wide">
+          <i class="fa-solid fa-diagram-project text-indigo-400 mr-1"></i> Real-time SVG Architecture Pipeline
+        </span>
+        <div id="simLog" class="text-[10px] font-mono text-slate-400">
+          Status: <span class="text-indigo-400">Standby (Click "Run Simulation")</span>
+        </div>
+      </div>
+
+      <div class="w-full overflow-x-auto">
+        <svg id="pipelineSvg" viewBox="0 0 1120 170" class="w-full min-w-[850px] h-auto select-none" xmlns="http://www.w3.org/2000/svg">
+          <defs>
+            <linearGradient id="roseGrad" x1="0%" y1="0%" x2="100%" y2="0%">
+              <stop offset="0%" stop-color="#f43f5e" />
+              <stop offset="100%" stop-color="#fb923c" />
+            </linearGradient>
+            <linearGradient id="emeraldGrad" x1="0%" y1="0%" x2="100%" y2="0%">
+              <stop offset="0%" stop-color="#10b981" />
+              <stop offset="50%" stop-color="#06b6d4" />
+              <stop offset="100%" stop-color="#3b82f6" />
+            </linearGradient>
+          </defs>
+
+          <!-- Current Model SVG Line -->
+          <text x="30" y="24" fill="#f43f5e" font-size="10" font-weight="700" font-family="'JetBrains Mono', monospace">CURRENT MODEL (4h – 6 Days)</text>
+          <path d="M 70 52 L 1050 52" stroke="#334155" stroke-width="2.5" stroke-dasharray="5" />
+          <path id="currActivePath" d="M 70 52 L 70 52" stroke="url(#roseGrad)" stroke-width="3" class="flow-dash glow-rose" />
+          <circle id="currPacket" cx="70" cy="52" r="6" fill="#fb7185" class="glow-rose opacity-0" />
+
+          <g id="svg-c1" transform="translate(70, 52)">
+            <circle r="14" fill="#1e293b" stroke="#64748b" stroke-width="2" id="cnode-1" />
+            <text text-anchor="middle" dy="3.5" fill="#cbd5e1" font-size="9" font-weight="bold">1</text>
+            <text text-anchor="middle" y="22" fill="#94a3b8" font-size="8" font-weight="600">Failure</text>
+          </g>
+          <g id="svg-c2" transform="translate(396, 52)">
+            <circle r="14" fill="#1e293b" stroke="#64748b" stroke-width="2" id="cnode-2" />
+            <text text-anchor="middle" dy="3.5" fill="#cbd5e1" font-size="9" font-weight="bold">2</text>
+            <text text-anchor="middle" y="22" fill="#94a3b8" font-size="8" font-weight="600">Self-Diagnosis</text>
+          </g>
+          <g id="svg-c3" transform="translate(723, 52)">
+            <circle r="14" fill="#1e293b" stroke="#64748b" stroke-width="2" id="cnode-3" />
+            <text text-anchor="middle" dy="3.5" fill="#cbd5e1" font-size="9" font-weight="bold">3</text>
+            <text text-anchor="middle" y="22" fill="#94a3b8" font-size="8" font-weight="600">Ticket Raise</text>
+          </g>
+          <g id="svg-c4" transform="translate(1050, 52)">
+            <circle r="14" fill="#1e293b" stroke="#64748b" stroke-width="2" id="cnode-4" />
+            <text text-anchor="middle" dy="3.5" fill="#cbd5e1" font-size="9" font-weight="bold">4</text>
+            <text text-anchor="middle" y="22" fill="#94a3b8" font-size="8" font-weight="600">Support (4h-6d)</text>
+          </g>
+
+          <!-- Agent Triad SVG Line -->
+          <text x="30" y="105" fill="#10b981" font-size="10" font-weight="700" font-family="'JetBrains Mono', monospace">AGENT TRIAD WORKFLOW (Minutes Resolution)</text>
+          <path d="M 70 132 L 1050 132" stroke="#334155" stroke-width="2.5" stroke-dasharray="5" />
+          <path id="agentActivePath" d="M 70 132 L 70 132" stroke="url(#emeraldGrad)" stroke-width="3" class="flow-dash glow-emerald" />
+          <circle id="agentPacket" cx="70" cy="132" r="6" fill="#34d399" class="glow-emerald opacity-0" />
+
+          <g id="svg-a1" transform="translate(70, 132)">
+            <circle r="13" fill="#0f172a" stroke="#64748b" stroke-width="2" id="anode-1" />
+            <text text-anchor="middle" dy="3.5" fill="#cbd5e1" font-size="8.5" font-weight="bold">1</text>
+            <text text-anchor="middle" y="20" fill="#94a3b8" font-size="7.5" font-weight="600">Alert Setup</text>
+          </g>
+          <g id="svg-a2" transform="translate(266, 132)">
+            <circle r="13" fill="#0f172a" stroke="#64748b" stroke-width="2" id="anode-2" />
+            <text text-anchor="middle" dy="3.5" fill="#cbd5e1" font-size="8.5" font-weight="bold">2</text>
+            <text text-anchor="middle" y="20" fill="#94a3b8" font-size="7.5" font-weight="600">Watcher</text>
+          </g>
+          <g id="svg-a3" transform="translate(462, 132)">
+            <circle r="13" fill="#0f172a" stroke="#64748b" stroke-width="2" id="anode-3" />
+            <text text-anchor="middle" dy="3.5" fill="#cbd5e1" font-size="8.5" font-weight="bold">3</text>
+            <text text-anchor="middle" y="20" fill="#94a3b8" font-size="7.5" font-weight="600">Troubleshooter</text>
+          </g>
+          <g id="svg-a4" transform="translate(658, 132)">
+            <circle r="13" fill="#0f172a" stroke="#64748b" stroke-width="2" id="anode-4" />
+            <text text-anchor="middle" dy="3.5" fill="#cbd5e1" font-size="8.5" font-weight="bold">4</text>
+            <text text-anchor="middle" y="20" fill="#94a3b8" font-size="7.5" font-weight="600">Central Auth</text>
+          </g>
+          <g id="svg-a5" transform="translate(854, 132)">
+            <circle r="13" fill="#0f172a" stroke="#64748b" stroke-width="2" id="anode-5" />
+            <text text-anchor="middle" dy="3.5" fill="#cbd5e1" font-size="8.5" font-weight="bold">5</text>
+            <text text-anchor="middle" y="20" fill="#94a3b8" font-size="7.5" font-weight="600">Orchestrator</text>
+          </g>
+          <g id="svg-a6" transform="translate(1050, 132)">
+            <circle r="13" fill="#0f172a" stroke="#64748b" stroke-width="2" id="anode-6" />
+            <text text-anchor="middle" dy="3.5" fill="#cbd5e1" font-size="8.5" font-weight="bold">6</text>
+            <text text-anchor="middle" y="20" fill="#94a3b8" font-size="7.5" font-weight="600">Validated</text>
+          </g>
+        </svg>
+      </div>
+    </div>
+
+    <!-- Side-by-Side Step Columns -->
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-3 pb-2">
+      
+      <!-- Current Model Column -->
+      <div class="bg-slate-900/50 border border-rose-900/30 rounded-xl p-3.5 space-y-2.5">
+        <div class="flex items-center justify-between pb-2 border-b border-slate-800">
+          <div class="flex items-center gap-2">
+            <span class="w-2.5 h-2.5 rounded-full bg-rose-500"></span>
+            <h2 class="font-bold text-xs text-white uppercase tracking-wide">Current model</h2>
+          </div>
+          <span class="text-[10px] font-mono text-rose-400">4 Steps (Manual)</span>
+        </div>
+
+        <div class="space-y-2 text-xs">
+          <div id="step-c-1" class="p-2 rounded-lg bg-slate-800/50 border border-slate-700/60 transition">
+            <div class="font-bold text-rose-400 text-[11px]">1. Failure Occurrence</div>
+            <div class="text-slate-300 text-[11px]">Service / product failed with the error.</div>
+          </div>
+          <div id="step-c-2" class="p-2 rounded-lg bg-slate-800/50 border border-slate-700/60 transition">
+            <div class="font-bold text-rose-400 text-[11px]">2. Self-Diagnosis & Remediation</div>
+            <div class="text-slate-300 text-[11px]">Manual self diagnosis & fix using Gemini Cloud Assist / Public documentation.</div>
+          </div>
+          <div id="step-c-3" class="p-2 rounded-lg bg-slate-800/50 border border-slate-700/60 transition">
+            <div class="font-bold text-rose-400 text-[11px]">3. Support Ticket Creation</div>
+            <div class="text-slate-300 text-[11px]">GCA helps User to raise support ticket.</div>
+          </div>
+          <div id="step-c-4" class="p-2 rounded-lg bg-slate-800/50 border border-slate-700/60 transition">
+            <div class="font-bold text-rose-400 text-[11px]">4. Support Team Resolution</div>
+            <div class="text-slate-300 text-[11px]">Support Team manual resolution (Timeline: 4h to 6 days).</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Agent Triad Column -->
+      <div class="bg-slate-900/50 border border-emerald-900/30 rounded-xl p-3.5 space-y-2.5">
+        <div class="flex items-center justify-between pb-2 border-b border-slate-800">
+          <div class="flex items-center gap-2">
+            <span class="w-2.5 h-2.5 rounded-full bg-emerald-500"></span>
+            <h2 class="font-bold text-xs text-white uppercase tracking-wide">Agent Triad ( AaaS ) Multi Agent</h2>
+          </div>
+          <span class="text-[10px] font-mono text-emerald-400">6 Steps (Autonomous)</span>
+        </div>
+
+        <div class="space-y-1.5 text-xs">
+          <div id="step-a-1" class="p-1.5 rounded-lg bg-slate-800/50 border border-slate-700/60 transition">
+            <div class="font-bold text-emerald-400 text-[11px]">1. Alert Setup</div>
+            <div class="text-slate-300 text-[10.5px]">Agent helps setup cloud alerting policy for all deployed services.</div>
+          </div>
+          <div id="step-a-2" class="p-1.5 rounded-lg bg-slate-800/50 border border-slate-700/60 transition">
+            <div class="font-bold text-emerald-400 text-[11px]">2. Frontline Watcher (Perception)</div>
+            <div class="text-slate-300 text-[10.5px]">Policy triggers the Front line Watcher Agent upon breach detection.</div>
+          </div>
+          <div id="step-a-3" class="p-1.5 rounded-lg bg-slate-800/50 border border-slate-700/60 transition">
+            <div class="font-bold text-emerald-400 text-[11px]">3. Troubleshooting Agent (Reasoning)</div>
+            <div class="text-slate-300 text-[10.5px]">Details sent to Troubleshooting Agent for RCA and next steps.</div>
+          </div>
+          <div id="step-a-4" class="p-1.5 rounded-lg bg-slate-800/50 border border-slate-700/60 transition">
+            <div class="font-bold text-emerald-400 text-[11px]">4. AaaS Central Authorization</div>
+            <div class="text-slate-300 text-[10.5px]">User sees RCA, next steps & authorization in central dashboard.</div>
+          </div>
+          <div id="step-a-5" class="p-1.5 rounded-lg bg-slate-800/50 border border-slate-700/60 transition">
+            <div class="font-bold text-emerald-400 text-[11px]">5. Execution Orchestrator</div>
+            <div class="text-slate-300 text-[10.5px]">Orchestrator receives token, performs task and reports status back.</div>
+          </div>
+          <div id="step-a-6" class="p-1.5 rounded-lg bg-slate-800/50 border border-slate-700/60 transition">
+            <div class="font-bold text-emerald-400 text-[11px]">6. Validation & Confirmation</div>
+            <div class="text-slate-300 text-[10.5px]">Frontline watcher validates against alerts and confirms to user.</div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </main>
+
+  <!-- TAB 2: COMPARISON MATRIX -->
+  <section id="matrixView" class="max-w-7xl mx-auto w-full hidden flex-grow pb-4">
+    <div class="bg-slate-900/80 border border-slate-800 rounded-xl p-4 overflow-x-auto">
+      <table class="w-full text-left border-collapse text-xs">
+        <thead>
+          <tr class="border-b border-slate-800 bg-slate-800/60 text-slate-200 font-semibold">
+            <th class="p-3">Workflow Stage</th>
+            <th class="p-3 text-rose-300">Current model</th>
+            <th class="p-3 text-emerald-300">Agent Triad ( AaaS ) Multi Agent workflow</th>
+            <th class="p-3 text-indigo-300">Business Impact</th>
+          </tr>
+        </thead>
+        <tbody class="divide-y divide-slate-800/60 text-slate-300">
+          <tr>
+            <td class="p-3 font-semibold text-slate-200">Alert Coverage & Intercept</td>
+            <td class="p-3">Service/product fails before user notices or acts</td>
+            <td class="p-3 font-medium text-emerald-400">Agent assists in pre-configuring alerts & Frontline Watcher perceives breach immediately</td>
+            <td class="p-3 text-slate-400">Standardized 100% cloud monitoring coverage</td>
+          </tr>
+          <tr>
+            <td class="p-3 font-semibold text-slate-200">Root Cause Analysis (RCA)</td>
+            <td class="p-3">Manual diagnosis via Gemini Cloud Assist or public docs</td>
+            <td class="p-3 font-medium text-emerald-400">Automated by Troubleshooting (Reasoning) Agent with actionable next steps</td>
+            <td class="p-3 text-slate-400">Eliminates manual trial-and-error analysis</td>
+          </tr>
+          <tr>
+            <td class="p-3 font-semibold text-slate-200">Visibility & Authorization</td>
+            <td class="p-3">Ad-hoc support ticket drafting and escalation queue waiting</td>
+            <td class="p-3 font-medium text-emerald-400">Centralized AaaS Dashboard with transparent RCA & authorization control</td>
+            <td class="p-3 text-slate-400">Human-in-the-loop governance with single-click approval</td>
+          </tr>
+          <tr>
+            <td class="p-3 font-semibold text-slate-200">Execution & Remediation</td>
+            <td class="p-3">Support Team manual resolution (4h to 6 days timeline)</td>
+            <td class="p-3 font-medium text-emerald-400">Execution Orchestrator receives token, applies fix, and updates Frontline Watcher</td>
+            <td class="p-3 text-slate-400">Bypasses multi-hour/multi-day support ticket backlogs</td>
+          </tr>
+          <tr>
+            <td class="p-3 font-semibold text-slate-200">Post-Fix Verification</td>
+            <td class="p-3">Manual verification by end user or support rep</td>
+            <td class="p-3 font-medium text-emerald-400">Frontline Watcher validates against cloud metrics & confirms clean state to user</td>
+            <td class="p-3 text-slate-400">Closed-loop verification guarantees issue resolution</td>
+          </tr>
+          <tr>
+            <td class="p-3 font-semibold text-slate-200">Total Resolution Time</td>
+            <td class="p-3 text-rose-400 font-medium">4 Hours to 6 Days</td>
+            <td class="p-3 text-emerald-400 font-bold">Minutes</td>
+            <td class="p-3 text-slate-400">Dramatic reduction in service downtime</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- Simulation Script -->
+  <script>
+    const currCoords = [70, 396, 723, 1050];
+    const agentCoords = [70, 266, 462, 658, 854, 1050];
+    const currNodeColors = ['#f43f5e', '#f59e0b', '#f59e0b', '#f43f5e'];
+    const agentNodeColors = ['#10b981', '#0d9488', '#10b981', '#06b6d4', '#3b82f6', '#10b981'];
+
+    let isRunning = false;
+
+    function switchTab(tab) {
+      const pView = document.getElementById('pipelineView');
+      const mView = document.getElementById('matrixView');
+      const pBtn = document.getElementById('tabPipelineBtn');
+      const mBtn = document.getElementById('tabMatrixBtn');
+
+      if (tab === 'pipeline') {
+        pView.classList.remove('hidden');
+        mView.classList.add('hidden');
+        pBtn.className = 'px-3 py-1.5 rounded-lg text-xs font-semibold bg-indigo-600 text-white transition';
+        mBtn.className = 'px-3 py-1.5 rounded-lg text-xs font-semibold text-slate-400 hover:text-white transition';
+      } else {
+        pView.classList.add('hidden');
+        mView.classList.remove('hidden');
+        mBtn.className = 'px-3 py-1.5 rounded-lg text-xs font-semibold bg-indigo-600 text-white transition';
+        pBtn.className = 'px-3 py-1.5 rounded-lg text-xs font-semibold text-slate-400 hover:text-white transition';
+      }
+    }
+
+    function resetPipeline() {
+      for (let i = 1; i <= 4; i++) {
+        const node = document.getElementById('cnode-' + i);
+        if (node) {
+          node.setAttribute('stroke', '#64748b');
+          node.setAttribute('fill', '#1e293b');
+        }
+        const card = document.getElementById('step-c-' + i);
+        if (card) card.classList.remove('active-curr-card');
+      }
+
+      for (let i = 1; i <= 6; i++) {
+        const node = document.getElementById('anode-' + i);
+        if (node) {
+          node.setAttribute('stroke', '#64748b');
+          node.setAttribute('fill', '#0f172a');
+        }
+        const card = document.getElementById('step-a-' + i);
+        if (card) card.classList.remove('active-agent-card');
+      }
+
+      document.getElementById('currActivePath').setAttribute('d', 'M 70 52 L 70 52');
+      document.getElementById('agentActivePath').setAttribute('d', 'M 70 132 L 70 132');
+
+      document.getElementById('currPacket').setAttribute('class', 'glow-rose opacity-0');
+      document.getElementById('agentPacket').setAttribute('class', 'glow-emerald opacity-0');
+    }
+
+    async function startLiveSimulation() {
+      if (isRunning) return;
+      isRunning = true;
+
+      // Make sure we are on the pipeline view
+      switchTab('pipeline');
+
+      const btn = document.getElementById('simBtn');
+      const btnText = document.getElementById('simBtnText');
+      const icon = document.getElementById('simIcon');
+      const simLog = document.getElementById('simLog');
+
+      btn.disabled = true;
+      icon.className = 'fa-solid fa-spinner fa-spin';
+      btnText.textContent = 'Simulating...';
+
+      resetPipeline();
+
+      const cPack = document.getElementById('currPacket');
+      const aPack = document.getElementById('agentPacket');
+      cPack.setAttribute('class', 'glow-rose opacity-100');
+      aPack.setAttribute('class', 'glow-emerald opacity-100');
+
+      const agentLogs = [
+        "1/6 Agent baseline monitoring policy initialized",
+        "2/6 Alert policy breached -> Frontline Watcher intercepts",
+        "3/6 Reasoning Agent computes Root Cause Analysis (RCA)",
+        "4/6 AaaS Central Dashboard -> 1-Click User Auth granted",
+        "5/6 Execution Orchestrator applies automated remediation",
+        "6/6 Frontline Watcher confirms clean state -> Done in Minutes!"
+      ];
+
+      for (let step = 0; step < 6; step++) {
+        const targetAgentX = agentCoords[step];
+        aPack.setAttribute('cx', targetAgentX);
+        document.getElementById('agentActivePath').setAttribute('d', `M 70 132 L ${targetAgentX} 132`);
+
+        const anode = document.getElementById('anode-' + (step + 1));
+        if (anode) {
+          anode.setAttribute('stroke', agentNodeColors[step]);
+          anode.setAttribute('fill', agentNodeColors[step] + '50');
+        }
+
+        const aCard = document.getElementById('step-a-' + (step + 1));
+        if (aCard) aCard.classList.add('active-agent-card');
+
+        simLog.innerHTML = `Triad: <span class="text-emerald-400 font-bold">${agentLogs[step]}</span>`;
+
+        let currStep = -1;
+        if (step === 0) currStep = 0;
+        else if (step === 2) currStep = 1;
+        else if (step === 4) currStep = 2;
+        else if (step === 5) currStep = 3;
+
+        if (currStep !== -1) {
+          const targetCurrX = currCoords[currStep];
+          cPack.setAttribute('cx', targetCurrX);
+          document.getElementById('currActivePath').setAttribute('d', `M 70 52 L ${targetCurrX} 52`);
+
+          const cnode = document.getElementById('cnode-' + (currStep + 1));
+          if (cnode) {
+            cnode.setAttribute('stroke', currNodeColors[currStep]);
+            cnode.setAttribute('fill', currNodeColors[currStep] + '50');
+          }
+
+          const cCard = document.getElementById('step-c-' + (currStep + 1));
+          if (cCard) cCard.classList.add('active-curr-card');
+        }
+
+        await new Promise(r => setTimeout(r, 650));
+      }
+
+      simLog.innerHTML = `Completed: <span class="text-emerald-400 font-bold">Agent Triad Resolved (Minutes)</span> vs <span class="text-rose-400 font-bold">Current Model stuck in support queue</span>`;
+
+      btn.disabled = false;
+      icon.className = 'fa-solid fa-rotate-right';
+      btnText.textContent = 'Re-run Simulation';
+      isRunning = false;
+    }
+  </script>
+</body>
+</html>
