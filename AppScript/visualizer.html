@@ -122,7 +122,7 @@
         </div>
       </div>
 
-      <div class="bg-slate-900/90 border border-slate-800 rounded-xl p-2.5 flex items-center gap-3">
+      <div class="bg-slate-900/90 border border-emerald-500/10 border border-emerald-500/20 flex items-center gap-3">
         <div class="w-9 h-9 rounded-lg bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center text-emerald-400 font-bold text-sm shrink-0">
           <i class="fa-solid fa-shield-check"></i>
         </div>
@@ -200,104 +200,128 @@
           <g id="svg-a1" transform="translate(70, 132)">
             <circle r="13" fill="#0f172a" stroke="#64748b" stroke-width="2" id="anode-1" />
             <text text-anchor="middle" dy="3.5" fill="#cbd5e1" font-size="8.5" font-weight="bold">1</text>
-            <text text-anchor="middle" y="20" fill="#94a3b8" font-size="7.5" font-weight="600">Alert Setup</text>
+            <text text-anchor="middle" y="20" fill="#94a3b8" font-size="7.5" font-weight="600">OTel Alert Setup</text>
           </g>
           <g id="svg-a2" transform="translate(266, 132)">
             <circle r="13" fill="#0f172a" stroke="#64748b" stroke-width="2" id="anode-2" />
             <text text-anchor="middle" dy="3.5" fill="#cbd5e1" font-size="8.5" font-weight="bold">2</text>
-            <text text-anchor="middle" y="20" fill="#94a3b8" font-size="7.5" font-weight="600">Watcher</text>
+            <text text-anchor="middle" y="20" fill="#94a3b8" font-size="7.5" font-weight="600">Edge Gateway</text>
           </g>
           <g id="svg-a3" transform="translate(462, 132)">
             <circle r="13" fill="#0f172a" stroke="#64748b" stroke-width="2" id="anode-3" />
             <text text-anchor="middle" dy="3.5" fill="#cbd5e1" font-size="8.5" font-weight="bold">3</text>
-            <text text-anchor="middle" y="20" fill="#94a3b8" font-size="7.5" font-weight="600">Troubleshooter</text>
+            <text text-anchor="middle" y="20" fill="#94a3b8" font-size="7.5" font-weight="600">Troubleshooting</text>
           </g>
           <g id="svg-a4" transform="translate(658, 132)">
             <circle r="13" fill="#0f172a" stroke="#64748b" stroke-width="2" id="anode-4" />
             <text text-anchor="middle" dy="3.5" fill="#cbd5e1" font-size="8.5" font-weight="bold">4</text>
-            <text text-anchor="middle" y="20" fill="#94a3b8" font-size="7.5" font-weight="600">Central Auth</text>
+            <text text-anchor="middle" y="20" fill="#94a3b8" font-size="7.5" font-weight="600">HITL Auth</text>
           </g>
           <g id="svg-a5" transform="translate(854, 132)">
             <circle r="13" fill="#0f172a" stroke="#64748b" stroke-width="2" id="anode-5" />
             <text text-anchor="middle" dy="3.5" fill="#cbd5e1" font-size="8.5" font-weight="bold">5</text>
-            <text text-anchor="middle" y="20" fill="#94a3b8" font-size="7.5" font-weight="600">Orchestrator</text>
+            <text text-anchor="middle" y="20" fill="#94a3b8" font-size="7.5" font-weight="600">GitOps Exec</text>
           </g>
           <g id="svg-a6" transform="translate(1050, 132)">
             <circle r="13" fill="#0f172a" stroke="#64748b" stroke-width="2" id="anode-6" />
             <text text-anchor="middle" dy="3.5" fill="#cbd5e1" font-size="8.5" font-weight="bold">6</text>
-            <text text-anchor="middle" y="20" fill="#94a3b8" font-size="7.5" font-weight="600">Validated</text>
+            <text text-anchor="middle" y="20" fill="#94a3b8" font-size="7.5" font-weight="600">Watchdog Loop</text>
           </g>
         </svg>
       </div>
     </div>
 
-    <!-- Side-by-Side Step Columns -->
-    <div class="grid grid-cols-1 md:grid-cols-2 gap-3 pb-2">
+    <!-- Three-Column Layout -->
+    <div class="grid grid-cols-1 lg:grid-cols-3 gap-3 pb-2">
       
-      <!-- Current Model Column -->
-      <div class="bg-slate-900/50 border border-rose-900/30 rounded-xl p-3.5 space-y-2.5">
-        <div class="flex items-center justify-between pb-2 border-b border-slate-800">
-          <div class="flex items-center gap-2">
-            <span class="w-2.5 h-2.5 rounded-full bg-rose-500"></span>
-            <h2 class="font-bold text-xs text-white uppercase tracking-wide">Current model</h2>
+      <!-- Column 1: Current Model -->
+      <div class="bg-slate-900/50 border border-rose-900/30 rounded-xl p-3 flex flex-col justify-between h-[360px]">
+        <div>
+          <div class="flex items-center justify-between pb-2 border-b border-slate-800">
+            <div class="flex items-center gap-2">
+              <span class="w-2.5 h-2.5 rounded-full bg-rose-500"></span>
+              <h2 class="font-bold text-xs text-white uppercase tracking-wide">Current model</h2>
+            </div>
+            <span class="text-[10px] font-mono text-rose-400">4 Steps (Manual)</span>
           </div>
-          <span class="text-[10px] font-mono text-rose-400">4 Steps (Manual)</span>
-        </div>
 
-        <div class="space-y-2 text-xs">
-          <div id="step-c-1" class="p-2 rounded-lg bg-slate-800/50 border border-slate-700/60 transition">
-            <div class="font-bold text-rose-400 text-[11px]">1. Failure Occurrence</div>
-            <div class="text-slate-300 text-[11px]">Service / product failed with the error.</div>
-          </div>
-          <div id="step-c-2" class="p-2 rounded-lg bg-slate-800/50 border border-slate-700/60 transition">
-            <div class="font-bold text-rose-400 text-[11px]">2. Self-Diagnosis & Remediation</div>
-            <div class="text-slate-300 text-[11px]">Manual self diagnosis & fix using Gemini Cloud Assist / Public documentation.</div>
-          </div>
-          <div id="step-c-3" class="p-2 rounded-lg bg-slate-800/50 border border-slate-700/60 transition">
-            <div class="font-bold text-rose-400 text-[11px]">3. Support Ticket Creation</div>
-            <div class="text-slate-300 text-[11px]">GCA helps User to raise support ticket.</div>
-          </div>
-          <div id="step-c-4" class="p-2 rounded-lg bg-slate-800/50 border border-slate-700/60 transition">
-            <div class="font-bold text-rose-400 text-[11px]">4. Support Team Resolution</div>
-            <div class="text-slate-300 text-[11px]">Support Team manual resolution (Timeline: 4h to 6 days).</div>
+          <div class="space-y-2 text-xs mt-3">
+            <div id="step-c-1" class="p-2 rounded-lg bg-slate-800/50 border border-slate-700/60 transition">
+              <div class="font-bold text-rose-400 text-[11px]">1. Failure Occurrence</div>
+              <div class="text-slate-300 text-[10.5px]">Service / product failed with the error.</div>
+            </div>
+            <div id="step-c-2" class="p-2 rounded-lg bg-slate-800/50 border border-slate-700/60 transition">
+              <div class="font-bold text-rose-400 text-[11px]">2. Self-Diagnosis &amp; Remediation</div>
+              <div class="text-slate-300 text-[10.5px]">Manual diagnosis &amp; fix attempts using documentation.</div>
+            </div>
+            <div id="step-c-3" class="p-2 rounded-lg bg-slate-800/50 border border-slate-700/60 transition">
+              <div class="font-bold text-rose-400 text-[11px]">3. Support Ticket Creation</div>
+              <div class="text-slate-300 text-[10.5px]">User manually opens a Support Ticket detailing the error.</div>
+            </div>
+            <div id="step-c-4" class="p-2 rounded-lg bg-slate-800/50 border border-slate-700/60 transition">
+              <div class="font-bold text-rose-400 text-[11px]">4. Support Team Resolution</div>
+              <div class="text-slate-300 text-[10.5px]">Support Team manual queue resolution (Timeline: 4h to 6 days).</div>
+            </div>
           </div>
         </div>
       </div>
 
-      <!-- Agent Triad Column -->
-      <div class="bg-slate-900/50 border border-emerald-900/30 rounded-xl p-3.5 space-y-2.5">
-        <div class="flex items-center justify-between pb-2 border-b border-slate-800">
-          <div class="flex items-center gap-2">
-            <span class="w-2.5 h-2.5 rounded-full bg-emerald-500"></span>
-            <h2 class="font-bold text-xs text-white uppercase tracking-wide">Agent Triad ( AaaS ) Multi Agent</h2>
+      <!-- Column 2: Agent Triad Steps (All boxes exactly symmetrical 300px width/190px height scaled inside flex) -->
+      <div class="bg-slate-900/50 border border-emerald-900/30 rounded-xl p-3 flex flex-col justify-between h-[360px]">
+        <div>
+          <div class="flex items-center justify-between pb-2 border-b border-slate-800">
+            <div class="flex items-center gap-2">
+              <span class="w-2.5 h-2.5 rounded-full bg-emerald-500"></span>
+              <h2 class="font-bold text-xs text-white uppercase tracking-wide">Agent Triad ( AaaS ) Multi Agent</h2>
+            </div>
+            <span class="text-[10px] font-mono text-emerald-400">6 Steps (Autonomous)</span>
           </div>
-          <span class="text-[10px] font-mono text-emerald-400">6 Steps (Autonomous)</span>
+
+          <div class="space-y-1.5 text-xs mt-2 overflow-y-auto max-h-[300px] pr-1">
+            <div id="step-a-1" class="p-1.5 rounded-lg bg-slate-800/50 border border-slate-700/60 transition">
+              <div class="font-bold text-emerald-400 text-[10.5px]">1. Hybrid Alerting &amp; OTel Collectors</div>
+              <div class="text-slate-300 text-[10px]">OpenTelemetry hybrid collectors baseline all metrics.</div>
+            </div>
+            <div id="step-a-2" class="p-1.5 rounded-lg bg-slate-800/50 border border-slate-700/60 transition">
+              <div class="font-bold text-emerald-400 text-[10.5px]">2. Frontline Watcher Gateway</div>
+              <div class="text-slate-300 text-[10px]">Edge Pre-Filtering Gateway suppresses noise, alerting Watcher.</div>
+            </div>
+            <div id="step-a-3" class="p-1.5 rounded-lg bg-slate-800/50 border border-slate-700/60 transition">
+              <div class="font-bold text-emerald-400 text-[10.5px]">3. Troubleshooting Agent (Reasoning)</div>
+              <div class="text-slate-300 text-[10px]">Performs Gemini reasoning &amp; generates dry-run execution plan.</div>
+            </div>
+            <div id="step-a-4" class="p-1.5 rounded-lg bg-slate-800/50 border border-slate-700/60 transition">
+              <div class="font-bold text-emerald-400 text-[10.5px]">4. Central HITL Authorization Gating</div>
+              <div class="text-slate-300 text-[10px]">User approves proposed plan via central Dashboard with 15-min token.</div>
+            </div>
+            <div id="step-a-5" class="p-1.5 rounded-lg bg-slate-800/50 border border-slate-700/60 transition">
+              <div class="font-bold text-emerald-400 text-[10.5px]">5. GitOps Execution Orchestrator</div>
+              <div class="text-slate-300 text-[10px]">Mints JIT token, locks state, applies sandbox dry-runs &amp; canary rollouts.</div>
+            </div>
+            <div id="step-a-6" class="p-1.5 rounded-lg bg-slate-800/50 border border-slate-700/60 transition">
+              <div class="font-bold text-emerald-400 text-[10.5px]">6. Watchdog Post-Verification</div>
+              <div class="text-slate-300 text-[10px]">Closed-loop Telemetry Watchdog monitors stability or auto-reverts.</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Column 3: Central UI Dashboard Simulator -->
+      <div class="bg-slate-900/60 border border-indigo-900/30 rounded-xl p-3 flex flex-col justify-between h-[360px]">
+        <div class="flex items-center justify-between pb-2 border-b border-slate-800 shrink-0">
+          <div class="flex items-center gap-2">
+            <span class="w-2 h-2 rounded-full bg-indigo-500 animate-pulse"></span>
+            <h2 class="font-bold text-xs text-white uppercase tracking-wide">AaaS UI Dashboard Live Mock</h2>
+          </div>
+          <span id="jitTokenTimer" class="text-[10px] font-mono text-indigo-400 font-bold hidden"><i class="fa-solid fa-clock"></i> JIT: 15:00</span>
         </div>
 
-        <div class="space-y-1.5 text-xs">
-          <div id="step-a-1" class="p-1.5 rounded-lg bg-slate-800/50 border border-slate-700/60 transition">
-            <div class="font-bold text-emerald-400 text-[11px]">1. Alert Setup</div>
-            <div class="text-slate-300 text-[10.5px]">Agent helps setup cloud alerting policy for all deployed services.</div>
-          </div>
-          <div id="step-a-2" class="p-1.5 rounded-lg bg-slate-800/50 border border-slate-700/60 transition">
-            <div class="font-bold text-emerald-400 text-[11px]">2. Frontline Watcher (Perception)</div>
-            <div class="text-slate-300 text-[10.5px]">Policy triggers the Front line Watcher Agent upon breach detection.</div>
-          </div>
-          <div id="step-a-3" class="p-1.5 rounded-lg bg-slate-800/50 border border-slate-700/60 transition">
-            <div class="font-bold text-emerald-400 text-[11px]">3. Troubleshooting Agent (Reasoning)</div>
-            <div class="text-slate-300 text-[10.5px]">Details sent to Troubleshooting Agent for RCA and next steps.</div>
-          </div>
-          <div id="step-a-4" class="p-1.5 rounded-lg bg-slate-800/50 border border-slate-700/60 transition">
-            <div class="font-bold text-emerald-400 text-[11px]">4. AaaS Central Authorization</div>
-            <div class="text-slate-300 text-[10.5px]">User sees RCA, next steps & authorization in central dashboard.</div>
-          </div>
-          <div id="step-a-5" class="p-1.5 rounded-lg bg-slate-800/50 border border-slate-700/60 transition">
-            <div class="font-bold text-emerald-400 text-[11px]">5. Execution Orchestrator</div>
-            <div class="text-slate-300 text-[10.5px]">Orchestrator receives token, performs task and reports status back.</div>
-          </div>
-          <div id="step-a-6" class="p-1.5 rounded-lg bg-slate-800/50 border border-slate-700/60 transition">
-            <div class="font-bold text-emerald-400 text-[11px]">6. Validation & Confirmation</div>
-            <div class="text-slate-300 text-[10.5px]">Frontline watcher validates against alerts and confirms to user.</div>
+        <!-- Simulated UI Screen content (Interactive and reactive) -->
+        <div id="dbContent" class="flex-grow flex flex-col justify-center items-center text-center p-3 overflow-y-auto">
+          <div class="space-y-2">
+            <div class="text-3xl text-slate-700"><i class="fa-solid fa-server"></i></div>
+            <div class="text-xs font-semibold text-slate-300">Dashboard Standby</div>
+            <p class="text-[10.5px] text-slate-400 max-w-[210px] leading-relaxed">Click "Run Simulation" above to observe live telemetry signals and click interactive approvals.</p>
           </div>
         </div>
       </div>
@@ -319,40 +343,40 @@
         </thead>
         <tbody class="divide-y divide-slate-800/60 text-slate-300">
           <tr>
-            <td class="p-3 font-semibold text-slate-200">Alert Coverage & Intercept</td>
+            <td class="p-3 font-semibold text-slate-200">Alert Coverage &amp; Intercept</td>
             <td class="p-3">Service/product fails before user notices or acts</td>
-            <td class="p-3 font-medium text-emerald-400">Agent assists in pre-configuring alerts & Frontline Watcher perceives breach immediately</td>
-            <td class="p-3 text-slate-400">Standardized 100% cloud monitoring coverage</td>
+            <td class="p-3 font-medium text-emerald-400">Standardized baseline OpenTelemetry collectors; Edge Gateway suppresses routine noise and alerts Watcher</td>
+            <td class="p-3 text-slate-400">100% cloud telemetry coverage, 80% noise filtering</td>
           </tr>
           <tr>
             <td class="p-3 font-semibold text-slate-200">Root Cause Analysis (RCA)</td>
-            <td class="p-3">Manual diagnosis via Gemini Cloud Assist or public docs</td>
-            <td class="p-3 font-medium text-emerald-400">Automated by Troubleshooting (Reasoning) Agent with actionable next steps</td>
-            <td class="p-3 text-slate-400">Eliminates manual trial-and-error analysis</td>
+            <td class="p-3">Manual diagnosis via console logs or documentation</td>
+            <td class="p-3 font-medium text-emerald-400">Troubleshooting (Reasoning) Agent calculates root cause &amp; compiles dry-run patches</td>
+            <td class="p-3 text-slate-400">Eliminates slow, prone-to-error manual RCA</td>
           </tr>
           <tr>
-            <td class="p-3 font-semibold text-slate-200">Visibility & Authorization</td>
+            <td class="p-3 font-semibold text-slate-200">Visibility &amp; Authorization</td>
             <td class="p-3">Ad-hoc support ticket drafting and escalation queue waiting</td>
-            <td class="p-3 font-medium text-emerald-400">Centralized AaaS Dashboard with transparent RCA & authorization control</td>
-            <td class="p-3 text-slate-400">Human-in-the-loop governance with single-click approval</td>
+            <td class="p-3 font-medium text-emerald-400">Unified AaaS Dashboard with transparent proposals and human authorization gate</td>
+            <td class="p-3 text-slate-400">Human-in-the-loop safety with single-click approval</td>
           </tr>
           <tr>
-            <td class="p-3 font-semibold text-slate-200">Execution & Remediation</td>
-            <td class="p-3">Support Team manual resolution (4h to 6 days timeline)</td>
-            <td class="p-3 font-medium text-emerald-400">Execution Orchestrator receives token, applies fix, and updates Frontline Watcher</td>
-            <td class="p-3 text-slate-400">Bypasses multi-hour/multi-day support ticket backlogs</td>
+            <td class="p-3 font-semibold text-slate-200">Execution &amp; Remediation</td>
+            <td class="p-3">Support Team manual queue resolution (4h to 6 days timeline)</td>
+            <td class="p-3 font-medium text-emerald-400">Orchestrator applies GitOps PR dry-runs, locks remote state, and progresses canary rollout</td>
+            <td class="p-3 text-slate-400">Eliminates support queue delays; executes in minutes</td>
           </tr>
           <tr>
             <td class="p-3 font-semibold text-slate-200">Post-Fix Verification</td>
             <td class="p-3">Manual verification by end user or support rep</td>
-            <td class="p-3 font-medium text-emerald-400">Frontline Watcher validates against cloud metrics & confirms clean state to user</td>
-            <td class="p-3 text-slate-400">Closed-loop verification guarantees issue resolution</td>
+            <td class="p-3 font-medium text-emerald-400">Telemetry Watchdog monitors observation window; triggers BRC-ARE auto-rollback on regression</td>
+            <td class="p-3 text-slate-400">Guarantees fail-safe closed-loop reliability</td>
           </tr>
           <tr>
             <td class="p-3 font-semibold text-slate-200">Total Resolution Time</td>
             <td class="p-3 text-rose-400 font-medium">4 Hours to 6 Days</td>
             <td class="p-3 text-emerald-400 font-bold">Minutes</td>
-            <td class="p-3 text-slate-400">Dramatic reduction in service downtime</td>
+            <td class="p-3 text-slate-400">Downtime-induced revenue losses slashed by ~90%</td>
           </tr>
         </tbody>
       </table>
@@ -367,6 +391,8 @@
     const agentNodeColors = ['#10b981', '#0d9488', '#10b981', '#06b6d4', '#3b82f6', '#10b981'];
 
     let isRunning = false;
+    let countdownInterval = null;
+    let resolveHITL = null;
 
     function switchTab(tab) {
       const pView = document.getElementById('pipelineView');
@@ -388,6 +414,11 @@
     }
 
     function resetPipeline() {
+      if (countdownInterval) {
+        clearInterval(countdownInterval);
+        countdownInterval = null;
+      }
+
       for (let i = 1; i <= 4; i++) {
         const node = document.getElementById('cnode-' + i);
         if (node) {
@@ -413,6 +444,41 @@
 
       document.getElementById('currPacket').setAttribute('class', 'glow-rose opacity-0');
       document.getElementById('agentPacket').setAttribute('class', 'glow-emerald opacity-0');
+
+      document.getElementById('jitTokenTimer').classList.add('hidden');
+      document.getElementById('dbContent').innerHTML = `
+        <div class="space-y-2">
+          <div class="text-3xl text-slate-700"><i class="fa-solid fa-server"></i></div>
+          <div class="text-xs font-semibold text-slate-300">Dashboard Standby</div>
+          <p class="text-[10.5px] text-slate-400 max-w-[210px] leading-relaxed">Click "Run Simulation" above to observe live telemetry signals and click interactive approvals.</p>
+        </div>
+      `;
+    }
+
+    function approveHITLFix() {
+      if (resolveHITL) {
+        resolveHITL();
+        resolveHITL = null;
+      }
+    }
+
+    function startCountdown() {
+      let seconds = 900; // 15 mins
+      const timerEl = document.getElementById('jitTokenTimer');
+      timerEl.classList.remove('hidden');
+      timerEl.className = 'text-[10px] font-mono text-rose-400 font-bold animate-pulse';
+
+      countdownInterval = setInterval(() => {
+        seconds--;
+        if (seconds <= 0) {
+          clearInterval(countdownInterval);
+          timerEl.textContent = "Token Expired";
+          return;
+        }
+        const m = Math.floor(seconds / 60);
+        const s = seconds % 60;
+        timerEl.innerHTML = `<i class="fa-solid fa-clock"></i> JIT: ${m}:${s < 10 ? '0' : ''}${s}`;
+      }, 1000);
     }
 
     async function startLiveSimulation() {
@@ -426,6 +492,7 @@
       const btnText = document.getElementById('simBtnText');
       const icon = document.getElementById('simIcon');
       const simLog = document.getElementById('simLog');
+      const dbContent = document.getElementById('dbContent');
 
       btn.disabled = true;
       icon.className = 'fa-solid fa-spinner fa-spin';
@@ -439,12 +506,12 @@
       aPack.setAttribute('class', 'glow-emerald opacity-100');
 
       const agentLogs = [
-        "1/6 Agent baseline monitoring policy initialized",
-        "2/6 Alert policy breached -> Frontline Watcher intercepts",
-        "3/6 Reasoning Agent computes Root Cause Analysis (RCA)",
-        "4/6 AaaS Central Dashboard -> 1-Click User Auth granted",
-        "5/6 Execution Orchestrator applies automated remediation",
-        "6/6 Frontline Watcher confirms clean state -> Done in Minutes!"
+        "1/6 Hybrid OpenTelemetry collectors initializing stream baseline.",
+        "2/6 Edge pre-filtering gateway detects CPU breach, alerting Frontline Watcher.",
+        "3/6 Troubleshooting Agent generated dry-run patch with Gemini Pro Reasoning.",
+        "4/6 HITL Approval Required: Secure token requested in central UI.",
+        "5/6 Token received! Execution Orchestrator running sandboxed PR rollout.",
+        "6/6 Post-Verification Watchdog confirms GKE metrics STABLE. Loop closed!"
       ];
 
       for (let step = 0; step < 6; step++) {
@@ -462,6 +529,109 @@
         if (aCard) aCard.classList.add('active-agent-card');
 
         simLog.innerHTML = `Triad: <span class="text-emerald-400 font-bold">${agentLogs[step]}</span>`;
+
+        // Update Dashboard Live Mock based on step
+        if (step === 0) {
+          dbContent.innerHTML = `
+            <div class="space-y-3 w-full text-left">
+              <div class="text-[10px] font-mono text-slate-400 uppercase tracking-widest border-b border-slate-800 pb-1 flex justify-between items-center">
+                <span>OTel collectors</span>
+                <span class="text-emerald-400 animate-pulse"><i class="fa-solid fa-circle"></i> CONNECTED</span>
+              </div>
+              <div class="space-y-1 font-mono text-[10px] text-slate-300">
+                <div class="text-emerald-400">>> Ingesting metrics from gke_us_central...</div>
+                <div>>> Baseline latency profile matches expected DORA standard.</div>
+                <div>>> Ingestion rate: 4,500 logs/sec (99% suppression candidate)</div>
+              </div>
+            </div>
+          `;
+        } else if (step === 1) {
+          dbContent.innerHTML = `
+            <div class="space-y-3 w-full text-left">
+              <div class="text-[10px] font-mono text-rose-400 uppercase tracking-widest border-b border-slate-800 pb-1 flex justify-between items-center animate-pulse">
+                <span>Edge gateway alert</span>
+                <span><i class="fa-solid fa-triangle-excursion"></i> HEURISTIC BREACH</span>
+              </div>
+              <p class="text-[11px] text-rose-300 leading-normal font-semibold">Spike detected: Pod gke-web-v2 CPU threshold &gt; 95% for 45s.</p>
+              <div class="p-1.5 rounded bg-rose-500/10 border border-rose-500/20 text-[9px] font-mono text-rose-400">
+                Suppressed 14,352 baseline logs at edge. Dispatched anomaly telemetry delta to Frontline Watcher.
+              </div>
+            </div>
+          `;
+        } else if (step === 2) {
+          dbContent.innerHTML = `
+            <div class="space-y-3 w-full text-left">
+              <div class="text-[10px] font-mono text-amber-400 uppercase tracking-widest border-b border-slate-800 pb-1 flex justify-between items-center">
+                <span>Reasoning Agent core</span>
+                <span class="animate-spin"><i class="fa-solid fa-circle-notch"></i> Computing</span>
+              </div>
+              <div class="space-y-1 font-mono text-[9px] text-slate-300">
+                <div>[RCA] High thread contention in JVM pool (Pid 40)</div>
+                <div>[RCA] Recommendation: Auto-scale replica_count to 6</div>
+                <div class="text-amber-400 animate-pulse">[OPA] Formulating dry-run terraform patch...</div>
+              </div>
+            </div>
+          `;
+        } else if (step === 3) {
+          startCountdown();
+          dbContent.innerHTML = `
+            <div class="space-y-2 w-full text-center">
+              <div class="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[9px] font-semibold bg-rose-500/10 text-rose-400 border border-rose-500/20 mb-1 animate-pulse">
+                <i class="fa-solid fa-shield-halved"></i> HITL SECURITY GATE
+              </div>
+              <div class="text-xs font-extrabold text-white leading-tight">Scale Replica Count to 6?</div>
+              <p class="text-[10px] text-slate-400 max-w-[240px] mx-auto leading-relaxed">Troubleshooting Agent generated 1-click execution plan. Click below to grant JIT token.</p>
+              
+              <button onclick="approveHITLFix()" class="mt-2 w-full bg-gradient-to-r from-emerald-600 to-teal-500 hover:from-emerald-500 hover:to-teal-400 text-white font-bold py-2 rounded-lg text-xs shadow-lg transition transform hover:scale-[1.02] cursor-pointer animate-bounce">
+                <i class="fa-solid fa-signature mr-1.5"></i> APPROVE WORKLOAD MUTATION
+              </button>
+            </div>
+          `;
+
+          // Wait for interactive approval (manual click) with an auto-click fallback after 4 seconds
+          await new Promise(resolve => {
+            resolveHITL = resolve;
+            setTimeout(() => {
+              if (resolveHITL === resolve) {
+                approveHITLFix();
+              }
+            }, 4000);
+          });
+
+          // Speed up timer count to simulate safe runtime completion
+          clearInterval(countdownInterval);
+          document.getElementById('jitTokenTimer').className = 'text-[10px] font-mono text-emerald-400 font-bold';
+        } else if (step === 4) {
+          dbContent.innerHTML = `
+            <div class="space-y-3 w-full text-left font-mono text-[9px]">
+              <div class="text-[10px] font-mono text-indigo-400 uppercase tracking-widest border-b border-slate-800 pb-1 flex justify-between items-center">
+                <span>Executioner logs</span>
+                <span class="text-indigo-400 animate-pulse">ACTIVE</span>
+              </div>
+              <div class="space-y-1 text-slate-300">
+                <div class="text-emerald-400">&gt; OIDC Workload Identity Federated. Token Minted.</div>
+                <div>&gt; [GitOps] Sandbox branch PR-147 opened.</div>
+                <div class="text-emerald-400">&gt; [OPA] Parameter sanity screening: SUCCESS.</div>
+                <div>&gt; [Terraform] Remote state lock acquired. applying...</div>
+                <div class="text-indigo-400">&gt; Progress: [====================] 100% (Canary rollout safe)</div>
+              </div>
+            </div>
+          `;
+        } else if (step === 5) {
+          document.getElementById('jitTokenTimer').className = 'text-[10px] font-mono text-slate-500 font-bold line-through';
+          document.getElementById('jitTokenTimer').innerHTML = `<i class="fa-solid fa-lock"></i> Token Expired`;
+          dbContent.innerHTML = `
+            <div class="space-y-2 w-full text-center">
+              <div class="text-3xl text-emerald-400 animate-bounce"><i class="fa-solid fa-circle-check"></i></div>
+              <div class="text-xs font-bold text-white">System Fully Stabilized</div>
+              <p class="text-[10px] text-slate-400 max-w-[230px] mx-auto leading-relaxed">Watcher verified telemetry latencies. Zero-standing privileges restored. Total Time: 3.4 mins</p>
+              <div class="inline-flex gap-2 justify-center pt-1.5">
+                <span class="px-2 py-0.5 rounded bg-emerald-500/10 border border-emerald-500/20 text-[9px] text-emerald-400">SLAs Metric: PASS</span>
+                <span class="px-2 py-0.5 rounded bg-indigo-500/10 border border-indigo-500/20 text-[9px] text-indigo-400">RCA Logged: #4721</span>
+              </div>
+            </div>
+          `;
+        }
 
         let currStep = -1;
         if (step === 0) currStep = 0;
@@ -484,7 +654,7 @@
           if (cCard) cCard.classList.add('active-curr-card');
         }
 
-        await new Promise(r => setTimeout(r, 650));
+        await new Promise(r => setTimeout(r, 900));
       }
 
       simLog.innerHTML = `Completed: <span class="text-emerald-400 font-bold">Agent Triad Resolved (Minutes)</span> vs <span class="text-rose-400 font-bold">Current Model stuck in support queue</span>`;
