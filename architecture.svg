@@ -66,20 +66,20 @@
 
   <!-- Connecting Lines (Symmetric Flow Paths) -->
   <!-- 1. Ingestion -->
-  <path d="M 255 660 L 255 640" class="line" marker-end="url(#arrow)" />
-  <path d="M 255 440 L 255 385 L 640 385 L 640 330" class="line" marker-end="url(#arrow)" />
+  <path d="M 250 680 L 250 635" class="line" marker-end="url(#arrow)" />
+  <path d="M 250 470 L 250 405 L 640 405 L 640 320" class="line" marker-end="url(#arrow)" />
   
   <!-- 2 and 3. Reasoning and HITL -->
-  <path d="M 590 170 L 410 170" class="line" marker-end="url(#arrow)" />
-  <path d="M 410 230 L 590 230" class="line" marker-end="url(#arrow)" />
+  <path d="M 600 170 L 400 170" class="line" marker-end="url(#arrow)" />
+  <path d="M 400 230 L 600 230" class="line" marker-end="url(#arrow)" />
   
   <!-- 4. Execution -->
-  <path d="M 850 330 L 850 440" class="line" marker-end="url(#arrow)" />
-  <path d="M 850 640 L 850 660" class="line" marker-end="url(#arrow)" />
+  <path d="M 860 320 L 860 470" class="line" marker-end="url(#arrow)" />
+  <path d="M 860 635 L 860 680" class="line" marker-end="url(#arrow)" />
 
   <!-- Boxes -->
   <!-- UI Dashboard -->
-  <rect x="100" y="110" width="310" height="220" class="box" />
+  <rect x="100" y="110" width="300" height="210" class="box" />
   <text x="120" y="135" class="box-title">Multi-Tenant UI Dashboard</text>
   <text x="120" y="158" class="box-text">• Incident Triage View &amp;</text>
   <text x="132" y="174" class="box-text">Live Topology Map</text>
@@ -89,7 +89,7 @@
   <text x="132" y="252" class="box-text">Approves Scope &amp; JIT minting</text>
 
   <!-- ADK Core -->
-  <rect x="590" y="110" width="310" height="220" class="box" />
+  <rect x="600" y="110" width="300" height="210" class="box" />
   <text x="610" y="135" class="box-title">ADK Multi-Agent Core (Agent Triad)</text>
   <text x="610" y="158" class="box-text">• Frontline Watcher:</text>
   <text x="622" y="174" class="box-text">Perception &amp; Edge Noise Filtering</text>
@@ -102,32 +102,31 @@
   <text x="622" y="307" class="box-text">Assisted Application PRs</text>
 
   <!-- Telemetry -->
-  <rect x="100" y="440" width="310" height="200" class="box" />
-  <text x="120" y="465" class="box-title">Telemetry &amp; Observation Layer</text>
-  <text x="120" y="490" class="box-text">• Edge Heuristic</text>
-  <text x="132" y="506" class="box-text">Pre-Filtering Gateway</text>
-  <text x="120" y="529" class="box-text">• OpenTelemetry hybrid collectors</text>
-  <text x="120" y="552" class="box-text">• Cloud Monitoring Alert</text>
-  <text x="132" y="568" class="box-text">Policies &amp; Metric Streams</text>
+  <rect x="100" y="470" width="300" height="165" class="box" />
+  <text x="120" y="495" class="box-title">Telemetry &amp; Observation Layer</text>
+  <text x="120" y="520" class="box-text">• Edge Heuristic</text>
+  <text x="132" y="536" class="box-text">Pre-Filtering Gateway</text>
+  <text x="120" y="559" class="box-text">• OpenTelemetry hybrid collectors</text>
+  <text x="120" y="582" class="box-text">• Cloud Monitoring Alert</text>
+  <text x="132" y="598" class="box-text">Policies &amp; Metric Streams</text>
 
   <!-- Remediation Layer -->
-  <rect x="590" y="440" width="310" height="200" class="box" />
-  <text x="610" y="465" class="box-title">Remediation &amp; Safety Layer</text>
-  <text x="610" y="490" class="box-text">• Zero-standing privileges via</text>
-  <text x="622" y="506" class="box-text">WIF &amp; JIT Broker (15-min TTL)</text>
-  <text x="610" y="529" class="box-text">• Bidirectional GitOps</text>
-  <text x="622" y="545" class="box-text">reconciliation, PR dry-runs</text>
-  <text x="622" y="561" class="box-text">&amp; remote state locks</text>
-  <text x="610" y="584" class="box-text">• BRC-ARE snapshotting,</text>
-  <text x="622" y="600" class="box-text">canary rollouts, &amp; Telemetry</text>
-  <text x="622" y="616" class="box-text">Watchdog auto-rollback</text>
+  <rect x="600" y="470" width="300" height="165" class="box" />
+  <text x="610" y="495" class="box-title">Remediation &amp; Safety Layer</text>
+  <text x="610" y="520" class="box-text">• Zero-standing privileges via</text>
+  <text x="622" y="536" class="box-text">WIF &amp; JIT Broker (15-min TTL)</text>
+  <text x="610" y="559" class="box-text">• Bidirectional GitOps</text>
+  <text x="622" y="575" class="box-text">reconciliation, PR dry-runs</text>
+  <text x="622" y="591" class="box-text">&amp; remote state locks</text>
+  <text x="610" y="614" class="box-text">• Canary rollouts &amp; Telemetry</text>
+  <text x="622" y="630" class="box-text">Watchdog auto-rollback</text>
 
   <!-- Target Resources -->
-  <rect x="100" y="660" width="800" height="36" class="box" fill="var(--target-rect-fill)" stroke="var(--box-stroke)" />
-  <text x="500" y="682" class="box-title" text-anchor="middle" fill="var(--box-title-fill)">Customer Workload Resources: GKE Clusters • Compute Engine VMs • Cloud SQL Databases • Cloud Storage Buckets • Cloud Spanner</text>
+  <rect x="100" y="680" width="800" height="36" class="box" fill="var(--target-rect-fill)" stroke="var(--box-stroke)" />
+  <text x="500" y="702" class="box-title" text-anchor="middle" fill="var(--box-title-fill)">GCP Resources ( GKE, Compute, Storage, Vertex AI )</text>
 
   <!-- Labels -->
-  <text x="255" y="425" class="label" text-anchor="middle">1. INGESTION &amp; DETECTION (Telemetry Streaming)</text>
+  <text x="250" y="450" class="label" text-anchor="middle">1. INGESTION &amp; DETECTION (Telemetry Streaming)</text>
   
   <text x="500" y="145" class="label" text-anchor="middle">2. REASONING</text>
   <text x="500" y="225" class="label" text-anchor="middle">3. HITL APPROVAL</text>
@@ -139,14 +138,14 @@
   <text x="745" y="390" class="sub-label" text-anchor="middle">(OIDC via WIF + JIT SA Token) ↓</text>
 
   <!-- Post-Verification Loop Label -->
-  <text x="500" y="650" class="label" text-anchor="middle">5. POST-VERIFICATION WATCHDOG LOOP (Zero-Trust Feedback)</text>
+  <text x="500" y="660" class="label" text-anchor="middle">5. POST-VERIFICATION WATCHDOG LOOP (Zero-Trust Feedback)</text>
 
   <!-- Animated Active Pipeline Dots -->
   <circle r="3" class="anim-dot">
-    <animateMotion dur="3s" repeatCount="indefinite" path="M 255 660 L 255 640" />
+    <animateMotion dur="3s" repeatCount="indefinite" path="M 250 680 L 250 635" />
   </circle>
   <circle r="3" class="anim-dot">
-    <animateMotion dur="5s" repeatCount="indefinite" path="M 255 440 L 255 385 L 640 385 L 640 330" />
+    <animateMotion dur="5s" repeatCount="indefinite" path="M 250 470 L 250 405 L 640 405 L 640 320" />
   </circle>
   <circle r="3" class="anim-dot">
     <animateMotion dur="3s" repeatCount="indefinite" path="M 590 170 L 410 170" />
@@ -155,9 +154,9 @@
     <animateMotion dur="3s" repeatCount="indefinite" path="M 410 230 L 590 230" />
   </circle>
   <circle r="3" class="anim-dot">
-    <animateMotion dur="4s" repeatCount="indefinite" path="M 850 330 L 850 440" />
+    <animateMotion dur="4s" repeatCount="indefinite" path="M 860 320 L 860 470" />
   </circle>
   <circle r="3" class="anim-dot">
-    <animateMotion dur="3s" repeatCount="indefinite" path="M 850 660 L 850 670" />
+    <animateMotion dur="3s" repeatCount="indefinite" path="M 860 635 L 860 680" />
   </circle>
 </svg>
