@@ -10,33 +10,39 @@ Agent-Triad is an autonomous, outcome-driven cloud support and operations platfo
 
 The architecture enforces a strict decoupling between the **Central SaaS Control Plane** (multi-tenant orchestration, model inference, and customer dashboard) and the **Customer Data Plane** (localized telemetry ingestion and isolated execution endpoints).
 
-+-----------------------------------------------------------------------------------------------------+
-|                                    CENTRAL SAAS CONTROL PLANE                                       |
-|                                                                                                     |
-|  +---------------------------+        +---------------------------------------------------------+   |
-|  | Multi-Tenant UI Dashboard |        |                 ADK Multi-Agent Core                     |  |
-|  | - Incident Triage View    | <====> | - Frontline Watcher (Perception / Validation Coordinator)|  |
-|  | - RCA / Proposed Fix      | (A2A)  | - Troubleshooting Agent (Reasoning / Action Generator)   |  |
-|  | - HITL Authorization Gate |        | - Execution Orchestrator (Token Minting & Dispatch)      |  |
-|  +---------------------------+        +---------------------------------------------------------+   |
-+---------------------------------------------│-------------------------------------------------------+
-│ (Workload Identity Federation / OIDC)
-▼
-+-----------------------------------------------------------------------------------------------------+
-|                                   CUSTOMER GCP DATA PLANE (TENANT)                                  |
-|                                                                                                     |
-|  +-------------------------------------+             +------------------------------------------+   |
-|  |      Telemetry & Observation        |             |            Remediation Layer             |   |
-|  | - Cloud Logging Log Sinks           |             | - Executioner Webhook (Cloud Run)        |   |
-|  | - Cloud Monitoring Alerting         |             | - Parameter Validator & Sanitizer Engine |   |
-|  | - Read-Only SA (roles/logging.viewer|             | - Least-Privilege IAM SA                 |   | 
-|  |   & roles/monitoring.viewer)        |             |   (e.g., roles/compute.instanceAdmin)    |   |
-|  +-------------------------------------+             +------------------------------------------+   |
-|                     │                                                     ▲                         |
-|                     ▼                                                     │                         |
-|        [ GKE / Compute Engine / Cloud SQL / Cloud Storage Resources Under Management ]              |
-+-----------------------------------------------------------------------------------------------------+
-
++---------------------------------------------------------------------------------------------------------------+
+|                                      GCP CENTRAL SAAS CONTROL PLANE                                           |
+|                                                                                                               |
+|   +---------------------------------------+       2. REASONING (A2A Protocol)      +----------------------+   |
+|   |       Multi-Tenant UI Dashboard       |<-------------------------------------->|  ADK Multi-Agent     |   |
+|   |  * Incident Triage View               |                                        |  Core (Triad)        |   |
+|   |  * RCA / Proposed Fix                 |         3. HITL APPROVAL               |  * Frontline Watcher |   |
+|   |  * HITL Authorization Gate            |--------------------------------------->|  * Reasoning Agent   |   |
+|   |    (Approves Scope & JIT minting)     |                                        |  * Exec Orchestrator |   |
+|   +---------------------------------------+                                        +----------+-----------+   |
+|                                                                                               |               |
+|                                                                                    4. CONTROLLED EXECUTION    |
+|                                                                                    (OIDC via WIF + JIT Token) |
++-----------------------------------------------------------------------------------------------|---------------+
+                                                ^                                               |
+                                                | 1. INGESTION & DETECTION                      |
++-----------------------------------------------|-----------------------------------------------|---------------+
+|                                               |                                               v               |
+|   +---------------------------------------+   |                                    +----------------------+   |
+|   |        Telemetry & Observation        |---+                                    |   Remediation Layer  |   |
+|   |  * Cloud Logging Sinks (Edge Filter)  |                                        |  * Cloud Run Webhook |   |
+|   |  * Cloud Monitoring Alerting          |                                        |  * OPA / Sanitizer   |   |
+|   |  * Read-Only Service Account          |                                        |  * Ephemeral JIT SA  |   |
+|   +---------------------------------------+                                        +----------+-----------+   |
+|                       ^                                                                       |               |
+|                       |                                                                       |               |
+|                       +-------------------- 5. POST-VERIFICATION (Loop) ----------------------+               |
+|                                                                                                               |
+|   +-------------------------------------------------------------------------------------------------------+   |
+|   |                   GCP Resources (GKE / Compute Engine / Cloud SQL / Cloud Storage)                    |   |
+|   +-------------------------------------------------------------------------------------------------------+   |
+|                                         CUSTOMER GCP DATA PLANE (TENANT)                                      |
++---------------------------------------------------------------------------------------------------------------+
 
 ---
 
