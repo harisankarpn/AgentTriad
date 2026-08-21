@@ -58,16 +58,16 @@
   </defs>
 
   <!-- Planes -->
-  <rect x="50" y="50" width="900" height="310" class="bg-panel" />
-  <text x="70" y="80" class="title">GCP CENTRAL SAAS CONTROL PLANE</text>
+  <rect x="50" y="50" width="900" height="280" class="bg-panel" />
+  <text x="70" y="80" class="title">GCP AaaS Control Plane</text>
 
-  <rect x="50" y="400" width="900" height="300" class="bg-panel" />
-  <text x="70" y="430" class="title">CUSTOMER GCP DATA PLANE (TENANT BOUNDARY)</text>
+  <rect x="50" y="440" width="900" height="290" class="bg-panel" />
+  <text x="70" y="470" class="title">CUSTOMER GCP DATA PLANE (TENANT BOUNDARY)</text>
 
   <!-- Connecting Lines (Symmetric Flow Paths) -->
   <!-- 1. Ingestion -->
-  <path d="M 250 680 L 250 635" class="line" marker-end="url(#arrow)" />
-  <path d="M 250 470 L 250 405 L 640 405 L 640 320" class="line" marker-end="url(#arrow)" />
+  <path d="M 250 670 L 250 635" class="line" marker-end="url(#arrow)" />
+  <path d="M 250 470 L 250 415 L 640 415 L 640 320" class="line" marker-end="url(#arrow)" />
   
   <!-- 2 and 3. Reasoning and HITL -->
   <path d="M 600 170 L 400 170" class="line" marker-end="url(#arrow)" />
@@ -75,7 +75,7 @@
   
   <!-- 4. Execution -->
   <path d="M 860 320 L 860 470" class="line" marker-end="url(#arrow)" />
-  <path d="M 860 635 L 860 680" class="line" marker-end="url(#arrow)" />
+  <path d="M 860 635 L 860 670" class="line" marker-end="url(#arrow)" />
 
   <!-- Boxes -->
   <!-- UI Dashboard -->
@@ -122,8 +122,8 @@
   <text x="622" y="630" class="box-text">Watchdog auto-rollback</text>
 
   <!-- Target Resources -->
-  <rect x="100" y="680" width="800" height="36" class="box" fill="var(--target-rect-fill)" stroke="var(--box-stroke)" />
-  <text x="500" y="702" class="box-title" text-anchor="middle" fill="var(--box-title-fill)">GCP Resources ( GKE, Compute, Storage, Vertex AI )</text>
+  <rect x="100" y="670" width="800" height="36" class="box" fill="var(--target-rect-fill)" stroke="var(--box-stroke)" />
+  <text x="500" y="692" class="box-title" text-anchor="middle" fill="var(--box-title-fill)">GCP Resources ( GKE, Compute, Storage, Vertex AI )</text>
 
   <!-- Labels -->
   <text x="250" y="450" class="label" text-anchor="middle">1. INGESTION &amp; DETECTION (Telemetry Streaming)</text>
@@ -133,19 +133,19 @@
   <text x="500" y="185" class="sub-label" text-anchor="middle">A2A Protocol</text>
 
   <!-- Execution Label Box/Pill -->
-  <rect x="595" y="355" width="300" height="45" rx="8" class="box" />
-  <text x="745" y="373" class="label" text-anchor="middle">4. CONTROLLED EXECUTION</text>
-  <text x="745" y="390" class="sub-label" text-anchor="middle">(OIDC via WIF + JIT SA Token) ↓</text>
+  <rect x="630" y="360" width="240" height="36" rx="8" class="box" />
+  <text x="750" y="375" class="label" text-anchor="middle" font-size="12px">4. CONTROLLED EXECUTION</text>
+  <text x="750" y="388" class="sub-label" text-anchor="middle" font-size="10.5px">(OIDC via WIF + JIT SA Token) ↓</text>
 
   <!-- Post-Verification Loop Label -->
-  <text x="500" y="660" class="label" text-anchor="middle">5. POST-VERIFICATION WATCHDOG LOOP (Zero-Trust Feedback)</text>
+  <text x="500" y="650" class="label" text-anchor="middle">5. POST-VERIFICATION WATCHDOG LOOP (Zero-Trust Feedback)</text>
 
   <!-- Animated Active Pipeline Dots -->
   <circle r="3" class="anim-dot">
-    <animateMotion dur="3s" repeatCount="indefinite" path="M 250 680 L 250 635" />
+    <animateMotion dur="3s" repeatCount="indefinite" path="M 250 670 L 250 635" />
   </circle>
   <circle r="3" class="anim-dot">
-    <animateMotion dur="5s" repeatCount="indefinite" path="M 250 470 L 250 405 L 640 405 L 640 320" />
+    <animateMotion dur="5s" repeatCount="indefinite" path="M 250 470 L 250 415 L 640 415 L 640 320" />
   </circle>
   <circle r="3" class="anim-dot">
     <animateMotion dur="3s" repeatCount="indefinite" path="M 590 170 L 410 170" />
@@ -157,6 +157,6 @@
     <animateMotion dur="4s" repeatCount="indefinite" path="M 860 320 L 860 470" />
   </circle>
   <circle r="3" class="anim-dot">
-    <animateMotion dur="3s" repeatCount="indefinite" path="M 860 635 L 860 680" />
+    <animateMotion dur="3s" repeatCount="indefinite" path="M 860 635 L 860 670" />
   </circle>
 </svg>
