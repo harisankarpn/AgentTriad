@@ -1,4 +1,4 @@
-<svg viewBox="0 0 1000 650" width="100%" height="100%" xmlns="http://www.w3.org/2000/svg">
+<svg viewBox="0 0 1000 700" width="100%" height="100%" xmlns="http://www.w3.org/2000/svg">
   <defs>
     <style>
       <![CDATA[
@@ -58,90 +58,94 @@
   </defs>
 
   <!-- Planes -->
-  <rect x="50" y="50" width="900" height="250" class="bg-panel" />
+  <rect x="50" y="50" width="900" height="270" class="bg-panel" />
   <text x="70" y="80" class="title">GCP CENTRAL SAAS CONTROL PLANE</text>
 
-  <rect x="50" y="350" width="900" height="260" class="bg-panel" />
-  <text x="70" y="380" class="title">CUSTOMER GCP DATA PLANE (TENANT BOUNDARY)</text>
+  <rect x="50" y="380" width="900" height="280" class="bg-panel" />
+  <text x="70" y="410" class="title">CUSTOMER GCP DATA PLANE (TENANT BOUNDARY)</text>
 
   <!-- Connecting Lines (Symmetric Flow Paths) -->
   <!-- 1. Ingestion -->
-  <path d="M 260 570 L 260 540" class="line" marker-end="url(#arrow)" />
-  <path d="M 260 410 L 260 330 L 640 330 L 640 260" class="line" marker-end="url(#arrow)" />
+  <path d="M 255 600 L 255 580" class="line" marker-end="url(#arrow)" />
+  <path d="M 255 420 L 255 350 L 640 350 L 640 290" class="line" marker-end="url(#arrow)" />
   
   <!-- 2 and 3. Reasoning and HITL -->
-  <path d="M 560 160 L 440 160" class="line" marker-end="url(#arrow)" />
-  <path d="M 440 200 L 560 200" class="line" marker-end="url(#arrow)" />
+  <path d="M 540 160 L 460 160" class="line" marker-end="url(#arrow)" />
+  <path d="M 460 200 L 540 200" class="line" marker-end="url(#arrow)" />
   
   <!-- 4. Execution -->
-  <path d="M 820 260 L 820 410" class="line" marker-end="url(#arrow)" />
-  <path d="M 820 540 L 820 570" class="line" marker-end="url(#arrow)" />
+  <path d="M 850 290 L 850 420" class="line" marker-end="url(#arrow)" />
+  <path d="M 850 580 L 850 600" class="line" marker-end="url(#arrow)" />
 
   <!-- Boxes -->
   <!-- UI Dashboard -->
-  <rect x="80" y="110" width="360" height="150" class="box" />
-  <text x="100" y="140" class="box-title">Multi-Tenant UI Dashboard</text>
-  <text x="100" y="165" class="box-text">• Incident Triage View &amp; Live Topology Map</text>
-  <text x="100" y="190" class="box-text">• RCA / Proposed Fix Verification Pane</text>
-  <text x="100" y="215" class="box-text">• HITL Authorization Gate: Approves Scope &amp; JIT minting</text>
+  <rect x="50" y="110" width="410" height="180" class="box" />
+  <text x="70" y="140" class="box-title">Multi-Tenant UI Dashboard</text>
+  <text x="70" y="165" class="box-text">• Incident Triage View &amp; Live Topology Map</text>
+  <text x="70" y="190" class="box-text">• RCA / Proposed Fix Verification Pane</text>
+  <text x="70" y="215" class="box-text">• HITL Authorization Gate: Approves Scope &amp; JIT minting</text>
 
   <!-- ADK Core -->
-  <rect x="560" y="110" width="360" height="150" class="box" />
-  <text x="580" y="140" class="box-title">ADK Multi-Agent Core (Agent Triad)</text>
-  <text x="580" y="165" class="box-text">• Frontline Watcher: Perception &amp; Edge Noise Filtering</text>
-  <text x="580" y="190" class="box-text">• Troubleshooting Agent: Gemini Reasoning &amp; RCA</text>
-  <text x="580" y="215" class="box-text">• Execution Orchestrator: JIT Minting &amp; Auto-Rollback</text>
+  <rect x="540" y="110" width="410" height="180" class="box" />
+  <text x="560" y="140" class="box-title">ADK Multi-Agent Core (Agent Triad)</text>
+  <text x="560" y="165" class="box-text">• Frontline Watcher: Perception &amp; Edge Noise Filtering</text>
+  <text x="560" y="190" class="box-text">• Troubleshooting Agent: Gemini Reasoning &amp; RCA</text>
+  <text x="560" y="215" class="box-text">• Execution Orchestrator: JIT Minting &amp; Auto-Rollback</text>
+  <text x="560" y="240" class="box-text">• Clear bifurcation: Autonomous Platform vs. HITL</text>
+  <text x="572" y="258" class="box-text">Assisted Application PRs</text>
 
   <!-- Telemetry -->
-  <rect x="80" y="410" width="360" height="130" class="box" />
-  <text x="100" y="440" class="box-title">Telemetry &amp; Observation Layer</text>
-  <text x="100" y="465" class="box-text">• Cloud Logging Sinks (Edge Heuristic Filter)</text>
-  <text x="100" y="490" class="box-text">• Cloud Monitoring Alert Policies &amp; Metric Streams</text>
-  <text x="100" y="515" class="box-text">• Read-Only Least-Privilege SA (Non-Mutating)</text>
+  <rect x="50" y="420" width="410" height="160" class="box" />
+  <text x="70" y="450" class="box-title">Telemetry &amp; Observation Layer</text>
+  <text x="70" y="475" class="box-text">• Edge Heuristic Pre-Filtering Gateway</text>
+  <text x="70" y="500" class="box-text">• OpenTelemetry hybrid collectors</text>
+  <text x="70" y="525" class="box-text">• Cloud Monitoring Alert Policies &amp; Metric Streams</text>
 
   <!-- Remediation Layer -->
-  <rect x="560" y="410" width="360" height="130" class="box" />
-  <text x="580" y="440" class="box-title">Remediation &amp; Safety Layer</text>
-  <text x="580" y="465" class="box-text">• Executioner Webhook (Cloud Run / Terraform Worker)</text>
-  <text x="580" y="490" class="box-text">• OPA / Rego Parameter Validator &amp; Sanitizer</text>
-  <text x="580" y="515" class="box-text">• Ephemeral JIT Service Account: 15-min max TTL</text>
+  <rect x="540" y="420" width="410" height="160" class="box" />
+  <text x="560" y="450" class="box-title">Remediation &amp; Safety Layer</text>
+  <text x="560" y="475" class="box-text">• Zero-standing privileges via WIF &amp; JIT Broker (15-min TTL)</text>
+  <text x="560" y="500" class="box-text">• Bidirectional GitOps reconciliation, PR dry-runs</text>
+  <text x="572" y="518" class="box-text">&amp; remote state locks</text>
+  <text x="560" y="543" class="box-text">• BRC-ARE snapshotting, canary rollouts, &amp; Telemetry</text>
+  <text x="572" y="561" class="box-text">Watchdog auto-rollback</text>
 
   <!-- Target Resources -->
-  <rect x="80" y="570" width="840" height="36" class="box" fill="var(--target-rect-fill)" stroke="var(--box-stroke)" />
-  <text x="100" y="592" class="box-title" fill="var(--box-title-fill)">Customer Workload Resources: GKE Clusters • Compute Engine VMs • Cloud SQL Databases • Cloud Storage Buckets • Cloud Spanner</text>
+  <rect x="50" y="600" width="900" height="36" class="box" fill="var(--target-rect-fill)" stroke="var(--box-stroke)" />
+  <text x="500" y="622" class="box-title" text-anchor="middle" fill="var(--box-title-fill)">Customer Workload Resources: GKE Clusters • Compute Engine VMs • Cloud SQL Databases • Cloud Storage Buckets • Cloud Spanner</text>
 
   <!-- Labels -->
-  <text x="260" y="395" class="label" text-anchor="middle">1. INGESTION &amp; DETECTION (Telemetry Streaming)</text>
+  <text x="255" y="405" class="label" text-anchor="middle">1. INGESTION &amp; DETECTION (Telemetry Streaming)</text>
   
   <text x="500" y="145" class="label" text-anchor="middle">2. REASONING</text>
   <text x="500" y="225" class="label" text-anchor="middle">3. HITL APPROVAL</text>
   <text x="500" y="185" class="sub-label" text-anchor="middle">A2A Protocol</text>
 
   <!-- Execution Label Box/Pill -->
-  <rect x="580" y="310" width="340" height="45" rx="8" class="box" />
-  <text x="750" y="328" class="label" text-anchor="middle">4. CONTROLLED EXECUTION</text>
-  <text x="750" y="345" class="sub-label" text-anchor="middle">(OIDC via Workload Identity Fed + JIT SA Token) ↓</text>
+  <rect x="585" y="328" width="320" height="45" rx="8" class="box" />
+  <text x="745" y="346" class="label" text-anchor="middle">4. CONTROLLED EXECUTION</text>
+  <text x="745" y="363" class="sub-label" text-anchor="middle">(OIDC via Workload Identity Fed + JIT SA Token) ↓</text>
 
   <!-- Post-Verification Loop Label -->
-  <text x="500" y="560" class="label" text-anchor="middle">5. POST-VERIFICATION WATCHDOG LOOP (Zero-Trust Feedback)</text>
+  <text x="500" y="592" class="label" text-anchor="middle">5. POST-VERIFICATION WATCHDOG LOOP (Zero-Trust Feedback)</text>
 
   <!-- Animated Active Pipeline Dots -->
   <circle r="3" class="anim-dot">
-    <animateMotion dur="3s" repeatCount="indefinite" path="M 260 570 L 260 540" />
+    <animateMotion dur="3s" repeatCount="indefinite" path="M 255 600 L 255 580" />
   </circle>
   <circle r="3" class="anim-dot">
-    <animateMotion dur="5s" repeatCount="indefinite" path="M 260 410 L 260 330 L 640 330 L 640 260" />
+    <animateMotion dur="5s" repeatCount="indefinite" path="M 255 420 L 255 350 L 640 350 L 640 290" />
   </circle>
   <circle r="3" class="anim-dot">
-    <animateMotion dur="3s" repeatCount="indefinite" path="M 560 160 L 440 160" />
+    <animateMotion dur="3s" repeatCount="indefinite" path="M 540 160 L 460 160" />
   </circle>
   <circle r="3" class="anim-dot">
-    <animateMotion dur="3s" repeatCount="indefinite" path="M 440 200 L 560 200" />
+    <animateMotion dur="3s" repeatCount="indefinite" path="M 460 200 L 540 200" />
   </circle>
   <circle r="3" class="anim-dot">
-    <animateMotion dur="4s" repeatCount="indefinite" path="M 820 260 L 820 410" />
+    <animateMotion dur="4s" repeatCount="indefinite" path="M 850 290 L 850 420" />
   </circle>
   <circle r="3" class="anim-dot">
-    <animateMotion dur="3s" repeatCount="indefinite" path="M 820 540 L 820 570" />
+    <animateMotion dur="3s" repeatCount="indefinite" path="M 850 580 L 850 600" />
   </circle>
 </svg>
