@@ -97,14 +97,36 @@ async def get_system_state() -> Dict[str, Any]:
 @app.post("/api/simulate-incident")
 async def simulate_incident(req: SimulateIncidentRequest) -> Dict[str, Any]:
     """
-    1. Injects a structured GKE error log into GCP Cloud Logging (`stack-cognizant`).
-    2. Cloud Logging Watcher Agent detects the log and reports it via A2A to Lead Orchestrator.
-    3. Lead Orchestrator analyzes impact & remedy and alerts the user in the Dashboard.
+    1. Triggers `log-watcher-agent` (on `agent-triad-watcher` Cloud Run service via A2A)
+       to inject & detect the structured GKE error log in GCP Cloud Logging (`agent-triad`).
+    2. `log-watcher-agent` reports the anomaly via A2A to `lead-orchestrator-agent`.
+    3. `lead-orchestrator-agent` analyzes impact & remedy and alerts the user in the Dashboard.
     """
-    log_entry = logging_service.inject_simulated_gke_error(
-        scenario_id=req.scenario_id,
-        custom_message=req.custom_message,
-    )
+    if os.getenv("WATCHER_AGENT_URL"):
+        watcher_scan_resp = await a2a_hub.send_a2a_task(
+            sender_id="lead-orchestrator-agent",
+            recipient_id="log-watcher-agent",
+            skill_id="scan_and_inject_incident",
+            payload={
+                "scenario_id": req.scenario_id,
+                "custom_message": req.custom_message,
+            },
+            summary=f"Trigger Log Watcher service to ingest & scan scenario `{req.scenario_id}`",
+        )
+        log_entry = watcher_scan_resp.result.get("log_entry")
+        if log_entry:
+            logging_service._local_logs.insert(0, log_entry)
+        else:
+            log_entry = logging_service.inject_simulated_gke_error(
+                scenario_id=req.scenario_id,
+                custom_message=req.custom_message,
+            )
+    else:
+        log_entry = logging_service.inject_simulated_gke_error(
+            scenario_id=req.scenario_id,
+            custom_message=req.custom_message,
+        )
+
     orchestrator_result = await watcher_agent.detect_and_report_anomaly(log_entry)
     incident_id = orchestrator_result.get("incident_id", log_entry["log_id"])
     return {
@@ -139,8 +161,8 @@ async def approve_incident_remedy(incident_id: str, req: ApproveRemedyRequest) -
     """
     User accepts the Lead Orchestrator's impact & remedy proposal:
       1. Lead Orchestrator mints a 15-minute WIF JIT token.
-      2. Lead Orchestrator delegates execution to GKE Assist Bot over A2A.
-      3. Lead Orchestrator verifies recovery with Cloud Logging Watcher Agent over A2A.
+      2. Lead Orchestrator delegates execution to Worker Agent (`agent-triad-gke-assist`) over A2A HTTPS.
+      3. Lead Orchestrator verifies recovery with Log Watcher (`agent-triad-watcher`) over A2A HTTPS.
     """
     if incident_id not in lead_orchestrator.incidents:
         raise HTTPException(status_code=404, detail=f"Incident {incident_id} not found")
@@ -197,20 +219,10 @@ async def get_a2a_agent_card(agent_id: str) -> JSONResponse:
 
 @app.post("/a2a/{agent_id}")
 async def handle_a2a_jsonrpc(agent_id: str, request: A2ATaskRequest) -> JSONResponse:
-    """Standard A2A JSON-RPC 2.0 `tasks/send` endpoint."""
+    """Standard A2A JSON-RPC 2.0 `tasks/send` endpoint executed on the receiving microservice."""
     if agent_id not in a2a_hub.handlers:
         raise HTTPException(status_code=404, detail=f"Agent {agent_id} not registered")
-    sender = request.params.get("sender", "external-a2a-client")
-    skill_id = request.params.get("skill_id", "unknown_skill")
-    parts = request.params.get("message", {}).get("parts", [])
-    payload = parts[0].get("data", {}) if parts else {}
-    summary = request.params.get("metadata", {}).get("summary", f"External A2A call to {agent_id}")
 
-    resp = await a2a_hub.send_a2a_task(
-        sender_id=sender,
-        recipient_id=agent_id,
-        skill_id=skill_id,
-        payload=payload,
-        summary=summary,
-    )
+    resp = await a2a_hub.execute_local_handler(agent_id, request)
     return JSONResponse(content=resp.model_dump())
+

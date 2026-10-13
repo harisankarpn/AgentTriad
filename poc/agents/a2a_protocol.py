@@ -71,19 +71,24 @@ class A2ATaskResponse(BaseModel):
 
 
 class JITTokenBroker:
-    """Mints and validates 15-minute ephemeral HITL authorization tokens."""
+    """Mints and validates 15-minute ephemeral HITL authorization tokens across Cloud Run services."""
 
     def __init__(self, secret: str = JIT_SECRET_KEY) -> None:
         self._secret = secret.encode("utf-8")
         self._active_tokens: Dict[str, Dict[str, Any]] = {}
+        self._revoked_tokens: set[str] = set()
+
+    def _compute_sig(self, incident_id: str, expires_epoch: int, nonce: str) -> str:
+        raw_msg = f"{incident_id}:{expires_epoch}:{nonce}".encode("utf-8")
+        return hmac.new(self._secret, raw_msg, hashlib.sha256).hexdigest()[:24]
 
     def mint_token(self, incident_id: str, approved_by: str, scope: str, ttl_seconds: int = 900) -> Dict[str, Any]:
         issued_at = datetime.datetime.now(datetime.timezone.utc)
         expires_at = issued_at + datetime.timedelta(seconds=ttl_seconds)
+        expires_epoch = int(expires_at.timestamp())
         nonce = uuid.uuid4().hex[:10]
-        raw_msg = f"{incident_id}:{approved_by}:{scope}:{int(expires_at.timestamp())}:{nonce}".encode("utf-8")
-        signature = hmac.new(self._secret, raw_msg, hashlib.sha256).hexdigest()[:24]
-        token_id = f"jit-wif-{nonce}-{signature}"
+        signature = self._compute_sig(incident_id, expires_epoch, nonce)
+        token_id = f"jit-wif-{expires_epoch}-{nonce}-{signature}"
 
         token_record = {
             "token_id": token_id,
@@ -93,22 +98,33 @@ class JITTokenBroker:
             "ttl_seconds": ttl_seconds,
             "issued_at": issued_at.isoformat(),
             "expires_at": expires_at.isoformat(),
-            "expires_epoch": int(expires_at.timestamp()),
+            "expires_epoch": expires_epoch,
             "revoked": False,
         }
         self._active_tokens[token_id] = token_record
         return token_record
 
     def validate_token(self, token_id: str, incident_id: str) -> bool:
-        record = self._active_tokens.get(token_id)
-        if not record or record.get("revoked"):
+        if not token_id or token_id in self._revoked_tokens:
             return False
-        if record.get("incident_id") != incident_id:
+        parts = token_id.split("-")
+        # Expected format: jit-wif-{expires_epoch}-{nonce}-{signature}
+        if len(parts) != 5 or parts[0] != "jit" or parts[1] != "wif":
             return False
+        try:
+            expires_epoch = int(parts[2])
+        except ValueError:
+            return False
+        nonce = parts[3]
+        sig = parts[4]
         now_epoch = int(datetime.datetime.now(datetime.timezone.utc).timestamp())
-        return now_epoch <= record.get("expires_epoch", 0)
+        if now_epoch > expires_epoch:
+            return False
+        expected_sig = self._compute_sig(incident_id, expires_epoch, nonce)
+        return hmac.compare_digest(sig, expected_sig)
 
     def revoke_token(self, token_id: str) -> None:
+        self._revoked_tokens.add(token_id)
         if token_id in self._active_tokens:
             self._active_tokens[token_id]["revoked"] = True
             self._active_tokens[token_id]["revoked_at"] = (
@@ -119,9 +135,9 @@ class JITTokenBroker:
 class A2AProtocolHub:
     """
     Central A2A registry & message router connecting:
-      1. `log-watcher-agent` (Perception)
-      2. `lead-orchestrator-agent` (Central Brain / Impact & Governance)
-      3. `gke-assist-agent` (Remediation Specialist)
+      1. `log-watcher-agent` (Cloud Run Service: agent-triad-watcher)
+      2. `lead-orchestrator-agent` (Cloud Run Service: agent-triad-control-plane)
+      3. `gke-assist-agent` (Cloud Run Service: agent-triad-gke-assist)
     """
 
     ENV_URL_MAP = {
@@ -162,6 +178,23 @@ class A2AProtocolHub:
                 datetime.datetime.now(datetime.timezone.utc).isoformat()
             )
 
+    async def execute_local_handler(
+        self,
+        agent_id: str,
+        request: A2ATaskRequest,
+    ) -> A2ATaskResponse:
+        """Executes the local agent handler when an inbound HTTP A2A JSON-RPC request arrives."""
+        if agent_id not in self.handlers:
+            raise ValueError(f"Unknown A2A agent: {agent_id}")
+        self.update_heartbeat(agent_id, "PROCESSING")
+        response = await self.handlers[agent_id](request)
+        if isinstance(response.result, dict):
+            response.result["executed_by_cloud_run_service"] = os.getenv(
+                "K_SERVICE", f"local-{agent_id}"
+            )
+        self.update_heartbeat(agent_id, "ONLINE")
+        return response
+
     async def send_a2a_task(
         self,
         sender_id: str,
@@ -170,7 +203,7 @@ class A2AProtocolHub:
         payload: Dict[str, Any],
         summary: str,
     ) -> A2ATaskResponse:
-        """Dispatches a JSON-RPC 2.0 `tasks/send` call over A2A (remote Cloud Run HTTPS or local handler)."""
+        """Dispatches a JSON-RPC 2.0 `tasks/send` call over A2A (real Cloud Run HTTPS or local handler)."""
         if recipient_id not in self.handlers:
             raise ValueError(f"Unknown A2A recipient agent: {recipient_id}")
 
@@ -203,7 +236,21 @@ class A2AProtocolHub:
         self.update_heartbeat(sender_id, "ACTIVE")
         self.update_heartbeat(recipient_id, "PROCESSING")
 
-        response = await self.handlers[recipient_id](request)
+        response: Optional[A2ATaskResponse] = None
+        if target_endpoint.startswith("http://") or target_endpoint.startswith("https://"):
+            try:
+                import httpx
+                async with httpx.AsyncClient(timeout=25.0) as client:
+                    http_res = await client.post(
+                        target_endpoint,
+                        json=request.model_dump(),
+                    )
+                    http_res.raise_for_status()
+                    response = A2ATaskResponse(**http_res.json())
+            except Exception:
+                response = await self.execute_local_handler(recipient_id, request)
+        else:
+            response = await self.execute_local_handler(recipient_id, request)
 
         completed_at = datetime.datetime.now(datetime.timezone.utc).isoformat()
         self.update_heartbeat(sender_id, "ONLINE")
@@ -226,3 +273,4 @@ class A2AProtocolHub:
         }
         self.message_ledger.insert(0, trace_entry)
         return response
+
