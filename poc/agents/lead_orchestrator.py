@@ -72,6 +72,12 @@ GOLDEN_PLAYBOOKS: Dict[str, Dict[str, Any]] = {
             "Stateless compute atomic rollback (`kubectl rollout undo deployment/payment-checkout-service`) "
             "if post-change error rate > 1% within 45s watchdog window."
         ),
+        "customer_headline": "Checkout Service Needs More Memory",
+        "customer_what_happened": "A surge in customer orders caused the Checkout service to run out of memory and restart.",
+        "customer_why_approve": "Safely increases memory from 512 MB to 1 GB so customer checkouts stop failing.",
+        "risk_badge": "Low Risk • Safe Memory Upgrade",
+        "downtime_badge": "Zero Downtime",
+        "safety_badge": "Auto-Rollback Protected",
     },
     "cpu_throttling": {
         "playbook_id": "PB-GKE-204",
@@ -98,6 +104,12 @@ GOLDEN_PLAYBOOKS: Dict[str, Dict[str, Any]] = {
             "Scale back to baseline replicas (2) after 45-minute Temporal Hysteresis window or if "
             "cluster node CPU pressure exceeds 85%."
         ),
+        "customer_headline": "Website Storefront is Overloaded",
+        "customer_what_happened": "High visitor traffic is overloading the 2 active web servers, causing slow page loads.",
+        "customer_why_approve": "Adds 4 extra servers (2 → 6) so pages load fast again for all visitors.",
+        "risk_badge": "Low Risk • Auto-Scaling",
+        "downtime_badge": "Zero Downtime",
+        "safety_badge": "Auto-Rollback Protected",
     },
     "image_pull_backoff": {
         "playbook_id": "PB-GKE-309",
@@ -122,6 +134,127 @@ GOLDEN_PLAYBOOKS: Dict[str, Dict[str, Any]] = {
         "rollback_plan": (
             "Pin deployment to revision 14 and quarantine tag `v2.4.9-rc` in Poison-Pill Registry for 7 days."
         ),
+        "customer_headline": "Recent Order Update Needs Rollback",
+        "customer_what_happened": "A new software update for the Order service couldn't start properly.",
+        "customer_why_approve": "Instantly switches back to the previous stable version so orders keep processing.",
+        "risk_badge": "Safe Version Restore",
+        "downtime_badge": "Zero Downtime",
+        "safety_badge": "Verified Stable Version",
+    },
+    "cloud_run_port_error": {
+        "playbook_id": "PB-RUN-401",
+        "title": "Cloud Run Container Port 8080 Startup Probe Remediation",
+        "blast_radius_tier": "HIGH (Database Connector Service Unavailable)",
+        "affected_services": ["testdbconnect (us-west1)", "cloudsql/testdbinstance1"],
+        "business_impact": (
+            "Cloud Run service `testdbconnect` failed its TCP startup probe on port 8080, preventing new "
+            "revisions from serving database connectivity requests in `us-west1`."
+        ),
+        "root_cause": (
+            "Container failed to bind and listen on `PORT=8080` within the startup timeout window (`HealthCheckContainerError`)."
+        ),
+        "remedy_summary": (
+            "Reconfigure Cloud Run service port binding and extend startup probe timeout to 300s, or roll back to the last ready revision."
+        ),
+        "rollback_plan": (
+            "Route 100% traffic to the previous healthy Cloud Run revision (`--to-latest=false`) if startup probe fails."
+        ),
+        "customer_headline": "Database Connection Service Failed to Start",
+        "customer_what_happened": "Real GCP Log Detected: Your 'testdbconnect' Cloud Run service in us-west1 failed to start listening on port 8080.",
+        "customer_why_approve": "Updates the Cloud Run port & startup timeout settings so 'testdbconnect' can start cleanly.",
+        "risk_badge": "Low Risk • Cloud Run Config Fix",
+        "downtime_badge": "Zero Downtime",
+        "safety_badge": "Revision Rollback Protected",
+    },
+    "cloud_run_scale_limit": {
+        "playbook_id": "PB-RUN-405",
+        "title": "Cloud Run Max-Instances Capacity Scaling",
+        "blast_radius_tier": "MEDIUM-HIGH (Requests Aborted Due to Instance Limit)",
+        "affected_services": ["agent-triad-control-plane", "cloud-run-ingress"],
+        "business_impact": (
+            "Incoming requests were aborted with HTTP 429/503 (`no available instance`) because the service "
+            "hit its `max-instances` ceiling during concurrent traffic."
+        ),
+        "root_cause": (
+            "Cloud Run revision scaling limit (`maxScale=1`) prevented horizontal auto-scaling under burst load."
+        ),
+        "remedy_summary": (
+            "Increase Cloud Run `--max-instances` to 10 so additional container instances spin up automatically during traffic bursts."
+        ),
+        "rollback_plan": (
+            "Reset `--max-instances` to baseline capacity if cost/quota guardrails are exceeded."
+        ),
+        "customer_headline": "Cloud Service Reached Instance Capacity Limit",
+        "customer_what_happened": "Real GCP Log Detected: Requests were dropped because the Cloud Run service hit its maximum instance limit.",
+        "customer_why_approve": "Raises the auto-scaling ceiling to 10 instances so traffic spikes are handled smoothly without dropped requests.",
+        "risk_badge": "Low Risk • Safe Auto-Scaling",
+        "downtime_badge": "Zero Downtime",
+        "safety_badge": "Quota Guardrail Protected",
+    },
+    "cloud_function_error": {
+        "playbook_id": "PB-CF-502",
+        "title": "Cloud Function Code Load Crash (`sre-agent-tools`) Recovery",
+        "blast_radius_tier": "MEDIUM (Cloud Function Tooling Endpoint Down)",
+        "affected_services": ["function/sre-agent-tools (us-central1)"],
+        "business_impact": (
+            "Cloud Function `sre-agent-tools` in `us-central1` crashes on startup and cannot process invocations."
+        ),
+        "root_cause": (
+            "Python `functions-framework` failed to load `/workspace/main.py` at line 1 due to a shell heredoc (`cat << 'EOF' > main.py`) "
+            "committed inside the Python source file (`NameError: name 'cat' is not defined`)."
+        ),
+        "remedy_summary": (
+            "Strip the invalid shell wrapper from `main.py` and redeploy `sre-agent-tools` on Python 3.10 runtime."
+        ),
+        "rollback_plan": (
+            "Restore previous Cloud Function active version in `us-central1` if health check fails."
+        ),
+        "customer_headline": "Cloud Function 'sre-agent-tools' Has a Code Error",
+        "customer_what_happened": "Real GCP Log Detected: The 'sre-agent-tools' Cloud Function failed to load because of a syntax typo on line 1 of main.py.",
+        "customer_why_approve": "Cleans up the invalid line in main.py and redeploys the Cloud Function so it runs normally.",
+        "risk_badge": "Safe Code Repair",
+        "downtime_badge": "Zero Downtime",
+        "safety_badge": "Version Rollback Protected",
+    },
+    "reasoning_engine_exception": {
+        "playbook_id": "PB-VAI-601",
+        "title": "Vertex AI Reasoning Engine ADK Executor Recovery",
+        "blast_radius_tier": "MEDIUM (Vertex AI Agent Engine Worker Exception)",
+        "affected_services": ["reasoning-engine/8565534229956395008 (us-west1)"],
+        "business_impact": (
+            "Vertex AI Reasoning Engine `8565534229956395008` in `us-west1` logged unhandled task exceptions in `a2a_agent_executor.py`."
+        ),
+        "root_cause": (
+            "ADK `_drive_root_node` / `_cleanup_root_task` raised an unhandled async context exception in the Reasoning Engine worker."
+        ),
+        "remedy_summary": (
+            "Trigger a graceful worker recycle and state reset on Vertex AI Reasoning Engine `8565534229956395008`."
+        ),
+        "rollback_plan": (
+            "Retain existing Reasoning Engine deployment endpoint if worker health check fails."
+        ),
+        "customer_headline": "AI Reasoning Engine Worker Needs a Fresh Restart",
+        "customer_what_happened": "Real GCP Log Detected: Vertex AI Reasoning Engine (in us-west1) encountered a background task error.",
+        "customer_why_approve": "Safely restarts the AI Reasoning Engine worker pool to clear the stuck task.",
+        "risk_badge": "Low Risk • Worker Restart",
+        "downtime_badge": "Zero Downtime",
+        "safety_badge": "State Preserved",
+    },
+    "real_gcp_anomaly": {
+        "playbook_id": "PB-GCP-900",
+        "title": "Live GCP Cloud Logging Anomaly Remediation",
+        "blast_radius_tier": "MEDIUM (Cloud Resource Error Detected)",
+        "affected_services": ["gcp-cloud-service"],
+        "business_impact": "Live error detected in Google Cloud Logging requiring automated configuration recovery.",
+        "root_cause": "Service emitted an ERROR/CRITICAL telemetry event in Google Cloud Logging.",
+        "remedy_summary": "Apply automated configuration reconciliation and restart unhealthy service revision.",
+        "rollback_plan": "Automatic rollback to previous healthy revision if post-remediation watchdog detects errors.",
+        "customer_headline": "Cloud Service Issue Detected in Live Logs",
+        "customer_what_happened": "Log Watcher spotted a live error in your Google Cloud project logs.",
+        "customer_why_approve": "Safely repairs and restarts the affected cloud service.",
+        "risk_badge": "Low Risk • Automated Fix",
+        "downtime_badge": "Zero Downtime",
+        "safety_badge": "Auto-Rollback Protected",
     },
 }
 
@@ -208,11 +341,11 @@ class LeadOrchestratorAgent:
     def _analyze_impact_and_remedy(self, log_entry: Dict[str, Any]) -> Dict[str, Any]:
         """
         Uses Vertex AI Gemini (`gemini-2.5-flash`) + Golden Playbook RAG context to
-        determine the operational impact, blast radius, root cause, and recommended remedy.
-        Falls back cleanly to structured Golden Playbook analysis if offline.
+        determine the operational impact, blast radius, root cause, recommended remedy,
+        and plain-English customer summary for real GCP logs.
         """
         scenario_id = log_entry.get("scenario_id", "oom_killed")
-        playbook = GOLDEN_PLAYBOOKS.get(scenario_id, GOLDEN_PLAYBOOKS["oom_killed"])
+        playbook = GOLDEN_PLAYBOOKS.get(scenario_id, GOLDEN_PLAYBOOKS["real_gcp_anomaly"])
         default_kubectl = log_entry.get(
             "recommended_kubectl",
             "kubectl rollout restart deployment/payment-checkout-service -n prod-payments",
@@ -228,6 +361,12 @@ class LeadOrchestratorAgent:
             "remedy_summary": playbook["remedy_summary"],
             "recommended_kubectl": default_kubectl,
             "rollback_plan": playbook["rollback_plan"],
+            "customer_headline": playbook.get("customer_headline", log_entry.get("title", "Cloud Issue Detected")),
+            "customer_what_happened": playbook.get("customer_what_happened", log_entry.get("message", "")),
+            "customer_why_approve": playbook.get("customer_why_approve", playbook["remedy_summary"]),
+            "risk_badge": playbook.get("risk_badge", "Low Risk • Safe Fix"),
+            "downtime_badge": playbook.get("downtime_badge", "Zero Downtime"),
+            "safety_badge": playbook.get("safety_badge", "Auto-Rollback Protected"),
             "reasoning_engine": "Golden Playbook + Vertex AI Gemini",
         }
 
@@ -235,16 +374,19 @@ class LeadOrchestratorAgent:
             try:
                 prompt = (
                     "You are the Lead Orchestrator Agent for Google Cloud AaaS (AgentTriad).\n"
-                    "The Cloud Logging Watcher Agent just reported this GKE anomaly log via A2A:\n"
+                    "The Log Watcher Agent just reported this real GCP Cloud Logging anomaly via A2A:\n"
                     f"{json.dumps(log_entry, default=str)}\n\n"
                     f"Matched Golden Playbook Context:\n{json.dumps(playbook, default=str)}\n\n"
                     "Return a JSON object with keys:\n"
-                    "- root_cause (string, 1-2 sentences)\n"
+                    "- customer_headline (string, 4-8 words in simple non-technical English for a business owner)\n"
+                    "- customer_what_happened (string, 1 simple non-technical sentence explaining what went wrong)\n"
+                    "- customer_why_approve (string, 1 simple non-technical sentence explaining how the fix helps)\n"
+                    "- root_cause (string, 1-2 sentences technical root cause)\n"
                     "- business_impact (string, 1-2 sentences quantifying user/SLO impact)\n"
-                    "- blast_radius_tier (string, e.g. 'HIGH (Tier-1 Checkout Flow)')\n"
+                    "- blast_radius_tier (string, e.g. 'HIGH (Tier-1 Service)')\n"
                     "- affected_services (array of strings)\n"
-                    "- remedy_summary (string, 1-2 sentences explaining the fix)\n"
-                    "- recommended_kubectl (string, exact kubectl command)\n"
+                    "- remedy_summary (string, 1-2 sentences explaining the technical fix)\n"
+                    "- recommended_kubectl (string, exact gcloud or kubectl command)\n"
                     "- rollback_plan (string, 1 sentence fail-safe rollback plan)"
                 )
                 config = (
@@ -263,6 +405,9 @@ class LeadOrchestratorAgent:
                 if resp and resp.text:
                     parsed = json.loads(resp.text)
                     for key in (
+                        "customer_headline",
+                        "customer_what_happened",
+                        "customer_why_approve",
                         "root_cause",
                         "business_impact",
                         "blast_radius_tier",

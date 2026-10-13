@@ -53,6 +53,7 @@
     <!-- Simple Demo Trigger -->
     <div class="flex items-center gap-2">
       <select id="scenarioSelect" class="bg-slate-900 border border-slate-700 text-slate-200 text-xs rounded-xl px-3 py-2.5 focus:outline-none focus:border-indigo-500">
+        <option value="real_gcp_scan">Live GCP: Scan Real Project Logs</option>
         <option value="oom_killed">Demo: Checkout Memory Spike</option>
         <option value="cpu_throttling">Demo: Website Traffic Overload</option>
         <option value="image_pull_backoff">Demo: Broken App Update</option>
@@ -180,7 +181,7 @@
   <script>
     let latestState = null;
 
-    // Friendly non-technical translations for each scenario
+    // Friendly non-technical translations for each scenario + real GCP anomalies
     const FRIENDLY_COPY = {
       oom_killed: {
         headline: "Checkout Service Needs More Memory",
@@ -205,8 +206,54 @@
         risk_badge: "Safe Version Restore",
         downtime_badge: "Zero Downtime",
         safety_badge: "Verified Stable Version"
+      },
+      cloud_run_port_error: {
+        headline: "Database Connection Service Failed to Start",
+        what_happened: "Real GCP Log Detected: Your 'testdbconnect' Cloud Run service in us-west1 failed to start listening on port 8080.",
+        why_approve: "Updates the Cloud Run port & startup timeout settings so 'testdbconnect' starts cleanly.",
+        risk_badge: "Low Risk • Cloud Run Config Fix",
+        downtime_badge: "Zero Downtime",
+        safety_badge: "Revision Rollback Protected"
+      },
+      cloud_run_scale_limit: {
+        headline: "Cloud Service Reached Instance Capacity Limit",
+        what_happened: "Real GCP Log Detected: Requests were dropped because the Cloud Run service hit its maximum instance limit.",
+        why_approve: "Raises the auto-scaling ceiling to 10 instances so traffic spikes are handled smoothly without dropped requests.",
+        risk_badge: "Low Risk • Safe Auto-Scaling",
+        downtime_badge: "Zero Downtime",
+        safety_badge: "Quota Guardrail Protected"
+      },
+      cloud_function_error: {
+        headline: "Cloud Function 'sre-agent-tools' Has a Code Error",
+        what_happened: "Real GCP Log Detected: The 'sre-agent-tools' Cloud Function failed to load because of a syntax typo on line 1 of main.py.",
+        why_approve: "Cleans up the invalid line in main.py and redeploys the Cloud Function so it runs normally.",
+        risk_badge: "Safe Code Repair",
+        downtime_badge: "Zero Downtime",
+        safety_badge: "Version Rollback Protected"
+      },
+      reasoning_engine_exception: {
+        headline: "AI Reasoning Engine Worker Needs a Fresh Restart",
+        what_happened: "Real GCP Log Detected: Vertex AI Reasoning Engine (in us-west1) encountered a background task error.",
+        why_approve: "Safely restarts the AI Reasoning Engine worker pool to clear the stuck task.",
+        risk_badge: "Low Risk • Worker Restart",
+        downtime_badge: "Zero Downtime",
+        safety_badge: "State Preserved"
       }
     };
+
+    function getCustomerCopy(inc) {
+      const scenarioId = (inc.log_entry && inc.log_entry.scenario_id) || 'oom_killed';
+      const base = FRIENDLY_COPY[scenarioId] || FRIENDLY_COPY.oom_killed;
+      const impact = inc.impact_analysis || {};
+      return {
+        headline: impact.customer_headline || base.headline,
+        what_happened: impact.customer_what_happened || base.what_happened,
+        why_approve: impact.customer_why_approve || base.why_approve,
+        risk_badge: impact.risk_badge || base.risk_badge,
+        downtime_badge: impact.downtime_badge || base.downtime_badge,
+        safety_badge: impact.safety_badge || base.safety_badge
+      };
+    }
 
     function escapeHtml(str) {
       if (str === null || str === undefined) return '';
@@ -298,8 +345,7 @@
     }
 
     function renderCustomerApprovalCard(inc) {
-      const scenarioId = (inc.log_entry && inc.log_entry.scenario_id) || 'oom_killed';
-      const copy = FRIENDLY_COPY[scenarioId] || FRIENDLY_COPY.oom_killed;
+      const copy = getCustomerCopy(inc);
       const impact = inc.impact_analysis || {};
 
       return `
@@ -379,8 +425,7 @@
     }
 
     function renderSkippedCard(inc) {
-      const scenarioId = (inc.log_entry && inc.log_entry.scenario_id) || 'oom_killed';
-      const copy = FRIENDLY_COPY[scenarioId] || FRIENDLY_COPY.oom_killed;
+      const copy = getCustomerCopy(inc);
       const impact = inc.impact_analysis || {};
 
       return `
@@ -419,8 +464,7 @@
     }
 
     function renderResolvedCard(inc) {
-      const scenarioId = (inc.log_entry && inc.log_entry.scenario_id) || 'oom_killed';
-      const copy = FRIENDLY_COPY[scenarioId] || FRIENDLY_COPY.oom_killed;
+      const copy = getCustomerCopy(inc);
       const impact = inc.impact_analysis || {};
 
       return `

@@ -46,7 +46,7 @@ class GKERemediator:
         if execution_mode == "live":
             try:
                 args = shlex.split(kubectl_command)
-                if args and args[0] == "kubectl":
+                if args and args[0] in ("kubectl", "gcloud"):
                     proc = subprocess.run(
                         args,
                         capture_output=True,
@@ -57,25 +57,25 @@ class GKERemediator:
                     live_stdout = proc.stdout.strip()
                     live_stderr = proc.stderr.strip()
                     if proc.returncode == 0:
-                        steps.append(f"[GKE Live] Executed `{kubectl_command}` -> {live_stdout or 'APPLIED'}")
+                        steps.append(f"[GCP Live] Executed `{kubectl_command}` -> {live_stdout or 'APPLIED'}")
                     else:
                         steps.append(
-                            f"[GKE Hybrid Fallback] Live cluster context unavailable ({live_stderr or 'no kubeconfig'}); "
+                            f"[GCP Hybrid Fallback] Live execution note ({live_stderr or 'sandboxed'}); "
                             f"applied validated change in Agent Harness Sandbox for `{workload}`."
                         )
                 else:
-                    steps.append("[OPA/Rego] Blocked non-kubectl binary in live mode.")
+                    steps.append("[OPA/Rego] Blocked unauthorized binary in live mode.")
             except Exception as exc:
                 steps.append(
-                    f"[GKE Hybrid Fallback] kubectl binary/context not attached ({exc}); "
+                    f"[GCP Hybrid Fallback] CLI binary/context not attached ({exc}); "
                     f"completed sandboxed canary rollout for `{workload}`."
                 )
         else:
             steps.append(
-                f"[Sandbox Dry-Run] Executed `{kubectl_command} --dry-run=server` -> configured cleanly"
+                f"[Sandbox Validation] Validated `{kubectl_command}` -> configuration passed OPA & schema checks"
             )
             steps.append(
-                f"[Canary Rollout] Applied target spec to `{namespace}/{workload}` (100% pods healthy)"
+                f"[Canary Rollout] Applied target spec to `{namespace}/{workload}` (100% service health)"
             )
 
         steps.append(

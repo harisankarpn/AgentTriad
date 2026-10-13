@@ -101,13 +101,23 @@ def run_e2e_tests() -> None:
         f"Executed ({resolved_inc['execution_result']['reconciliation_pr']}) & Watchdog Verified!"
     )
 
-    # 6. Check A2A ledger recorded all handshakes
+    # 6. Check A2A ledger recorded all handshakes & real GCP logs are monitored
     state_res = client.get("/api/state")
     assert state_res.status_code == 200
-    ledger = state_res.json()["a2a_ledger"]
+    state_json = state_res.json()
+    ledger = state_json["a2a_ledger"]
     assert len(ledger) >= 3
     print(f"[PASS] A2A Protocol Ledger recorded {len(ledger)} JSON-RPC 2.0 handshakes.")
+
+    real_scan_res = client.post("/api/simulate-incident", json={"scenario_id": "real_gcp_scan"})
+    assert real_scan_res.status_code == 200
+    real_scan_data = real_scan_res.json()
+    print(
+        f"[PASS] Real GCP Log Scan via Watcher Agent -> {real_scan_data['status']} "
+        f"(Incident: {real_scan_data['incident_id']}, Title: {real_scan_data['log_entry'].get('title')})"
+    )
 
 
 if __name__ == "__main__":
     run_e2e_tests()
+

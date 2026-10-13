@@ -115,6 +115,26 @@ class CloudLoggingWatcherAgent:
         parts = request.params.get("message", {}).get("parts", [])
         data = parts[0].get("data", {}) if parts else {}
 
+        if skill_id == "scan_cloud_logging":
+            force_poll = bool(data.get("force", False))
+            limit = int(data.get("limit", 25))
+            logs = self.logging_service.fetch_recent_logs(
+                limit=limit, poll_gcp=True, force=force_poll
+            )
+            anomalies = [entry for entry in logs if entry.get("is_anomaly")]
+            return A2ATaskResponse(
+                id=request.id,
+                result={
+                    "status": "LIVE_GCP_LOGS_SCANNED",
+                    "agent": self.AGENT_ID,
+                    "gcp_connected": self.logging_service.gcp_connected,
+                    "gcp_status_detail": self.logging_service.gcp_status_detail,
+                    "suppressed_routine_logs": self.logging_service.suppressed_routine_logs_count,
+                    "logs": logs,
+                    "anomalies": anomalies,
+                },
+            )
+
         if skill_id == "scan_and_inject_incident":
             scenario_id = data.get("scenario_id", "oom_killed")
             custom_message = data.get("custom_message")
@@ -169,7 +189,8 @@ class CloudLoggingWatcherAgent:
             result={
                 "status": "OK",
                 "agent": self.AGENT_ID,
-                "logs_monitored": len(self.logging_service.fetch_recent_logs(limit=20)),
+                "logs_monitored": len(self.logging_service.fetch_recent_logs(limit=20, poll_gcp=True)),
             },
         )
+
 
