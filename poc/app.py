@@ -109,7 +109,10 @@ async def sync_real_logs_from_watcher(
                     if item.get("log_id") not in known_local:
                         logging_service._local_logs.append(item)
                         known_local.add(item.get("log_id"))
-                logging_service._local_logs.sort(key=lambda x: x.get("timestamp", ""), reverse=True)
+                logging_service._local_logs.sort(
+                    key=lambda x: (1 if x.get("is_anomaly") else 0, x.get("timestamp", "")),
+                    reverse=True,
+                )
             if scan_resp.result.get("suppressed_routine_logs") is not None:
                 logging_service.suppressed_routine_logs_count = max(
                     logging_service.suppressed_routine_logs_count,

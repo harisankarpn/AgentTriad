@@ -152,6 +152,7 @@ class CloudLoggingService:
             "GET /api/state",
             "GET /a2a/",
             "POST /a2a/",
+            "POST /api/",
             "GET / HTTP",
             "GET /favicon.ico",
             "FutureWarning:",
@@ -160,9 +161,14 @@ class CloudLoggingService:
             "from google.cloud.aiplatform",
             "from vertexai.preview",
             "client.rag.create_corpus",
+            "client = agentplatform.Client",
             "import agentplatform",
             "Waiting for application startup",
             "Application startup complete",
+            "Waiting for application shutdown",
+            "Application shutdown complete",
+            "Finished server process",
+            "Shutting down",
             "Started server process",
             "Uvicorn running on",
         )
@@ -635,9 +641,13 @@ class CloudLoggingService:
 
                 if new_items:
                     self._local_logs.extend(new_items)
-                    self._local_logs.sort(key=lambda x: x.get("timestamp", ""), reverse=True)
+                self._local_logs.sort(
+                    key=lambda x: (1 if x.get("is_anomaly") else 0, x.get("timestamp", "")),
+                    reverse=True,
+                )
             except Exception as exc:
                 self.gcp_status_detail = f"GCP Poll warning: {exc}"
 
         return self._local_logs[:limit]
+
 
