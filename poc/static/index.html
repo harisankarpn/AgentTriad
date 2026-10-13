@@ -9,26 +9,21 @@
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
   <style>
     body {
-      background-color: #0b1120;
+      background: radial-gradient(circle at 50% 0%, #172554 0%, #0b1120 55%, #060a14 100%);
       color: #f8fafc;
       font-family: 'Inter', sans-serif;
     }
     .mono {
       font-family: 'JetBrains Mono', monospace;
     }
-    ::-webkit-scrollbar {
-      width: 5px;
-      height: 5px;
+    .glass {
+      background: rgba(15, 23, 42, 0.78);
+      backdrop-filter: blur(14px);
     }
-    ::-webkit-scrollbar-track {
-      background: #0f172a;
-    }
-    ::-webkit-scrollbar-thumb {
-      background: #334155;
-      border-radius: 4px;
-    }
-    .agent-pulse {
-      box-shadow: 0 0 0 2px rgba(56, 189, 248, 0.55), 0 0 16px rgba(56, 189, 248, 0.25);
+    .agent-active {
+      border-color: #38bdf8 !important;
+      box-shadow: 0 0 0 2px rgba(56, 189, 248, 0.35), 0 8px 25px rgba(56, 189, 248, 0.18);
+      transform: translateY(-2px);
     }
     details > summary {
       list-style: none;
@@ -38,243 +33,180 @@
     }
   </style>
 </head>
-<body class="min-h-screen flex flex-col p-4 gap-3.5">
+<body class="min-h-screen flex flex-col justify-between p-4 sm:p-6">
 
-  <!-- Top Header & Controls -->
-  <header class="max-w-[1400px] w-full mx-auto bg-slate-900/90 border border-slate-800 rounded-xl px-4 py-3 shadow-lg">
-    <div class="flex flex-col lg:flex-row lg:items-center justify-between gap-3">
-      <div>
-        <div class="flex flex-wrap items-center gap-2 mb-1">
-          <span class="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10.5px] font-semibold bg-indigo-500/15 text-indigo-400 border border-indigo-500/30">
-            <i class="fa-solid fa-cubes"></i> Google Cloud ADK + A2A Protocol
-          </span>
-          <span id="gcpStatusBadge" class="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10.5px] font-semibold bg-emerald-500/15 text-emerald-400 border border-emerald-500/30">
-            <i class="fa-solid fa-circle text-[7px] animate-pulse"></i> Cloud Logging: Connecting...
-          </span>
-        </div>
-        <h1 class="text-lg sm:text-xl font-extrabold text-white tracking-tight">
-          AaaS Control Plane <span class="text-slate-400 font-normal text-sm">| Lead Orchestrator + Log Watcher + Worker Agent</span>
-        </h1>
+  <!-- Top Navigation Bar -->
+  <header class="max-w-5xl w-full mx-auto flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-slate-800/80">
+    <div>
+      <div class="flex items-center gap-2 mb-1">
+        <span id="gcpStatusBadge" class="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-medium bg-emerald-500/15 text-emerald-400 border border-emerald-500/30">
+          <span class="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
+          Google Cloud Connected
+        </span>
       </div>
-
-      <!-- Action Bar -->
-      <div class="flex flex-wrap items-center gap-2">
-        <select id="scenarioSelect" class="bg-slate-950 border border-slate-700 text-slate-200 text-xs rounded-lg px-3 py-2 focus:outline-none focus:border-indigo-500">
-          <option value="oom_killed">Scenario 1: GKE Pod OOMKilled (Checkout)</option>
-          <option value="cpu_throttling">Scenario 2: High CPU Throttling (Web API)</option>
-          <option value="image_pull_backoff">Scenario 3: Canary ImagePullBackOff</option>
-        </select>
-
-        <button id="btnSimulate" onclick="triggerSimulatedIncident()" class="inline-flex items-center gap-1.5 bg-gradient-to-r from-rose-600 to-orange-600 hover:from-rose-500 hover:to-orange-500 text-white text-xs font-bold px-3.5 py-2 rounded-lg shadow transition cursor-pointer">
-          <i class="fa-solid fa-bolt" id="simIcon"></i>
-          <span id="simBtnText">Trigger Incident</span>
-        </button>
-
-        <button id="btnPoll" onclick="pollLiveCloudLogging()" class="inline-flex items-center gap-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 text-xs font-semibold px-3 py-2 rounded-lg transition cursor-pointer">
-          <i class="fa-solid fa-rotate" id="pollIcon"></i>
-          <span>Poll Logs</span>
-        </button>
-      </div>
+      <h1 class="text-xl font-extrabold text-white tracking-tight">
+        AaaS Control Plane
+        <span class="text-slate-400 font-normal text-sm block sm:inline sm:ml-1">| Lead Orchestrator + Log Watcher + Worker Agent</span>
+      </h1>
     </div>
 
-    <!-- Compact 3-Agent Strip -->
-    <div class="grid grid-cols-1 md:grid-cols-3 gap-2.5 mt-3 pt-2.5 border-t border-slate-800/80">
-      <!-- Agent 1: Log Watcher -->
-      <div id="card-log-watcher-agent" class="bg-slate-950/80 border border-sky-500/30 rounded-lg px-3 py-2 flex items-center justify-between transition">
-        <div class="flex items-center gap-2.5">
-          <div class="w-7 h-7 rounded-lg bg-sky-500/15 border border-sky-500/30 flex items-center justify-center text-sky-400 text-xs">
-            <i class="fa-solid fa-satellite-dish"></i>
-          </div>
-          <div>
-            <div class="text-xs font-bold text-white">1. Log Watcher</div>
-            <div class="text-[10px] text-slate-400">Monitors Cloud Logging &amp; alerts Orchestrator</div>
-          </div>
-        </div>
-        <div class="flex items-center gap-2">
-          <span class="text-[9.5px] mono font-bold text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded">ONLINE</span>
-          <button onclick="openAgentCardModal('log-watcher-agent')" class="text-[10px] text-slate-400 hover:text-white underline cursor-pointer">A2A</button>
-        </div>
-      </div>
+    <!-- Simple Demo Trigger -->
+    <div class="flex items-center gap-2">
+      <select id="scenarioSelect" class="bg-slate-900 border border-slate-700 text-slate-200 text-xs rounded-xl px-3 py-2.5 focus:outline-none focus:border-indigo-500">
+        <option value="oom_killed">Demo: Checkout Memory Spike</option>
+        <option value="cpu_throttling">Demo: Website Traffic Overload</option>
+        <option value="image_pull_backoff">Demo: Broken App Update</option>
+      </select>
 
-      <!-- Agent 2: Lead Orchestrator -->
-      <div id="card-lead-orchestrator-agent" class="bg-slate-950/90 border border-amber-500/40 rounded-lg px-3 py-2 flex items-center justify-between transition">
-        <div class="flex items-center gap-2.5">
-          <div class="w-7 h-7 rounded-lg bg-amber-500/15 border border-amber-500/30 flex items-center justify-center text-amber-400 text-xs">
-            <i class="fa-solid fa-brain"></i>
-          </div>
-          <div>
-            <div class="text-xs font-bold text-white">2. Lead Orchestrator</div>
-            <div class="text-[10px] text-slate-400">Finds Impact &amp; Remedy, delegates on approval</div>
-          </div>
-        </div>
-        <div class="flex items-center gap-2">
-          <span class="text-[9.5px] mono font-bold text-amber-300 bg-amber-500/10 px-2 py-0.5 rounded">SUPERVISING</span>
-          <button onclick="openAgentCardModal('lead-orchestrator-agent')" class="text-[10px] text-slate-400 hover:text-white underline cursor-pointer">A2A</button>
-        </div>
-      </div>
-
-      <!-- Agent 3: Worker Agent -->
-      <div id="card-gke-assist-agent" class="bg-slate-950/80 border border-emerald-500/30 rounded-lg px-3 py-2 flex items-center justify-between transition">
-        <div class="flex items-center gap-2.5">
-          <div class="w-7 h-7 rounded-lg bg-emerald-500/15 border border-emerald-500/30 flex items-center justify-center text-emerald-400 text-xs">
-            <i class="fa-solid fa-screwdriver-wrench"></i>
-          </div>
-          <div>
-            <div class="text-xs font-bold text-white">3. Worker Agent</div>
-            <div class="text-[10px] text-slate-400">Executes approved fix via JIT sandbox</div>
-          </div>
-        </div>
-        <div class="flex items-center gap-2">
-          <span class="text-[9.5px] mono font-bold text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded">STANDBY</span>
-          <button onclick="openAgentCardModal('gke-assist-agent')" class="text-[10px] text-slate-400 hover:text-white underline cursor-pointer">A2A</button>
-        </div>
-      </div>
+      <button id="btnSimulate" onclick="triggerSimulatedIncident()" class="inline-flex items-center gap-2 bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold px-4 py-2.5 rounded-xl shadow-lg shadow-indigo-600/20 transition cursor-pointer">
+        <i class="fa-solid fa-play text-[10px]" id="simIcon"></i>
+        <span id="simBtnText">Simulate Issue</span>
+      </button>
     </div>
   </header>
 
-  <!-- Main 3-Column Clean Workspace -->
-  <main class="max-w-[1400px] w-full mx-auto grid grid-cols-1 lg:grid-cols-12 gap-3.5 flex-grow">
+  <!-- Main Visual Centerpiece -->
+  <main class="max-w-5xl w-full mx-auto my-auto py-6 space-y-6">
 
-    <!-- COLUMN 1 (4 cols): Log Watcher Feed -->
-    <section class="lg:col-span-4 bg-slate-900/80 border border-slate-800 rounded-xl p-3.5 flex flex-col h-[560px]">
-      <div class="flex items-center justify-between pb-2 border-b border-slate-800">
-        <div class="flex items-center gap-2">
-          <i class="fa-solid fa-terminal text-sky-400 text-xs"></i>
-          <h2 class="text-xs font-bold uppercase tracking-wider text-slate-200">Log Watcher Feed</h2>
+    <!-- 1. Visual 3-Agent Flow Pipeline (Minimal & Scannable) -->
+    <section class="grid grid-cols-1 md:grid-cols-3 gap-4 relative">
+      <!-- Agent 1: Log Watcher -->
+      <div id="card-log-watcher-agent" class="glass border border-slate-800 rounded-2xl p-4 transition duration-300">
+        <div class="flex items-center justify-between mb-2">
+          <div class="flex items-center gap-2.5">
+            <div class="w-9 h-9 rounded-xl bg-sky-500/15 border border-sky-500/30 flex items-center justify-center text-sky-400">
+              <i class="fa-solid fa-eye"></i>
+            </div>
+            <div>
+              <div class="text-xs font-bold text-slate-400 uppercase tracking-wider">Step 1</div>
+              <div class="text-sm font-bold text-white">Log Watcher</div>
+            </div>
+          </div>
+          <span id="badge-watcher" class="text-[10px] font-semibold px-2.5 py-1 rounded-full bg-emerald-500/15 text-emerald-400">Watching 24/7</span>
         </div>
-        <span id="logCountBadge" class="text-[10px] mono px-2 py-0.5 rounded bg-slate-800 text-slate-400">0 logs</span>
+        <p class="text-xs text-slate-400 leading-relaxed">
+          Monitors cloud health and immediately spots unusual errors.
+        </p>
       </div>
 
-      <div id="logsContainer" class="mt-2.5 space-y-2 overflow-y-auto flex-grow pr-1">
-        <!-- Populated dynamically -->
+      <!-- Agent 2: Lead Orchestrator -->
+      <div id="card-lead-orchestrator-agent" class="glass border border-slate-800 rounded-2xl p-4 transition duration-300">
+        <div class="flex items-center justify-between mb-2">
+          <div class="flex items-center gap-2.5">
+            <div class="w-9 h-9 rounded-xl bg-amber-500/15 border border-amber-500/30 flex items-center justify-center text-amber-400">
+              <i class="fa-solid fa-compass"></i>
+            </div>
+            <div>
+              <div class="text-xs font-bold text-slate-400 uppercase tracking-wider">Step 2</div>
+              <div class="text-sm font-bold text-white">Lead Orchestrator</div>
+            </div>
+          </div>
+          <span id="badge-orchestrator" class="text-[10px] font-semibold px-2.5 py-1 rounded-full bg-amber-500/15 text-amber-300">Supervisor</span>
+        </div>
+        <p class="text-xs text-slate-400 leading-relaxed">
+          Finds the business impact, prepares a safe fix, and asks for your approval.
+        </p>
+      </div>
+
+      <!-- Agent 3: Worker Agent -->
+      <div id="card-gke-assist-agent" class="glass border border-slate-800 rounded-2xl p-4 transition duration-300">
+        <div class="flex items-center justify-between mb-2">
+          <div class="flex items-center justify-between w-full">
+            <div class="flex items-center gap-2.5">
+              <div class="w-9 h-9 rounded-xl bg-emerald-500/15 border border-emerald-500/30 flex items-center justify-center text-emerald-400">
+                <i class="fa-solid fa-wand-magic-sparkles"></i>
+              </div>
+              <div>
+                <div class="text-xs font-bold text-slate-400 uppercase tracking-wider">Step 3</div>
+                <div class="text-sm font-bold text-white">Worker Agent</div>
+              </div>
+            </div>
+            <span id="badge-worker" class="text-[10px] font-semibold px-2.5 py-1 rounded-full bg-slate-800 text-slate-300">Standby</span>
+          </div>
+        </div>
+        <p class="text-xs text-slate-400 leading-relaxed">
+          Applies the fix only after you approve, then verifies everything is healthy.
+        </p>
       </div>
     </section>
 
-    <!-- COLUMN 2 (4 cols): Lead Orchestrator Operations Summary -->
-    <section class="lg:col-span-4 bg-slate-900/90 border border-amber-500/30 rounded-xl p-3.5 flex flex-col h-[560px]">
-      <div class="flex items-center justify-between pb-2 border-b border-slate-800">
-        <div class="flex items-center gap-2">
-          <i class="fa-solid fa-shield-halved text-amber-400 text-xs"></i>
-          <h2 class="text-xs font-bold uppercase tracking-wider text-white">Lead Orchestrator Incidents</h2>
-        </div>
-        <span id="incidentCountBadge" class="text-[10px] mono px-2 py-0.5 rounded bg-amber-500/15 text-amber-300">
-          0 Active
-        </span>
-      </div>
-
-      <div id="incidentsContainer" class="mt-2.5 space-y-2.5 overflow-y-auto flex-grow pr-1">
-        <!-- Populated dynamically -->
-      </div>
-    </section>
-
-    <!-- COLUMN 3 (4 cols): A2A Protocol Handshakes -->
-    <section class="lg:col-span-4 bg-slate-900/80 border border-slate-800 rounded-xl p-3.5 flex flex-col h-[560px]">
-      <div class="flex items-center justify-between pb-2 border-b border-slate-800">
-        <div class="flex items-center gap-2">
-          <i class="fa-solid fa-network-wired text-indigo-400 text-xs"></i>
-          <h2 class="text-xs font-bold uppercase tracking-wider text-slate-200">A2A Protocol Stream</h2>
-        </div>
-        <span id="a2aCountBadge" class="text-[10px] mono px-2 py-0.5 rounded bg-indigo-500/15 text-indigo-300">
-          0 Calls
-        </span>
-      </div>
-
-      <div id="a2aContainer" class="mt-2.5 space-y-2 overflow-y-auto flex-grow pr-1">
-        <!-- Populated dynamically -->
-      </div>
+    <!-- 2. CENTER HERO STAGE: Customer Feedback & System Status -->
+    <section id="centerStage" class="max-w-2xl w-full mx-auto">
+      <!-- Dynamically renders either:
+           A) Pending User Approval Card (Clean, non-tech friendly)
+           B) Resolved / All-Clear Card -->
     </section>
 
   </main>
 
-  <!-- ===================================================================== -->
-  <!-- CENTERED USER FEEDBACK / HITL APPROVAL MODAL (No scrolling required!) -->
-  <!-- ===================================================================== -->
-  <div id="hitlCenterModal" class="fixed inset-0 bg-black/75 backdrop-blur-sm hidden items-center justify-center z-50 p-4">
-    <div class="bg-slate-900 border-2 border-amber-500/60 rounded-2xl max-w-xl w-full p-5 shadow-2xl space-y-4">
-      <div class="flex items-start justify-between gap-3 border-b border-slate-800 pb-3">
+  <!-- Bottom Collapsible Technical Drawer (Hidden by default so screen stays clean) -->
+  <footer class="max-w-5xl w-full mx-auto pt-4 border-t border-slate-800/70">
+    <details class="group">
+      <summary class="flex items-center justify-between text-xs text-slate-400 hover:text-slate-200 cursor-pointer py-2 px-3 rounded-xl hover:bg-slate-900/60 transition">
+        <span class="flex items-center gap-2 font-medium">
+          <i class="fa-solid fa-sliders text-indigo-400"></i>
+          <span>View Technical Details (Cloud Logs &amp; Agent-to-Agent Protocol)</span>
+          <span id="techSummaryCount" class="px-2 py-0.5 text-[10px] mono rounded-full bg-slate-800 text-slate-400"></span>
+        </span>
+        <span class="text-[11px] group-open:rotate-180 transition-transform">
+          <i class="fa-solid fa-chevron-down"></i>
+        </span>
+      </summary>
+
+      <div class="mt-3 grid grid-cols-1 md:grid-cols-2 gap-4 bg-slate-950/90 border border-slate-800 rounded-2xl p-4">
+        <!-- Cloud Logging Stream -->
         <div>
-          <span class="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-rose-500/20 text-rose-300 border border-rose-500/40 animate-pulse mb-1">
-            <i class="fa-solid fa-bell"></i> LEAD ORCHESTRATOR ALERT — USER FEEDBACK REQUIRED
-          </span>
-          <h3 id="hitlModalTitle" class="text-base font-extrabold text-white">GKE Incident Detected</h3>
-          <div id="hitlModalMeta" class="text-[11px] mono text-slate-400"></div>
-        </div>
-        <button onclick="dismissHitlModal()" title="Minimize to background" class="text-slate-400 hover:text-white text-sm px-2 py-1 rounded hover:bg-slate-800 cursor-pointer">
-          <i class="fa-solid fa-xmark"></i>
-        </button>
-      </div>
-
-      <!-- Concise Impact & Remedy Summary -->
-      <div class="space-y-2.5 text-xs">
-        <div class="p-3 rounded-xl bg-rose-950/30 border border-rose-500/30 space-y-1">
-          <div class="text-[10.5px] font-bold text-rose-300 uppercase">
-            <i class="fa-solid fa-triangle-exclamation mr-1"></i>Impact Identified by Lead Orchestrator
+          <div class="flex items-center justify-between mb-2 pb-1.5 border-b border-slate-800">
+            <span class="text-xs font-bold text-slate-300">Recent Cloud Logs</span>
+            <button onclick="pollLiveCloudLogging()" class="text-[11px] text-sky-400 hover:underline cursor-pointer">
+              <i class="fa-solid fa-rotate mr-1" id="pollIcon"></i>Refresh
+            </button>
           </div>
-          <div id="hitlModalImpact" class="text-slate-100 leading-relaxed font-medium"></div>
+          <div id="logsContainer" class="space-y-1.5 max-h-48 overflow-y-auto pr-1"></div>
         </div>
 
-        <div class="p-3 rounded-xl bg-emerald-950/25 border border-emerald-500/30 space-y-1.5">
-          <div class="text-[10.5px] font-bold text-emerald-400 uppercase">
-            <i class="fa-solid fa-wand-magic-sparkles mr-1"></i>Recommended Remedy (Delegate to Worker Agent)
+        <!-- A2A Protocol Handshakes -->
+        <div>
+          <div class="flex items-center justify-between mb-2 pb-1.5 border-b border-slate-800">
+            <span class="text-xs font-bold text-slate-300">A2A Protocol Handshakes</span>
+            <span class="text-[10px] mono text-indigo-400">JSON-RPC 2.0</span>
           </div>
-          <div id="hitlModalRemedy" class="text-slate-200 leading-relaxed"></div>
-          <div class="pt-1">
-            <input id="hitlModalKubectl" type="text"
-              class="w-full bg-slate-950 border border-slate-700 rounded-lg px-2.5 py-1.5 text-[11px] mono text-emerald-300 focus:outline-none focus:border-emerald-500" />
-          </div>
-        </div>
-
-        <!-- View More Toggle inside Modal for deep technical details -->
-        <details class="bg-slate-950/70 border border-slate-800 rounded-lg px-3 py-2">
-          <summary class="text-[11px] font-semibold text-indigo-400 cursor-pointer hover:underline flex items-center justify-between">
-            <span><i class="fa-solid fa-circle-info mr-1"></i>View more (Root Cause, Affected Services &amp; Rollback Plan)</span>
-            <i class="fa-solid fa-chevron-down text-[10px]"></i>
-          </summary>
-          <div class="mt-2 pt-2 border-t border-slate-800/80 space-y-1.5 text-[11px] text-slate-300">
-            <div><strong>Root Cause:</strong> <span id="hitlModalRca"></span></div>
-            <div><strong>Affected Services:</strong> <span id="hitlModalServices" class="mono text-rose-300"></span></div>
-            <div><strong>Rollback Plan:</strong> <span id="hitlModalRollback"></span></div>
-          </div>
-        </details>
-      </div>
-
-      <!-- User Action Controls -->
-      <div class="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-2.5 pt-2 border-t border-slate-800">
-        <select id="hitlModalMode" class="bg-slate-950 border border-slate-700 text-slate-200 text-xs rounded-lg px-3 py-2">
-          <option value="dry_run">Mode: Safe Sandbox Dry-Run (Recommended)</option>
-          <option value="live">Mode: Live Cluster Execution (kubectl)</option>
-        </select>
-
-        <div class="flex items-center gap-2">
-          <button onclick="dismissHitlModal()" class="px-3 py-2 rounded-lg border border-slate-700 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-semibold cursor-pointer">
-            Later
-          </button>
-          <button id="hitlModalApproveBtn" onclick="submitModalApproval()" class="inline-flex items-center justify-center gap-1.5 bg-gradient-to-r from-emerald-600 to-teal-500 hover:from-emerald-500 hover:to-teal-400 text-white font-bold px-4 py-2 rounded-lg text-xs shadow-lg transition cursor-pointer">
-            <i class="fa-solid fa-check-double"></i>
-            <span>Accept &amp; Delegate to Worker Agent</span>
-          </button>
+          <div id="a2aContainer" class="space-y-1.5 max-h-48 overflow-y-auto pr-1"></div>
         </div>
       </div>
-    </div>
-  </div>
-
-  <!-- Modal for viewing /.well-known/agent.json AgentCard -->
-  <div id="agentCardModal" class="fixed inset-0 bg-black/75 hidden items-center justify-center z-50 p-4">
-    <div class="bg-slate-900 border border-slate-700 rounded-xl max-w-2xl w-full p-4 shadow-2xl">
-      <div class="flex items-center justify-between pb-3 border-b border-slate-800">
-        <div class="text-xs font-bold text-white mono" id="modalTitle">GET /a2a/.../.well-known/agent.json</div>
-        <button onclick="closeAgentCardModal()" class="text-slate-400 hover:text-white text-sm cursor-pointer">
-          <i class="fa-solid fa-xmark"></i>
-        </button>
-      </div>
-      <pre id="modalBody" class="mt-3 bg-slate-950 p-3 rounded-lg text-[11px] mono text-emerald-300 overflow-x-auto max-h-[420px]"></pre>
-    </div>
-  </div>
+    </details>
+  </footer>
 
   <script>
     let latestState = null;
-    let activeModalIncidentId = null;
-    let dismissedIncidentIds = new Set();
+
+    // Friendly non-technical translations for each scenario
+    const FRIENDLY_COPY = {
+      oom_killed: {
+        headline: "Checkout Service Needs More Memory",
+        what_happened: "A surge in customer orders caused the Checkout service to run out of memory and restart.",
+        why_approve: "Safely increases memory from 512 MB to 1 GB so customer checkouts stop failing.",
+        risk_badge: "Low Risk • Safe Memory Upgrade",
+        downtime_badge: "Zero Downtime",
+        safety_badge: "Auto-Rollback Protected"
+      },
+      cpu_throttling: {
+        headline: "Website Storefront is Overloaded",
+        what_happened: "High visitor traffic is overloading the 2 active web servers, causing slow page loads.",
+        why_approve: "Adds 4 extra servers (2 → 6) so pages load fast again for all visitors.",
+        risk_badge: "Low Risk • Auto-Scaling",
+        downtime_badge: "Zero Downtime",
+        safety_badge: "Auto-Rollback Protected"
+      },
+      image_pull_backoff: {
+        headline: "Recent Order Update Needs Rollback",
+        what_happened: "A new software update for the Order service couldn't start properly.",
+        why_approve: "Instantly switches back to the previous stable version so orders keep processing.",
+        risk_badge: "Safe Version Restore",
+        downtime_badge: "Zero Downtime",
+        safety_badge: "Verified Stable Version"
+      }
+    };
 
     function escapeHtml(str) {
       if (str === null || str === undefined) return '';
@@ -283,11 +215,6 @@
         .replace(/</g, '&lt;')
         .replace(/>/g, '&gt;')
         .replace(/"/g, '&quot;');
-    }
-
-    function truncateText(str, maxLen = 78) {
-      if (!str) return '';
-      return str.length > maxLen ? str.slice(0, maxLen) + '...' : str;
     }
 
     async function fetchState() {
@@ -302,226 +229,212 @@
     }
 
     function renderDashboard(data) {
-      // 1. GCP Header Status
-      const gcp = data.gcp_status || {};
-      const gcpBadge = document.getElementById('gcpStatusBadge');
-      if (gcp.connected) {
-        gcpBadge.className = 'inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10.5px] font-semibold bg-emerald-500/15 text-emerald-400 border border-emerald-500/30';
-        gcpBadge.innerHTML = `<i class="fa-solid fa-circle text-[7px] animate-pulse"></i> Cloud Logging: ${escapeHtml(gcp.project_id)} (LIVE)`;
-      } else {
-        gcpBadge.className = 'inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10.5px] font-semibold bg-amber-500/15 text-amber-400 border border-amber-500/30';
-        gcpBadge.innerHTML = `<i class="fa-solid fa-circle text-[7px]"></i> Cloud Logging (${escapeHtml(gcp.project_id)})`;
-      }
-
-      // 2. Render Compact Logs with "View more"
-      const logs = data.logs || [];
-      document.getElementById('logCountBadge').textContent = `${logs.length} logs`;
-      const logsEl = document.getElementById('logsContainer');
-      logsEl.innerHTML = logs.map(log => {
-        const isErr = log.severity === 'CRITICAL' || log.severity === 'ERROR';
-        const borderCls = isErr ? 'border-rose-500/40 bg-rose-950/20' : 'border-slate-800 bg-slate-950/60';
-        const sevBadge = isErr
-          ? `<span class="px-1.5 py-0.5 text-[9px] mono font-bold rounded bg-rose-500/20 text-rose-400">${escapeHtml(log.severity)}</span>`
-          : `<span class="px-1.5 py-0.5 text-[9px] mono font-bold rounded bg-emerald-500/15 text-emerald-400">${escapeHtml(log.severity)}</span>`;
-
-        return `
-          <div class="p-2.5 rounded-lg border ${borderCls} text-xs">
-            <div class="flex items-center justify-between gap-1">
-              <div class="flex items-center gap-1.5 truncate">
-                ${sevBadge}
-                <span class="mono text-[10.5px] text-slate-200 font-semibold truncate">${escapeHtml(log.title || log.workload || log.source)}</span>
-              </div>
-              <span class="text-[9.5px] mono text-slate-500 shrink-0">${new Date(log.timestamp).toLocaleTimeString()}</span>
-            </div>
-            <div class="text-[11px] text-slate-300 mt-1">${escapeHtml(truncateText(log.message, 85))}</div>
-            <details class="mt-1">
-              <summary class="text-[10px] mono text-sky-400 cursor-pointer hover:underline">View more</summary>
-              <div class="mt-1.5 pt-1.5 border-t border-slate-800/80 text-[10.5px] text-slate-300 space-y-1">
-                <div>${escapeHtml(log.message)}</div>
-                <div class="mono text-[9.5px] text-slate-400">
-                  Cluster: ${escapeHtml(log.cluster)} | Namespace: ${escapeHtml(log.namespace)} | GCP Synced: ${log.persisted_to_gcp ? 'Yes' : 'Edge'}
-                </div>
-              </div>
-            </details>
-          </div>
-        `;
-      }).join('');
-
-      // 3. Render Compact Incidents + Auto-open Centered HITL Modal for new pending incidents
       const incidents = data.incidents || [];
-      const pendingIncidents = incidents.filter(i => i.status === 'AWAITING_HITL_APPROVAL');
-      document.getElementById('incidentCountBadge').textContent =
-        pendingIncidents.length > 0 ? `${pendingIncidents.length} Pending Approval` : `${incidents.length} Incidents`;
+      const pending = incidents.find(i => i.status === 'AWAITING_HITL_APPROVAL');
+      const latestResolved = incidents.find(i => i.status === 'RESOLVED');
 
-      // Automatically surface centered modal if there is an un-dismissed pending incident
-      const unDismissedPending = pendingIncidents.find(i => !dismissedIncidentIds.has(i.incident_id));
-      if (unDismissedPending && activeModalIncidentId !== unDismissedPending.incident_id) {
-        openHitlModal(unDismissedPending.incident_id);
-      }
+      // Update Agent Cards visual state
+      const watcherCard = document.getElementById('card-log-watcher-agent');
+      const orchCard = document.getElementById('card-lead-orchestrator-agent');
+      const workerCard = document.getElementById('card-gke-assist-agent');
 
-      const incEl = document.getElementById('incidentsContainer');
-      if (incidents.length === 0) {
-        incEl.innerHTML = `
-          <div class="h-full flex flex-col items-center justify-center text-center p-6 text-slate-400">
-            <div class="w-10 h-10 rounded-xl bg-slate-800 border border-slate-700 flex items-center justify-center text-amber-400 text-base mb-2">
-              <i class="fa-solid fa-radar"></i>
-            </div>
-            <div class="text-xs font-bold text-slate-200">No Active Incidents</div>
-            <p class="text-[11px] text-slate-400 max-w-xs mt-1">
-              Click <strong>"Trigger Incident"</strong> above to see the Log Watcher alert the Lead Orchestrator.
-            </p>
-          </div>
-        `;
+      watcherCard.classList.remove('agent-active');
+      orchCard.classList.remove('agent-active');
+      workerCard.classList.remove('agent-active');
+
+      if (pending) {
+        orchCard.classList.add('agent-active');
+        document.getElementById('badge-orchestrator').textContent = 'Waiting for You';
+        document.getElementById('badge-orchestrator').className = 'text-[10px] font-semibold px-2.5 py-1 rounded-full bg-rose-500/20 text-rose-300 animate-pulse';
+        document.getElementById('badge-worker').textContent = 'Ready to Fix';
       } else {
-        incEl.innerHTML = incidents.map(inc => renderCompactIncidentCard(inc)).join('');
+        document.getElementById('badge-orchestrator').textContent = 'All Clear';
+        document.getElementById('badge-orchestrator').className = 'text-[10px] font-semibold px-2.5 py-1 rounded-full bg-emerald-500/15 text-emerald-400';
+        document.getElementById('badge-worker').textContent = 'Standby';
       }
 
-      // 4. Render Compact A2A Stream with "View more"
+      // Render Center Stage
+      const stageEl = document.getElementById('centerStage');
+      if (pending) {
+        stageEl.innerHTML = renderCustomerApprovalCard(pending);
+      } else if (latestResolved) {
+        stageEl.innerHTML = renderResolvedCard(latestResolved);
+      } else {
+        stageEl.innerHTML = renderHealthyCard();
+      }
+
+      // Render bottom collapsed technical drawer
+      const logs = data.logs || [];
       const ledger = data.a2a_ledger || [];
-      document.getElementById('a2aCountBadge').textContent = `${ledger.length} Calls`;
-      const a2aEl = document.getElementById('a2aContainer');
-      if (ledger.length === 0) {
-        a2aEl.innerHTML = `
-          <div class="h-full flex flex-col items-center justify-center text-center p-6 text-slate-500 text-xs">
-            No A2A messages yet.
+      document.getElementById('techSummaryCount').textContent = `${logs.length} logs • ${ledger.length} A2A messages`;
+
+      document.getElementById('logsContainer').innerHTML = logs.slice(0, 8).map(log => `
+        <div class="p-2 rounded-lg bg-slate-900/90 border border-slate-800/80 text-[11px] flex items-center justify-between gap-2">
+          <div class="truncate">
+            <span class="font-bold ${log.severity === 'CRITICAL' || log.severity === 'ERROR' ? 'text-rose-400' : 'text-emerald-400'} mr-1.5">[${escapeHtml(log.severity)}]</span>
+            <span class="text-slate-300">${escapeHtml(log.title || log.message)}</span>
           </div>
-        `;
-      } else {
-        a2aEl.innerHTML = ledger.map(item => `
-          <div class="p-2.5 rounded-lg bg-slate-950/80 border border-indigo-500/25 text-xs">
-            <div class="flex items-center justify-between gap-1">
-              <div class="flex items-center gap-1.5 text-[11px] font-semibold text-slate-200 truncate">
-                <span class="text-sky-400">${escapeHtml(item.sender_name)}</span>
-                <i class="fa-solid fa-arrow-right text-[9px] text-slate-500"></i>
-                <span class="text-amber-400">${escapeHtml(item.recipient_name)}</span>
-              </div>
-              <span class="text-[9.5px] mono text-slate-500 shrink-0">${new Date(item.timestamp).toLocaleTimeString()}</span>
-            </div>
-            <div class="text-[10.5px] mono text-indigo-300 mt-0.5">${escapeHtml(item.skill_id)}</div>
-            <details class="mt-1">
-              <summary class="text-[10px] mono text-slate-400 cursor-pointer hover:text-white">View more</summary>
-              <div class="mt-1.5 pt-1.5 border-t border-slate-800 space-y-1">
-                <div class="text-[11px] text-slate-300">${escapeHtml(item.summary)}</div>
-                <pre class="p-2 rounded bg-slate-900 text-[9.5px] mono text-slate-300 overflow-x-auto max-h-40">${escapeHtml(JSON.stringify({ request: item.request, response: item.response }, null, 2))}</pre>
-              </div>
-            </details>
+          <span class="mono text-[10px] text-slate-500 shrink-0">${new Date(log.timestamp).toLocaleTimeString()}</span>
+        </div>
+      `).join('');
+
+      document.getElementById('a2aContainer').innerHTML = ledger.slice(0, 8).map(item => `
+        <div class="p-2 rounded-lg bg-slate-900/90 border border-slate-800/80 text-[11px] flex items-center justify-between gap-2">
+          <div class="truncate">
+            <span class="text-sky-400 font-semibold">${escapeHtml(item.sender_name)}</span>
+            <span class="text-slate-500 mx-1">→</span>
+            <span class="text-amber-300 font-semibold">${escapeHtml(item.recipient_name)}</span>
+            <span class="text-slate-400 ml-1">(${escapeHtml(item.skill_id)})</span>
           </div>
-        `).join('');
-      }
+          <span class="mono text-[10px] text-slate-500 shrink-0">${new Date(item.timestamp).toLocaleTimeString()}</span>
+        </div>
+      `).join('');
     }
 
-    function renderCompactIncidentCard(inc) {
+    function renderCustomerApprovalCard(inc) {
+      const scenarioId = (inc.log_entry && inc.log_entry.scenario_id) || 'oom_killed';
+      const copy = FRIENDLY_COPY[scenarioId] || FRIENDLY_COPY.oom_killed;
       const impact = inc.impact_analysis || {};
-      const isPending = inc.status === 'AWAITING_HITL_APPROVAL';
-      const statusBadge = isPending
-        ? `<span class="px-2 py-0.5 rounded-full text-[9.5px] mono font-bold bg-rose-500/20 text-rose-300 border border-rose-500/40">NEEDS APPROVAL</span>`
-        : `<span class="px-2 py-0.5 rounded-full text-[9.5px] mono font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500/40">RESOLVED</span>`;
-
-      const actionBtn = isPending ? `
-        <button onclick="openHitlModal('${escapeHtml(inc.incident_id)}')"
-          class="mt-2 w-full inline-flex items-center justify-center gap-1.5 bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold py-1.5 px-3 rounded-lg text-xs shadow transition cursor-pointer">
-          <i class="fa-solid fa-up-right-from-square"></i>
-          <span>Review Impact &amp; Approve in Center Modal</span>
-        </button>
-      ` : '';
 
       return `
-        <div class="p-3 rounded-xl bg-slate-950/90 border ${isPending ? 'border-rose-500/50' : 'border-emerald-500/30'} text-xs space-y-1.5">
-          <div class="flex items-start justify-between gap-2">
-            <div class="font-bold text-white truncate">${escapeHtml(inc.title)}</div>
-            ${statusBadge}
-          </div>
-          <div class="text-[11px] text-slate-300">
-            <strong>Impact:</strong> ${escapeHtml(truncateText(impact.business_impact, 95))}
+        <div class="glass border-2 border-amber-500/50 rounded-3xl p-6 sm:p-7 shadow-2xl space-y-5">
+          <!-- Top Alert Pill -->
+          <div class="flex items-center justify-between gap-2">
+            <span class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold bg-amber-500/20 text-amber-300 border border-amber-500/30">
+              <i class="fa-solid fa-bell animate-bounce"></i> Action Recommended by Lead Orchestrator
+            </span>
+            <span class="text-xs text-slate-400">1-Click Approval</span>
           </div>
 
-          ${actionBtn}
+          <!-- Plain-English Headline & Explanation -->
+          <div class="space-y-2">
+            <h2 class="text-xl sm:text-2xl font-extrabold text-white">${escapeHtml(copy.headline)}</h2>
+            <p class="text-sm text-slate-300 leading-relaxed">
+              ${escapeHtml(copy.what_happened)}
+            </p>
+          </div>
 
-          <details class="pt-1">
-            <summary class="text-[10px] mono text-amber-400 cursor-pointer hover:underline">View more</summary>
-            <div class="mt-2 pt-2 border-t border-slate-800 space-y-1.5 text-[11px] text-slate-300">
-              <div><strong>Target:</strong> <span class="mono">${escapeHtml(inc.namespace)}/${escapeHtml(inc.workload)}</span></div>
+          <!-- Recommended Fix Box (Simple & Reassuring) -->
+          <div class="p-4 rounded-2xl bg-emerald-950/30 border border-emerald-500/30 space-y-2">
+            <div class="text-xs font-bold text-emerald-400 uppercase tracking-wide flex items-center gap-1.5">
+              <i class="fa-solid fa-shield-heart"></i> Proposed Solution
+            </div>
+            <div class="text-sm text-white font-medium leading-relaxed">
+              ${escapeHtml(copy.why_approve)}
+            </div>
+
+            <!-- 3 Reassurance Pills so a non-tech customer feels confident approving -->
+            <div class="flex flex-wrap gap-2 pt-2">
+              <span class="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-slate-900/90 border border-slate-700 text-[11px] text-emerald-300 font-medium">
+                <i class="fa-solid fa-circle-check"></i> ${escapeHtml(copy.risk_badge)}
+              </span>
+              <span class="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-slate-900/90 border border-slate-700 text-[11px] text-sky-300 font-medium">
+                <i class="fa-solid fa-bolt"></i> ${escapeHtml(copy.downtime_badge)}
+              </span>
+              <span class="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-slate-900/90 border border-slate-700 text-[11px] text-indigo-300 font-medium">
+                <i class="fa-solid fa-rotate-left"></i> ${escapeHtml(copy.safety_badge)}
+              </span>
+            </div>
+          </div>
+
+          <!-- Primary 1-Click Approval Button -->
+          <div class="pt-1">
+            <button id="btnApproveMain" onclick="approveIncident('${escapeHtml(inc.incident_id)}')"
+              class="w-full py-3.5 px-6 rounded-2xl bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-400 hover:to-teal-400 text-slate-950 font-extrabold text-sm shadow-xl shadow-emerald-500/20 transition transform hover:scale-[1.01] cursor-pointer flex items-center justify-center gap-2">
+              <i class="fa-solid fa-check-circle text-base"></i>
+              <span>Approve &amp; Let Worker Agent Fix It Now</span>
+            </button>
+          </div>
+
+          <!-- Optional View More for technical curious users -->
+          <details class="pt-1 border-t border-slate-800/80">
+            <summary class="text-xs text-slate-400 hover:text-slate-200 cursor-pointer flex items-center justify-between pt-2">
+              <span>View more (Technical Root Cause &amp; Command)</span>
+              <i class="fa-solid fa-chevron-down text-[10px]"></i>
+            </summary>
+            <div class="mt-3 p-3.5 rounded-xl bg-slate-950/90 border border-slate-800 space-y-2 text-xs text-slate-300">
+              <div><strong>Technical Impact:</strong> ${escapeHtml(impact.business_impact)}</div>
               <div><strong>Root Cause:</strong> ${escapeHtml(impact.root_cause)}</div>
-              <div><strong>Remedy:</strong> <code class="text-emerald-300 mono">${escapeHtml(impact.recommended_kubectl)}</code></div>
-              ${inc.execution_result ? `
-                <div class="p-2 rounded bg-emerald-950/30 border border-emerald-500/30 text-emerald-200">
-                  <strong>Worker Agent:</strong> ${escapeHtml(inc.execution_result.sre_specialist_notes || 'Executed successfully')}
-                </div>
-              ` : ''}
+              <div>
+                <label class="block text-[11px] text-slate-400 mb-1">Command to be executed by Worker Agent:</label>
+                <input id="kubectl-${escapeHtml(inc.incident_id)}" type="text" value="${escapeHtml(impact.recommended_kubectl || '')}"
+                  class="w-full bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-1.5 text-[11px] mono text-emerald-300" />
+              </div>
             </div>
           </details>
         </div>
       `;
     }
 
-    function openHitlModal(incidentId) {
-      if (!latestState || !latestState.incidents) return;
-      const inc = latestState.incidents.find(i => i.incident_id === incidentId);
-      if (!inc) return;
-
-      activeModalIncidentId = incidentId;
-      dismissedIncidentIds.delete(incidentId);
+    function renderResolvedCard(inc) {
+      const scenarioId = (inc.log_entry && inc.log_entry.scenario_id) || 'oom_killed';
+      const copy = FRIENDLY_COPY[scenarioId] || FRIENDLY_COPY.oom_killed;
       const impact = inc.impact_analysis || {};
 
-      document.getElementById('hitlModalTitle').textContent = inc.title;
-      document.getElementById('hitlModalMeta').textContent =
-        `${inc.cluster} • ${inc.namespace}/${inc.workload} • ID: ${inc.incident_id}`;
-      document.getElementById('hitlModalImpact').textContent = impact.business_impact || '';
-      document.getElementById('hitlModalRemedy').textContent = impact.remedy_summary || '';
-      document.getElementById('hitlModalKubectl').value = impact.recommended_kubectl || '';
-      document.getElementById('hitlModalRca').textContent = impact.root_cause || '';
-      document.getElementById('hitlModalServices').textContent = (impact.affected_services || []).join(', ');
-      document.getElementById('hitlModalRollback').textContent = impact.rollback_plan || '';
+      return `
+        <div class="glass border border-emerald-500/40 rounded-3xl p-6 sm:p-7 text-center shadow-2xl space-y-4">
+          <div class="w-12 h-12 rounded-2xl bg-emerald-500/15 border border-emerald-500/30 flex items-center justify-center text-emerald-400 text-2xl mx-auto">
+            <i class="fa-solid fa-check"></i>
+          </div>
+          <div class="space-y-1">
+            <span class="text-xs font-bold uppercase tracking-wider text-emerald-400">Issue Resolved Automatically</span>
+            <h2 class="text-xl font-extrabold text-white">${escapeHtml(copy.headline)} — Fixed!</h2>
+            <p class="text-xs text-slate-300 max-w-md mx-auto leading-relaxed">
+              You approved the fix. The <strong>Worker Agent</strong> applied the solution and the <strong>Log Watcher</strong> confirmed all services are back to 100% health.
+            </p>
+          </div>
 
-      const btn = document.getElementById('hitlModalApproveBtn');
-      btn.disabled = false;
-      btn.innerHTML = `<i class="fa-solid fa-check-double"></i><span>Accept &amp; Delegate to Worker Agent</span>`;
-
-      const modal = document.getElementById('hitlCenterModal');
-      modal.classList.remove('hidden');
-      modal.classList.add('flex');
+          <details class="text-left pt-2 border-t border-slate-800/80">
+            <summary class="text-xs text-slate-400 hover:text-slate-200 cursor-pointer flex items-center justify-center gap-1.5">
+              <span>View more (What Worker Agent did)</span>
+              <i class="fa-solid fa-chevron-down text-[10px]"></i>
+            </summary>
+            <div class="mt-3 p-3.5 rounded-xl bg-slate-950/90 border border-slate-800 space-y-1.5 text-xs text-slate-300">
+              <div><strong>Summary:</strong> ${escapeHtml((inc.execution_result && inc.execution_result.sre_specialist_notes) || '')}</div>
+              <div class="mono text-[11px] text-emerald-300">Command: ${escapeHtml(impact.recommended_kubectl)}</div>
+            </div>
+          </details>
+        </div>
+      `;
     }
 
-    function dismissHitlModal() {
-      if (activeModalIncidentId) {
-        dismissedIncidentIds.add(activeModalIncidentId);
+    function renderHealthyCard() {
+      return `
+        <div class="glass border border-slate-800 rounded-3xl p-8 text-center shadow-xl space-y-3">
+          <div class="w-12 h-12 rounded-2xl bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center text-emerald-400 text-xl mx-auto">
+            <i class="fa-solid fa-shield-check"></i>
+          </div>
+          <h2 class="text-lg font-bold text-white">Your Cloud Environment is Healthy</h2>
+          <p class="text-xs text-slate-400 max-w-sm mx-auto leading-relaxed">
+            The <strong>Log Watcher</strong> and <strong>Lead Orchestrator</strong> are monitoring your services 24/7. Click <strong>"Simulate Issue"</strong> at the top right to see how an issue is caught and fixed.
+          </p>
+        </div>
+      `;
+    }
+
+    async function approveIncident(incidentId) {
+      const btn = document.getElementById('btnApproveMain');
+      const kubectlInput = document.getElementById(`kubectl-${incidentId}`);
+      if (btn) {
+        btn.disabled = true;
+        btn.innerHTML = `<i class="fa-solid fa-spinner fa-spin"></i><span>Worker Agent is fixing the issue...</span>`;
       }
-      const modal = document.getElementById('hitlCenterModal');
-      modal.classList.add('hidden');
-      modal.classList.remove('flex');
-    }
 
-    async function submitModalApproval() {
-      if (!activeModalIncidentId) return;
-      const incidentId = activeModalIncidentId;
-      const btn = document.getElementById('hitlModalApproveBtn');
-      const kubectlVal = document.getElementById('hitlModalKubectl').value;
-      const modeVal = document.getElementById('hitlModalMode').value;
-
-      btn.disabled = true;
-      btn.innerHTML = `<i class="fa-solid fa-spinner fa-spin"></i><span>Delegating to Worker Agent...</span>`;
-
-      highlightAgentCard('lead-orchestrator-agent');
-      setTimeout(() => highlightAgentCard('gke-assist-agent'), 350);
+      document.getElementById('card-gke-assist-agent').classList.add('agent-active');
 
       try {
         await fetch(`/api/incidents/${encodeURIComponent(incidentId)}/approve`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            approved_by: 'sre-lead@cognizant.com',
-            execution_mode: modeVal,
-            custom_kubectl: kubectlVal
+            approved_by: 'customer-admin',
+            execution_mode: 'dry_run',
+            custom_kubectl: kubectlInput ? kubectlInput.value : null
           })
         });
-        const modal = document.getElementById('hitlCenterModal');
-        modal.classList.add('hidden');
-        modal.classList.remove('flex');
-        activeModalIncidentId = null;
         await fetchState();
       } catch (err) {
         console.error('Approval failed:', err);
-        btn.disabled = false;
       }
     }
 
@@ -533,62 +446,33 @@
 
       btn.disabled = true;
       icon.className = 'fa-solid fa-spinner fa-spin';
-      text.textContent = 'Reporting...';
+      text.textContent = 'Detecting Issue...';
 
-      highlightAgentCard('log-watcher-agent');
-      setTimeout(() => highlightAgentCard('lead-orchestrator-agent'), 400);
+      document.getElementById('card-log-watcher-agent').classList.add('agent-active');
 
       try {
-        const res = await fetch('/api/simulate-incident', {
+        await fetch('/api/simulate-incident', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ scenario_id: scenarioId })
         });
-        const created = await res.json();
         await fetchState();
-        if (created && created.incident_id) {
-          openHitlModal(created.incident_id);
-        }
       } finally {
         btn.disabled = false;
-        icon.className = 'fa-solid fa-bolt';
-        text.textContent = 'Trigger Incident';
+        icon.className = 'fa-solid fa-play text-[10px]';
+        text.textContent = 'Simulate Issue';
       }
     }
 
     async function pollLiveCloudLogging() {
       const icon = document.getElementById('pollIcon');
-      icon.className = 'fa-solid fa-rotate fa-spin';
-      highlightAgentCard('log-watcher-agent');
+      if (icon) icon.className = 'fa-solid fa-rotate fa-spin mr-1';
       try {
         await fetch('/api/poll-cloud-logging', { method: 'POST' });
         await fetchState();
       } finally {
-        icon.className = 'fa-solid fa-rotate';
+        if (icon) icon.className = 'fa-solid fa-rotate mr-1';
       }
-    }
-
-    function highlightAgentCard(agentId) {
-      const el = document.getElementById(`card-${agentId}`);
-      if (!el) return;
-      el.classList.add('agent-pulse');
-      setTimeout(() => el.classList.remove('agent-pulse'), 1600);
-    }
-
-    async function openAgentCardModal(agentId) {
-      const res = await fetch(`/a2a/${encodeURIComponent(agentId)}/.well-known/agent.json`);
-      const card = await res.json();
-      document.getElementById('modalTitle').textContent = `GET /a2a/${agentId}/.well-known/agent.json`;
-      document.getElementById('modalBody').textContent = JSON.stringify(card, null, 2);
-      const modal = document.getElementById('agentCardModal');
-      modal.classList.remove('hidden');
-      modal.classList.add('flex');
-    }
-
-    function closeAgentCardModal() {
-      const modal = document.getElementById('agentCardModal');
-      modal.classList.add('hidden');
-      modal.classList.remove('flex');
     }
 
     fetchState();
