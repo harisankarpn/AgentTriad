@@ -1,0 +1,574 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>AgentTriad (AaaS) Control Plane — ADK + A2A Cloud Run Dashboard</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
+  <style>
+    body {
+      background-color: #0b1120;
+      color: #f8fafc;
+      font-family: 'Inter', sans-serif;
+    }
+    .mono {
+      font-family: 'JetBrains Mono', monospace;
+    }
+    ::-webkit-scrollbar {
+      width: 6px;
+      height: 6px;
+    }
+    ::-webkit-scrollbar-track {
+      background: #0f172a;
+    }
+    ::-webkit-scrollbar-thumb {
+      background: #334155;
+      border-radius: 4px;
+    }
+    .agent-pulse {
+      box-shadow: 0 0 0 2px rgba(56, 189, 248, 0.5), 0 0 18px rgba(56, 189, 248, 0.25);
+    }
+  </style>
+</head>
+<body class="min-h-screen flex flex-col p-4 gap-4">
+
+  <!-- Top Header & Controls -->
+  <header class="max-w-[1440px] w-full mx-auto bg-slate-900/90 border border-slate-800 rounded-xl p-4 shadow-lg">
+    <div class="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+      <div>
+        <div class="flex items-center gap-2 mb-1">
+          <span class="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-indigo-500/15 text-indigo-400 border border-indigo-500/30">
+            <i class="fa-solid fa-cubes"></i> Google Cloud ADK + A2A Protocol PoC
+          </span>
+          <span id="gcpStatusBadge" class="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-emerald-500/15 text-emerald-400 border border-emerald-500/30">
+            <i class="fa-solid fa-circle text-[7px] animate-pulse"></i> GCP Cloud Logging: Connecting...
+          </span>
+          <span id="suppressedBadge" class="hidden sm:inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] mono bg-slate-800 text-slate-300 border border-slate-700">
+            Edge Suppressed: 14,352 logs
+          </span>
+        </div>
+        <h1 class="text-lg sm:text-xl font-extrabold text-white tracking-tight">
+          AgentTriad Control Plane Dashboard <span class="text-slate-400 font-normal text-sm">| Lead Orchestrator + Log Watcher + GKE Assist Bot</span>
+        </h1>
+      </div>
+
+      <!-- Action Bar: Simulate GKE Incident or Poll Live Logs -->
+      <div class="flex flex-wrap items-center gap-2">
+        <select id="scenarioSelect" class="bg-slate-950 border border-slate-700 text-slate-200 text-xs rounded-lg px-3 py-2 focus:outline-none focus:border-indigo-500">
+          <option value="oom_killed">Scenario 1: GKE Pod OOMKilled (Exit Code 137 - Checkout)</option>
+          <option value="cpu_throttling">Scenario 2: GKE High CPU Throttling &amp; JVM Contention</option>
+          <option value="image_pull_backoff">Scenario 3: Canary Rollout ImagePullBackOff</option>
+        </select>
+
+        <button id="btnSimulate" onclick="triggerSimulatedIncident()" class="inline-flex items-center gap-1.5 bg-gradient-to-r from-rose-600 to-orange-600 hover:from-rose-500 hover:to-orange-500 text-white text-xs font-bold px-3.5 py-2 rounded-lg shadow transition cursor-pointer">
+          <i class="fa-solid fa-bolt" id="simIcon"></i>
+          <span id="simBtnText">Inject GKE Error Log</span>
+        </button>
+
+        <button id="btnPoll" onclick="pollLiveCloudLogging()" class="inline-flex items-center gap-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 text-xs font-semibold px-3 py-2 rounded-lg transition cursor-pointer">
+          <i class="fa-solid fa-rotate" id="pollIcon"></i>
+          <span>Poll Cloud Logging</span>
+        </button>
+      </div>
+    </div>
+
+    <!-- 3-Agent Triad Topology Strip -->
+    <div class="grid grid-cols-1 md:grid-cols-3 gap-3 mt-4 pt-3 border-t border-slate-800/80">
+      <!-- Agent 1: Watcher -->
+      <div id="card-log-watcher-agent" class="bg-slate-950/80 border border-sky-500/30 rounded-xl p-3 flex flex-col justify-between transition">
+        <div class="flex items-start justify-between gap-2">
+          <div class="flex items-center gap-2.5">
+            <div class="w-8 h-8 rounded-lg bg-sky-500/15 border border-sky-500/30 flex items-center justify-center text-sky-400">
+              <i class="fa-solid fa-satellite-dish"></i>
+            </div>
+            <div>
+              <div class="text-xs font-bold text-white flex items-center gap-1.5">
+                1. Cloud Logging Watcher
+                <span class="px-1.5 py-0.2 text-[9px] mono rounded bg-sky-500/20 text-sky-300">ADK</span>
+              </div>
+              <div class="text-[10.5px] text-slate-400">Monitors GCP Cloud Logging &amp; reports alerts</div>
+            </div>
+          </div>
+          <span id="status-log-watcher-agent" class="text-[10px] mono font-bold text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 px-2 py-0.5 rounded">ONLINE</span>
+        </div>
+        <div class="mt-2 pt-2 border-t border-slate-800/70 flex items-center justify-between text-[10px] text-slate-400">
+          <span class="mono text-sky-400">A2A → Lead Orchestrator (`ingest_anomaly_alert`)</span>
+          <button onclick="openAgentCardModal('log-watcher-agent')" class="text-slate-300 hover:text-white underline cursor-pointer">AgentCard</button>
+        </div>
+      </div>
+
+      <!-- Agent 2: Lead Orchestrator -->
+      <div id="card-lead-orchestrator-agent" class="bg-slate-950/90 border-2 border-amber-500/40 rounded-xl p-3 flex flex-col justify-between transition">
+        <div class="flex items-start justify-between gap-2">
+          <div class="flex items-center gap-2.5">
+            <div class="w-8 h-8 rounded-lg bg-amber-500/15 border border-amber-500/30 flex items-center justify-center text-amber-400">
+              <i class="fa-solid fa-brain"></i>
+            </div>
+            <div>
+              <div class="text-xs font-bold text-white flex items-center gap-1.5">
+                2. Lead Orchestrator Agent
+                <span class="px-1.5 py-0.2 text-[9px] mono rounded bg-amber-500/20 text-amber-300">HUB / ADK</span>
+              </div>
+              <div class="text-[10.5px] text-slate-400">Monitors all agents, computes Impact &amp; Remedy, gates HITL</div>
+            </div>
+          </div>
+          <span id="status-lead-orchestrator-agent" class="text-[10px] mono font-bold text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 px-2 py-0.5 rounded">SUPERVISING</span>
+        </div>
+        <div class="mt-2 pt-2 border-t border-slate-800/70 flex items-center justify-between text-[10px] text-slate-400">
+          <span class="mono text-amber-400">A2A → GKE Assist (`execute_gke_remediation`)</span>
+          <button onclick="openAgentCardModal('lead-orchestrator-agent')" class="text-slate-300 hover:text-white underline cursor-pointer">AgentCard</button>
+        </div>
+      </div>
+
+      <!-- Agent 3: GKE Assist Bot -->
+      <div id="card-gke-assist-agent" class="bg-slate-950/80 border border-emerald-500/30 rounded-xl p-3 flex flex-col justify-between transition">
+        <div class="flex items-start justify-between gap-2">
+          <div class="flex items-center gap-2.5">
+            <div class="w-8 h-8 rounded-lg bg-emerald-500/15 border border-emerald-500/30 flex items-center justify-center text-emerald-400">
+              <i class="fa-solid fa-screwdriver-wrench"></i>
+            </div>
+            <div>
+              <div class="text-xs font-bold text-white flex items-center gap-1.5">
+                3. GKE Assist Bot
+                <span class="px-1.5 py-0.2 text-[9px] mono rounded bg-emerald-500/20 text-emerald-300">ADK</span>
+              </div>
+              <div class="text-[10.5px] text-slate-400">Verifies JIT token &amp; executes approved GKE remedy</div>
+            </div>
+          </div>
+          <span id="status-gke-assist-agent" class="text-[10px] mono font-bold text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 px-2 py-0.5 rounded">STANDBY</span>
+        </div>
+        <div class="mt-2 pt-2 border-t border-slate-800/70 flex items-center justify-between text-[10px] text-slate-400">
+          <span class="mono text-emerald-400">Agent Harness (WIF JIT + `.tflock` + OPA)</span>
+          <button onclick="openAgentCardModal('gke-assist-agent')" class="text-slate-300 hover:text-white underline cursor-pointer">AgentCard</button>
+        </div>
+      </div>
+    </div>
+  </header>
+
+  <!-- Main 3-Column Workspace -->
+  <main class="max-w-[1440px] w-full mx-auto grid grid-cols-1 lg:grid-cols-12 gap-4 flex-grow">
+
+    <!-- COLUMN 1 (3 cols): Cloud Logging Stream (Agent 1) -->
+    <section class="lg:col-span-3 bg-slate-900/80 border border-slate-800 rounded-xl p-3.5 flex flex-col h-[640px]">
+      <div class="flex items-center justify-between pb-2.5 border-b border-slate-800">
+        <div class="flex items-center gap-2">
+          <i class="fa-solid fa-terminal text-sky-400 text-xs"></i>
+          <h2 class="text-xs font-bold uppercase tracking-wider text-slate-200">Cloud Logging Feed</h2>
+        </div>
+        <span id="logCountBadge" class="text-[10px] mono px-2 py-0.5 rounded bg-slate-800 text-slate-400">0 entries</span>
+      </div>
+
+      <div id="logsContainer" class="mt-3 space-y-2.5 overflow-y-auto flex-grow pr-1">
+        <!-- Populated dynamically -->
+      </div>
+    </section>
+
+    <!-- COLUMN 2 (5 cols): Lead Orchestrator Impact Analysis, HITL Approval & GKE Assist Output -->
+    <section class="lg:col-span-5 bg-slate-900/90 border border-amber-500/30 rounded-xl p-4 flex flex-col h-[640px]">
+      <div class="flex items-center justify-between pb-2.5 border-b border-slate-800">
+        <div class="flex items-center gap-2">
+          <i class="fa-solid fa-shield-halved text-amber-400 text-sm"></i>
+          <h2 class="text-xs font-bold uppercase tracking-wider text-white">
+            Lead Orchestrator — Impact Analysis &amp; HITL Control
+          </h2>
+        </div>
+        <span id="incidentCountBadge" class="text-[10px] mono px-2 py-0.5 rounded bg-amber-500/15 text-amber-300 border border-amber-500/30">
+          0 Active Incidents
+        </span>
+      </div>
+
+      <div id="incidentsContainer" class="mt-3 space-y-4 overflow-y-auto flex-grow pr-1">
+        <!-- Empty state or active incident cards -->
+      </div>
+    </section>
+
+    <!-- COLUMN 3 (4 cols): Live A2A Protocol Message Trace -->
+    <section class="lg:col-span-4 bg-slate-900/80 border border-slate-800 rounded-xl p-3.5 flex flex-col h-[640px]">
+      <div class="flex items-center justify-between pb-2.5 border-b border-slate-800">
+        <div class="flex items-center gap-2">
+          <i class="fa-solid fa-network-wired text-indigo-400 text-xs"></i>
+          <h2 class="text-xs font-bold uppercase tracking-wider text-slate-200">
+            A2A Protocol Inspector (JSON-RPC 2.0)
+          </h2>
+        </div>
+        <span id="a2aCountBadge" class="text-[10px] mono px-2 py-0.5 rounded bg-indigo-500/15 text-indigo-300 border border-indigo-500/30">
+          0 Handshakes
+        </span>
+      </div>
+
+      <div id="a2aContainer" class="mt-3 space-y-2.5 overflow-y-auto flex-grow pr-1">
+        <!-- Populated dynamically -->
+      </div>
+    </section>
+
+  </main>
+
+  <!-- Modal for viewing /.well-known/agent.json AgentCard -->
+  <div id="agentCardModal" class="fixed inset-0 bg-black/75 hidden items-center justify-center z-50 p-4">
+    <div class="bg-slate-900 border border-slate-700 rounded-xl max-w-2xl w-full p-4 shadow-2xl">
+      <div class="flex items-center justify-between pb-3 border-b border-slate-800">
+        <div class="text-xs font-bold text-white mono" id="modalTitle">GET /a2a/.../.well-known/agent.json</div>
+        <button onclick="closeAgentCardModal()" class="text-slate-400 hover:text-white text-sm cursor-pointer">
+          <i class="fa-solid fa-xmark"></i>
+        </button>
+      </div>
+      <pre id="modalBody" class="mt-3 bg-slate-950 p-3 rounded-lg text-[11px] mono text-emerald-300 overflow-x-auto max-h-[420px]"></pre>
+    </div>
+  </div>
+
+  <script>
+    let latestState = null;
+
+    function escapeHtml(str) {
+      if (str === null || str === undefined) return '';
+      return String(str)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;');
+    }
+
+    async function fetchState() {
+      try {
+        const res = await fetch('/api/state');
+        const data = await res.json();
+        latestState = data;
+        renderDashboard(data);
+      } catch (err) {
+        console.error('Failed to fetch state:', err);
+      }
+    }
+
+    function renderDashboard(data) {
+      // 1. GCP Header Status
+      const gcp = data.gcp_status || {};
+      const gcpBadge = document.getElementById('gcpStatusBadge');
+      if (gcp.connected) {
+        gcpBadge.className = 'inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-emerald-500/15 text-emerald-400 border border-emerald-500/30';
+        gcpBadge.innerHTML = `<i class="fa-solid fa-circle text-[7px] animate-pulse"></i> GCP Cloud Logging: ${escapeHtml(gcp.project_id)} (LIVE)`;
+      } else {
+        gcpBadge.className = 'inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-amber-500/15 text-amber-400 border border-amber-500/30';
+        gcpBadge.innerHTML = `<i class="fa-solid fa-circle text-[7px]"></i> Cloud Logging Hybrid Buffer (${escapeHtml(gcp.project_id)})`;
+      }
+      document.getElementById('suppressedBadge').textContent =
+        `Edge Suppressed: ${(gcp.suppressed_routine_logs || 0).toLocaleString()} routine logs`;
+
+      // 2. Render Logs
+      const logs = data.logs || [];
+      document.getElementById('logCountBadge').textContent = `${logs.length} entries`;
+      const logsEl = document.getElementById('logsContainer');
+      logsEl.innerHTML = logs.map(log => {
+        const isErr = log.severity === 'CRITICAL' || log.severity === 'ERROR';
+        const borderCls = isErr ? 'border-rose-500/40 bg-rose-950/20' : 'border-slate-800 bg-slate-950/60';
+        const sevBadge = isErr
+          ? `<span class="px-1.5 py-0.5 text-[9px] mono font-bold rounded bg-rose-500/20 text-rose-400 border border-rose-500/30">${escapeHtml(log.severity)}</span>`
+          : `<span class="px-1.5 py-0.5 text-[9px] mono font-bold rounded bg-emerald-500/15 text-emerald-400">${escapeHtml(log.severity)}</span>`;
+        const gcpTag = log.persisted_to_gcp
+          ? `<span class="text-[9px] mono text-sky-400"><i class="fa-solid fa-cloud-arrow-up"></i> GCP</span>`
+          : `<span class="text-[9px] mono text-slate-500">Edge</span>`;
+
+        return `
+          <div class="p-2.5 rounded-lg border ${borderCls} text-xs space-y-1">
+            <div class="flex items-center justify-between gap-1">
+              <div class="flex items-center gap-1.5">
+                ${sevBadge}
+                <span class="mono text-[10px] text-slate-300 font-semibold truncate max-w-[140px]">${escapeHtml(log.workload || log.source)}</span>
+              </div>
+              ${gcpTag}
+            </div>
+            <div class="text-[11px] text-slate-200 leading-snug">${escapeHtml(log.message)}</div>
+            <div class="flex items-center justify-between text-[9.5px] mono text-slate-500 pt-1">
+              <span>${escapeHtml(log.namespace || 'default')}</span>
+              <span>${new Date(log.timestamp).toLocaleTimeString()}</span>
+            </div>
+          </div>
+        `;
+      }).join('');
+
+      // 3. Render Incidents in Lead Orchestrator Column
+      const incidents = data.incidents || [];
+      const pendingCount = incidents.filter(i => i.status === 'AWAITING_HITL_APPROVAL').length;
+      document.getElementById('incidentCountBadge').textContent =
+        pendingCount > 0 ? `${pendingCount} Awaiting User Approval` : `${incidents.length} Total Incidents`;
+
+      const incEl = document.getElementById('incidentsContainer');
+      if (incidents.length === 0) {
+        incEl.innerHTML = `
+          <div class="h-full flex flex-col items-center justify-center text-center p-6 text-slate-400">
+            <div class="w-12 h-12 rounded-2xl bg-slate-800/80 border border-slate-700 flex items-center justify-center text-amber-400 text-xl mb-3">
+              <i class="fa-solid fa-radar"></i>
+            </div>
+            <div class="text-sm font-bold text-slate-200">Lead Orchestrator Monitoring All Agents</div>
+            <p class="text-xs text-slate-400 max-w-sm mt-1 leading-relaxed">
+              Click <strong>"Inject GKE Error Log"</strong> above to write an anomaly to Cloud Logging.
+              The <strong>Log Watcher Agent</strong> will report it via <strong>A2A</strong> to the
+              <strong>Lead Orchestrator</strong>, which will analyze the impact &amp; remedy and alert you here.
+            </p>
+          </div>
+        `;
+      } else {
+        incEl.innerHTML = incidents.map(inc => renderIncidentCard(inc)).join('');
+      }
+
+      // 4. Render A2A Ledger
+      const ledger = data.a2a_ledger || [];
+      document.getElementById('a2aCountBadge').textContent = `${ledger.length} A2A Calls`;
+      const a2aEl = document.getElementById('a2aContainer');
+      if (ledger.length === 0) {
+        a2aEl.innerHTML = `
+          <div class="h-full flex flex-col items-center justify-center text-center p-6 text-slate-500 text-xs">
+            <i class="fa-solid fa-code-commit text-2xl mb-2 text-slate-600"></i>
+            No A2A JSON-RPC messages exchanged yet. Trigger an incident to inspect live Agent2Agent handshakes.
+          </div>
+        `;
+      } else {
+        a2aEl.innerHTML = ledger.map((item, idx) => `
+          <div class="p-2.5 rounded-lg bg-slate-950/80 border border-indigo-500/25 text-xs space-y-1.5">
+            <div class="flex items-center justify-between">
+              <span class="px-1.5 py-0.5 rounded bg-indigo-500/20 text-indigo-300 mono text-[9.5px] font-bold">
+                A2A JSON-RPC 2.0 • ${escapeHtml(item.skill_id)}
+              </span>
+              <span class="text-[9.5px] mono text-slate-500">${new Date(item.timestamp).toLocaleTimeString()}</span>
+            </div>
+            <div class="flex items-center gap-1.5 text-[11px] font-semibold text-slate-200">
+              <span class="text-sky-400">${escapeHtml(item.sender_name)}</span>
+              <i class="fa-solid fa-arrow-right text-[10px] text-slate-500"></i>
+              <span class="text-amber-400">${escapeHtml(item.recipient_name)}</span>
+            </div>
+            <div class="text-[11px] text-slate-300 leading-snug">${escapeHtml(item.summary)}</div>
+            <details class="pt-1">
+              <summary class="text-[10px] mono text-indigo-400 cursor-pointer hover:underline">
+                Inspect JSON-RPC Request &amp; Response Payload
+              </summary>
+              <pre class="mt-1.5 p-2 rounded bg-slate-900 text-[10px] mono text-slate-300 overflow-x-auto max-h-48">${escapeHtml(JSON.stringify({ request: item.request, response: item.response }, null, 2))}</pre>
+            </details>
+          </div>
+        `).join('');
+      }
+    }
+
+    function renderIncidentCard(inc) {
+      const impact = inc.impact_analysis || {};
+      const isPending = inc.status === 'AWAITING_HITL_APPROVAL';
+      const statusBadge = isPending
+        ? `<span class="px-2 py-0.5 rounded-full text-[10px] mono font-bold bg-rose-500/20 text-rose-300 border border-rose-500/40 animate-pulse"><i class="fa-solid fa-triangle-exclamation mr-1"></i>AWAITING USER APPROVAL</span>`
+        : `<span class="px-2 py-0.5 rounded-full text-[10px] mono font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500/40"><i class="fa-solid fa-circle-check mr-1"></i>RESOLVED &amp; VERIFIED</span>`;
+
+      const affectedPills = (impact.affected_services || []).map(s =>
+        `<span class="px-2 py-0.5 rounded bg-slate-800 border border-slate-700 text-[10px] mono text-rose-300">${escapeHtml(s)}</span>`
+      ).join(' ');
+
+      const approvalSection = isPending ? `
+        <div class="mt-3 p-3 rounded-xl bg-amber-500/10 border border-amber-500/30 space-y-2.5">
+          <div class="flex items-center justify-between">
+            <span class="text-[11px] font-bold text-amber-300 uppercase tracking-wider">
+              <i class="fa-solid fa-user-check mr-1"></i> Stage 2 HITL Authorization Gate
+            </span>
+            <span class="text-[10px] mono text-slate-400">${escapeHtml(impact.reasoning_engine || '')}</span>
+          </div>
+
+          <div>
+            <label class="block text-[10px] mono text-slate-400 mb-1">Recommended GKE Remediation Command (Editable before approval):</label>
+            <input id="kubectl-${escapeHtml(inc.incident_id)}" type="text" value="${escapeHtml(impact.recommended_kubectl || '')}"
+              class="w-full bg-slate-950 border border-slate-700 rounded-lg px-2.5 py-1.5 text-[11px] mono text-emerald-300 focus:outline-none focus:border-emerald-500" />
+          </div>
+
+          <div class="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-2 pt-1">
+            <select id="mode-${escapeHtml(inc.incident_id)}" class="bg-slate-950 border border-slate-700 text-slate-200 text-[11px] rounded-lg px-2.5 py-1.5">
+              <option value="dry_run">Mode: Safe Sandbox Dry-Run + Canary (Recommended)</option>
+              <option value="live">Mode: Live GKE Cluster Execution (kubectl)</option>
+            </select>
+
+            <button onclick="approveAndDelegate('${escapeHtml(inc.incident_id)}')" id="btn-approve-${escapeHtml(inc.incident_id)}"
+              class="inline-flex items-center justify-center gap-1.5 bg-gradient-to-r from-emerald-600 to-teal-500 hover:from-emerald-500 hover:to-teal-400 text-white font-bold px-4 py-2 rounded-lg text-xs shadow-lg transition cursor-pointer">
+              <i class="fa-solid fa-signature"></i>
+              <span>Accept &amp; Delegate to GKE Assist Bot</span>
+            </button>
+          </div>
+        </div>
+      ` : `
+        <div class="mt-3 p-3 rounded-xl bg-emerald-950/30 border border-emerald-500/30 space-y-2">
+          <div class="flex items-center justify-between">
+            <span class="text-[11px] font-bold text-emerald-400 uppercase tracking-wider">
+              <i class="fa-solid fa-robot mr-1"></i> GKE Assist Bot Execution Receipt (via A2A)
+            </span>
+            <span class="text-[10px] mono text-emerald-300">
+              JIT Token: ${escapeHtml((inc.jit_token && inc.jit_token.token_id) ? inc.jit_token.token_id.slice(0, 20) + '...' : 'Verified')}
+            </span>
+          </div>
+          <div class="text-[11px] text-slate-200 leading-relaxed bg-slate-950/70 p-2 rounded border border-slate-800">
+            ${escapeHtml((inc.execution_result && inc.execution_result.sre_specialist_notes) || '')}
+          </div>
+          <div class="space-y-1 text-[10.5px] mono text-slate-300">
+            ${((inc.execution_result && inc.execution_result.steps) || []).map(s => `<div>• ${escapeHtml(s)}</div>`).join('')}
+          </div>
+          ${inc.verification_result ? `
+            <div class="pt-2 border-t border-emerald-500/20 flex items-center justify-between text-[10.5px] mono text-emerald-300">
+              <span><i class="fa-solid fa-heart-pulse mr-1"></i>Watchdog: ${escapeHtml(inc.verification_result.status)}</span>
+              <span>P99: ${escapeHtml(inc.verification_result.post_metrics?.p99_latency_ms)}ms | Errors: 0%</span>
+            </div>
+          ` : ''}
+        </div>
+      `;
+
+      const timelineHtml = (inc.timeline || []).map(t => `
+        <div class="flex items-start gap-2 text-[10.5px]">
+          <span class="mono text-slate-500 shrink-0">${new Date(t.timestamp).toLocaleTimeString()}</span>
+          <span class="font-semibold text-amber-300 shrink-0">[${escapeHtml(t.agent)}]</span>
+          <span class="text-slate-300">${escapeHtml(t.event)}</span>
+        </div>
+      `).join('');
+
+      return `
+        <div class="p-3.5 rounded-xl bg-slate-950/90 border ${isPending ? 'border-rose-500/40' : 'border-emerald-500/30'} space-y-2.5 shadow">
+          <div class="flex items-start justify-between gap-2">
+            <div>
+              <div class="text-xs font-extrabold text-white">${escapeHtml(inc.title)}</div>
+              <div class="text-[10.5px] mono text-slate-400">
+                ${escapeHtml(inc.cluster)} • ${escapeHtml(inc.namespace)}/${escapeHtml(inc.workload)} • ID: ${escapeHtml(inc.incident_id)}
+              </div>
+            </div>
+            ${statusBadge}
+          </div>
+
+          <!-- Impact Analysis Box computed by Lead Orchestrator -->
+          <div class="p-2.5 rounded-lg bg-rose-950/25 border border-rose-500/30 space-y-1.5">
+            <div class="flex items-center justify-between text-[10.5px] font-bold text-rose-300 uppercase">
+              <span><i class="fa-solid fa-fire-flame-curved mr-1"></i>Impact &amp; Blast Radius (${escapeHtml(impact.blast_radius_tier)})</span>
+              <span class="mono text-[10px] text-amber-300">${escapeHtml(impact.playbook_id)}</span>
+            </div>
+            <div class="text-xs text-slate-200 leading-snug">
+              <strong>Business/SLO Impact:</strong> ${escapeHtml(impact.business_impact)}
+            </div>
+            <div class="text-xs text-slate-300 leading-snug">
+              <strong>Root Cause (RCA):</strong> ${escapeHtml(impact.root_cause)}
+            </div>
+            <div class="flex flex-wrap gap-1 pt-1">
+              ${affectedPills}
+            </div>
+          </div>
+
+          <!-- Proposed Remedy Summary -->
+          <div class="p-2.5 rounded-lg bg-slate-900 border border-slate-800 space-y-1 text-xs">
+            <div class="text-[10.5px] font-bold text-emerald-400 uppercase">
+              <i class="fa-solid fa-wand-magic-sparkles mr-1"></i>Lead Orchestrator Recommended Remedy
+            </div>
+            <div class="text-slate-200 leading-snug">${escapeHtml(impact.remedy_summary)}</div>
+            <div class="text-[10.5px] text-slate-400">
+              <strong>Fail-Safe Rollback Plan:</strong> ${escapeHtml(impact.rollback_plan)}
+            </div>
+          </div>
+
+          ${approvalSection}
+
+          <details class="pt-1">
+            <summary class="text-[10.5px] mono text-slate-400 cursor-pointer hover:text-slate-200">
+              View Multi-Agent Audit Trail (${(inc.timeline || []).length} events)
+            </summary>
+            <div class="mt-2 space-y-1.5 pl-2 border-l-2 border-slate-800">
+              ${timelineHtml}
+            </div>
+          </details>
+        </div>
+      `;
+    }
+
+    async function triggerSimulatedIncident() {
+      const btn = document.getElementById('btnSimulate');
+      const icon = document.getElementById('simIcon');
+      const text = document.getElementById('simBtnText');
+      const scenarioId = document.getElementById('scenarioSelect').value;
+
+      btn.disabled = true;
+      icon.className = 'fa-solid fa-spinner fa-spin';
+      text.textContent = 'Reporting via A2A...';
+
+      highlightAgentCard('log-watcher-agent');
+      setTimeout(() => highlightAgentCard('lead-orchestrator-agent'), 400);
+
+      try {
+        await fetch('/api/simulate-incident', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ scenario_id: scenarioId })
+        });
+        await fetchState();
+      } finally {
+        btn.disabled = false;
+        icon.className = 'fa-solid fa-bolt';
+        text.textContent = 'Inject GKE Error Log';
+      }
+    }
+
+    async function pollLiveCloudLogging() {
+      const icon = document.getElementById('pollIcon');
+      icon.className = 'fa-solid fa-rotate fa-spin';
+      highlightAgentCard('log-watcher-agent');
+      try {
+        await fetch('/api/poll-cloud-logging', { method: 'POST' });
+        await fetchState();
+      } finally {
+        icon.className = 'fa-solid fa-rotate';
+      }
+    }
+
+    async function approveAndDelegate(incidentId) {
+      const btn = document.getElementById(`btn-approve-${incidentId}`);
+      const kubectlInput = document.getElementById(`kubectl-${incidentId}`);
+      const modeSelect = document.getElementById(`mode-${incidentId}`);
+
+      if (btn) {
+        btn.disabled = true;
+        btn.innerHTML = `<i class="fa-solid fa-spinner fa-spin"></i> Delegating to GKE Assist via A2A...`;
+      }
+
+      highlightAgentCard('lead-orchestrator-agent');
+      setTimeout(() => highlightAgentCard('gke-assist-agent'), 350);
+
+      try {
+        await fetch(`/api/incidents/${encodeURIComponent(incidentId)}/approve`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            approved_by: 'sre-lead@cognizant.com',
+            execution_mode: modeSelect ? modeSelect.value : 'dry_run',
+            custom_kubectl: kubectlInput ? kubectlInput.value : null
+          })
+        });
+        await fetchState();
+      } catch (err) {
+        console.error('Approval failed:', err);
+      }
+    }
+
+    function highlightAgentCard(agentId) {
+      const el = document.getElementById(`card-${agentId}`);
+      if (!el) return;
+      el.classList.add('agent-pulse');
+      setTimeout(() => el.classList.remove('agent-pulse'), 1600);
+    }
+
+    async function openAgentCardModal(agentId) {
+      const res = await fetch(`/a2a/${encodeURIComponent(agentId)}/.well-known/agent.json`);
+      const card = await res.json();
+      document.getElementById('modalTitle').textContent = `GET /a2a/${agentId}/.well-known/agent.json`;
+      document.getElementById('modalBody').textContent = JSON.stringify(card, null, 2);
+      const modal = document.getElementById('agentCardModal');
+      modal.classList.remove('hidden');
+      modal.classList.add('flex');
+    }
+
+    function closeAgentCardModal() {
+      const modal = document.getElementById('agentCardModal');
+      modal.classList.add('hidden');
+      modal.classList.remove('flex');
+    }
+
+    // Initial load + periodic refresh
+    fetchState();
+    setInterval(fetchState, 5000);
+  </script>
+</body>
+</html>

@@ -1,0 +1,504 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AaaS PoC Architecture & Flow Diagram</title>
+    <link href="https://fonts.googleapis.com/css2?family=Google+Sans:wght@400;500;700&family=Roboto+Mono:wght@500;700&display=swap" rel="stylesheet">
+    <style>
+        * { box-sizing: border-box; }
+        body { 
+            font-family: 'Google Sans', sans-serif; 
+            background: #121316; 
+            color: #e8eaed; 
+            padding: 2rem; 
+            margin: 0; 
+            line-height: 1.5; 
+        }
+        
+        .header { text-align: center; margin-bottom: 1.5rem; }
+        .header h1 { margin: 0; color: #f8f9fa; font-size: 1.8rem; }
+        .header p { color: #9aa0a6; margin-top: 0.25rem; font-size: 0.95rem; }
+
+        .diagram-wrapper {
+            position: relative;
+            max-width: 1240px;
+            margin: 0 auto;
+            background: #202124;
+            border: 1px solid #3c4043;
+            border-radius: 12px;
+            padding: 1.5rem;
+            box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
+        }
+
+        .controls-bar {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 1.5rem;
+            padding-bottom: 1rem;
+            border-bottom: 1px solid #3c4043;
+        }
+
+        .controls-bar .legend {
+            display: flex;
+            gap: 1.5rem;
+            font-size: 0.85rem;
+            font-weight: 500;
+        }
+        .legend-item { display: flex; align-items: center; gap: 0.4rem; color: #bdc1c6; }
+        .legend-color { width: 12px; height: 12px; border-radius: 3px; }
+
+        .btn-play {
+            background: #8ab4f8;
+            color: #202124;
+            border: none;
+            padding: 0.5rem 1rem;
+            border-radius: 6px;
+            font-weight: 700;
+            cursor: pointer;
+            display: inline-flex;
+            align-items: center;
+            gap: 0.4rem;
+            font-family: inherit;
+            transition: background 0.2s, box-shadow 0.2s;
+        }
+        .btn-play:hover { 
+            background: #aecbfa; 
+            box-shadow: 0 0 8px rgba(138, 180, 248, 0.4); 
+        }
+
+        /* Structural Architecture Grid */
+        .arch-grid { 
+            display: grid; 
+            grid-template-columns: repeat(3, 1fr); 
+            gap: 3.5rem; 
+            position: relative;
+            z-index: 2;
+        }
+        
+        .column { 
+            background: #292a2d; 
+            border: 1px solid #3c4043; 
+            border-radius: 10px; 
+            padding: 1.25rem; 
+            display: flex; 
+            flex-direction: column; 
+            gap: 1.5rem; 
+        }
+        .col-title { 
+            text-align: center; 
+            font-size: 0.95rem; 
+            color: #e8eaed; 
+            font-weight: 700; 
+            margin: 0; 
+            padding-bottom: 0.75rem; 
+            border-bottom: 1px solid #3c4043; 
+        }
+        
+        .node { 
+            background: #303134; 
+            border: 2px solid #5f6368; 
+            border-radius: 8px; 
+            padding: 0.75rem 1rem; 
+            text-align: center; 
+            font-weight: 500; 
+            font-size: 0.9rem;
+            transition: transform 0.2s, box-shadow 0.2s, border-color 0.2s; 
+            box-shadow: 0 2px 4px rgba(0,0,0,0.3); 
+            display: flex; 
+            align-items: center; 
+            justify-content: center; 
+            min-height: 70px;
+            position: relative;
+            cursor: pointer;
+            color: #e8eaed;
+        }
+        
+        /* Standard Google Dark Palette */
+        .node.trigger { border-color: #f28b82; background: rgba(242, 139, 130, 0.12); color: #f28b82; }
+        .node.telemetry { border-color: #8ab4f8; background: rgba(138, 180, 248, 0.12); color: #8ab4f8; }
+        .node.agent { border-color: #fdd663; background: rgba(253, 214, 99, 0.12); color: #fdd663; }
+        .node.data { border-color: #81c995; background: rgba(129, 201, 149, 0.12); color: #81c995; }
+        .node.ui { border-color: #c58af9; background: rgba(197, 138, 249, 0.12); color: #c58af9; }
+        .node.execution { border-color: #8ab4f8; background: #1a73e8; color: #ffffff; }
+        .node.human { border-color: #9aa0a6; border-style: dashed; background: #303134; color: #e8eaed; }
+        
+        .sub-group { 
+            border: 1px dashed #5f6368; 
+            padding: 0.9rem; 
+            border-radius: 8px; 
+            background: #202124; 
+            display: flex; 
+            flex-direction: column; 
+            gap: 1rem; 
+        }
+        .sub-title { 
+            font-size: 0.7rem; 
+            color: #9aa0a6; 
+            text-transform: uppercase; 
+            text-align: center; 
+            letter-spacing: 0.8px; 
+            font-weight: 700; 
+        }
+
+        /* Active / Highlight Styles */
+        .node.active-node {
+            transform: scale(1.04);
+            box-shadow: 0 0 0 3px #8ab4f8, 0 8px 20px rgba(0,0,0,0.6);
+            z-index: 10;
+        }
+        .node.dimmed { opacity: 0.25; filter: grayscale(90%); }
+
+        /* SVG Flow Overlay */
+        #flow-svg {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+            z-index: 5;
+        }
+
+        .flow-path {
+            stroke: #5f6368;
+            stroke-width: 2px;
+            fill: none;
+            stroke-dasharray: 6, 6;
+            transition: stroke 0.3s, stroke-width 0.3s;
+        }
+
+        .flow-path.active {
+            stroke: #8ab4f8;
+            stroke-width: 3.5px;
+            stroke-dasharray: none;
+            filter: drop-shadow(0 0 6px rgba(138, 180, 248, 0.6));
+        }
+
+        .flow-step-badge {
+            position: absolute;
+            z-index: 6;
+            background: #303134;
+            border: 1.5px solid #5f6368;
+            color: #e8eaed;
+            font-family: 'Roboto Mono', monospace;
+            font-size: 0.65rem;
+            font-weight: 700;
+            padding: 2px 6px;
+            border-radius: 4px;
+            white-space: nowrap;
+            transform: translate(-50%, -50%);
+            box-shadow: 0 2px 6px rgba(0,0,0,0.5);
+            pointer-events: auto;
+            cursor: pointer;
+            transition: transform 0.2s, background-color 0.2s, color 0.2s, border-color 0.2s;
+        }
+
+        .flow-step-badge:hover {
+            border-color: #8ab4f8;
+            color: #8ab4f8;
+        }
+
+        .flow-step-badge.active {
+            background: #8ab4f8;
+            color: #202124;
+            border-color: #8ab4f8;
+            transform: translate(-50%, -50%) scale(1.15);
+            box-shadow: 0 0 10px rgba(138, 180, 248, 0.6);
+        }
+
+        @media (max-width: 960px) {
+            .arch-grid { grid-template-columns: 1fr; gap: 2rem; }
+            #flow-svg, .flow-step-badge { display: none; }
+        }
+    </style>
+</head>
+<body>
+
+    <div class="header">
+        <h1>AaaS PoC Architecture</h1>
+        <p>End-to-End Execution Trace & Dependency Flow</p>
+    </div>
+
+    <div class="diagram-wrapper" id="diagram-container">
+        
+        <div class="controls-bar">
+            <div class="legend">
+                <div class="legend-item"><span class="legend-color" style="background:#f28b82"></span> Trigger</div>
+                <div class="legend-item"><span class="legend-color" style="background:#fdd663"></span> Orchestration</div>
+                <div class="legend-item"><span class="legend-color" style="background:#81c995"></span> Knowledge</div>
+                <div class="legend-item"><span class="legend-color" style="background:#c58af9"></span> UI / Approval</div>
+                <div class="legend-item"><span class="legend-color" style="background:#8ab4f8"></span> Execution</div>
+            </div>
+            <button class="btn-play" id="btn-toggle-trace">▶ Auto Demo</button>
+        </div>
+
+        <!-- SVG Layer for Directed Flow Connections -->
+        <svg id="flow-svg">
+            <defs>
+                <marker id="arrow-default" markerWidth="7" markerHeight="7" refX="6" refY="3.5" orient="auto">
+                    <polygon points="0 0, 7 3.5, 0 7" fill="#5f6368" />
+                </marker>
+                <marker id="arrow-active" markerWidth="7" markerHeight="7" refX="6" refY="3.5" orient="auto">
+                    <polygon points="0 0, 7 3.5, 0 7" fill="#8ab4f8" />
+                </marker>
+            </defs>
+        </svg>
+
+        <!-- DOM Grid -->
+        <div class="arch-grid">
+            <!-- Environment Column -->
+            <div class="column">
+                <h2 class="col-title">☁️ GCP Sandbox - Test Env</h2>
+                <div class="node trigger" id="node-sim">⚠️ Simulated GKE Error</div>
+                <div class="node telemetry" id="node-telemetry">📊 Cloud Logging / Monitoring</div>
+            </div>
+
+            <!-- Platform Column -->
+            <div class="column">
+                <h2 class="col-title">🧠 AaaS Platform</h2>
+                
+                <div class="sub-group">
+                    <div class="sub-title">⚙️ Agent Harness Wrapper</div>
+                    <div class="node agent" id="node-agent">🤖 Vertex AI Orchestrator<br>(ReAct Loop)</div>
+                    <div class="node execution" id="node-sandbox">🛠️ Execution Sandbox<br>(Tool Control & Guardrails)</div>
+                </div>
+
+                <div class="sub-group">
+                    <div class="sub-title">📚 RAG Knowledge Base</div>
+                    <div class="node data" id="node-vector">🔍 Vertex AI Vector Search</div>
+                    <div class="node data" id="node-playbooks">📄 Golden Playbooks<br>(Synthetic Data)</div>
+                </div>
+            </div>
+
+            <!-- Interaction Column -->
+            <div class="column">
+                <h2 class="col-title">💻 User Interaction Layer</h2>
+                <div class="node ui" id="node-webui">🌐 Active Web UI Dashboard</div>
+                <div class="node human" id="node-hitl">👤 Stage 2 HITL<br>Review & Approve</div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const connections = [
+            // 1: Sim -> Telemetry (Straight down in Col 1)
+            { id: "edge-1", from: "node-sim", to: "node-telemetry", label: "1. Alert Fired", type: "straight-v" },
+
+            // 2: Telemetry -> Agent (Col 1 to Col 2 Top)
+            { id: "edge-2", from: "node-telemetry", to: "node-agent", label: "2. Ingest Anomaly", type: "cross-right", lane: 0.35 },
+
+            // 3: Agent -> Vector (Col 2 downward to internal DB)
+            { id: "edge-3", from: "node-agent", to: "node-vector", label: "3. Query Vectors", type: "internal-arc-right", offset: 36 },
+
+            // 4: Vector -> Playbooks (Straight down within Sub-group)
+            { id: "edge-4", from: "node-vector", to: "node-playbooks", label: "4. Load Playbook", type: "straight-v" },
+
+            // 5: Agent -> WebUI (Col 2 to Col 3 Top)
+            { id: "edge-5", from: "node-agent", to: "node-webui", label: "5. Propose Fix", type: "cross-right", lane: 0.65 },
+
+            // 6: WebUI -> HITL (Straight down in Col 3)
+            { id: "edge-6", from: "node-webui", to: "node-hitl", label: "6. User Inspects", type: "straight-v" },
+
+            // 6a: HITL -> Sandbox (Col 3 back to Col 2 Harness)
+            { id: "edge-6a", from: "node-hitl", to: "node-sandbox", label: "6a. Approves Fix", type: "cross-left", lane: 0.68 },
+
+            // 7: Sandbox -> Sim (Col 2 back to Col 1 via top outer bypass lane)
+            { id: "edge-7", from: "node-sandbox", to: "node-sim", label: "7. Apply Remedy", type: "outer-bypass-left", drop: -30 },
+
+            // 8: Sandbox -> WebUI (Col 2 out through bottom corridor to Col 3 Web UI)
+            { id: "edge-8", from: "node-sandbox", to: "node-webui", label: "8. Closed Loop", type: "bottom-loop-right", clearance: 38 }
+        ];
+
+        const svg = document.getElementById("flow-svg");
+        const container = document.getElementById("diagram-container");
+
+        function drawEdges() {
+            document.querySelectorAll('.flow-step-badge').forEach(e => e.remove());
+            svg.querySelectorAll('path').forEach(p => p.remove());
+
+            const cRect = container.getBoundingClientRect();
+
+            connections.forEach((conn) => {
+                const sEl = document.getElementById(conn.from);
+                const dEl = document.getElementById(conn.to);
+                const s = sEl.getBoundingClientRect();
+                const d = dEl.getBoundingClientRect();
+
+                let dStr = "";
+                let badgeX = 0;
+                let badgeY = 0;
+
+                if (conn.type === "straight-v") {
+                    const x = s.left - cRect.left + s.width / 2;
+                    const sy = s.bottom - cRect.top;
+                    const ty = d.top - cRect.top;
+                    dStr = `M ${x} ${sy} L ${x} ${ty}`;
+                    badgeX = x;
+                    badgeY = (sy + ty) / 2;
+                } 
+                else if (conn.type === "cross-right") {
+                    const sx = s.right - cRect.left;
+                    const sy = s.top - cRect.top + s.height / 2;
+                    const tx = d.left - cRect.left;
+                    const ty = d.top - cRect.top + s.height * (conn.lane || 0.5);
+                    const mx = (sx + tx) / 2;
+                    dStr = `M ${sx} ${sy} C ${mx} ${sy}, ${mx} ${ty}, ${tx} ${ty}`;
+                    badgeX = mx;
+                    badgeY = (sy + ty) / 2;
+                }
+                else if (conn.type === "internal-arc-right") {
+                    const sx = s.right - cRect.left;
+                    const sy = s.top - cRect.top + s.height / 2;
+                    const tx = d.right - cRect.left;
+                    const ty = d.top - cRect.top + d.height / 2;
+                    const arcX = Math.max(sx, tx) + conn.offset;
+                    dStr = `M ${sx} ${sy} C ${arcX} ${sy}, ${arcX} ${ty}, ${tx} ${ty}`;
+                    badgeX = arcX;
+                    badgeY = (sy + ty) / 2;
+                }
+                else if (conn.type === "cross-left") {
+                    const sx = s.left - cRect.left;
+                    const sy = s.top - cRect.top + s.height * 0.4;
+                    const tx = d.right - cRect.left;
+                    const ty = d.top - cRect.top + d.height * (conn.lane || 0.5);
+                    const mx = (sx + tx) / 2;
+                    dStr = `M ${sx} ${sy} C ${mx} ${sy}, ${mx} ${ty}, ${tx} ${ty}`;
+                    badgeX = mx;
+                    badgeY = (sy + ty) / 2;
+                }
+                else if (conn.type === "outer-bypass-left") {
+                    const sx = s.left - cRect.left;
+                    const sy = s.top - cRect.top + s.height * 0.3;
+                    const tx = d.right - cRect.left;
+                    const ty = d.top - cRect.top + d.height * 0.7;
+                    const clearanceY = Math.min(sy, ty) + conn.drop;
+                    dStr = `M ${sx} ${sy} C ${sx - 40} ${clearanceY}, ${tx + 40} ${clearanceY}, ${tx} ${ty}`;
+                    badgeX = (sx + tx) / 2;
+                    badgeY = clearanceY;
+                }
+                else if (conn.type === "bottom-loop-right") {
+                    const sx = s.right - cRect.left;
+                    const sy = s.bottom - cRect.top - 12;
+                    const tx = d.left - cRect.left + d.width * 0.25;
+                    const ty = d.bottom - cRect.top;
+                    const bottomDrop = s.bottom - cRect.top + conn.clearance;
+                    dStr = `M ${sx} ${sy} C ${sx + 50} ${bottomDrop}, ${tx} ${bottomDrop}, ${tx} ${ty}`;
+                    badgeX = sx + 50;
+                    badgeY = bottomDrop - 8;
+                }
+
+                const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
+                path.setAttribute("d", dStr);
+                path.setAttribute("class", "flow-path");
+                path.setAttribute("id", `path-${conn.id}`);
+                path.setAttribute("marker-end", "url(#arrow-default)");
+                svg.appendChild(path);
+
+                const badge = document.createElement("div");
+                badge.className = "flow-step-badge";
+                badge.id = `badge-${conn.id}`;
+                badge.innerText = conn.label;
+                badge.style.left = `${badgeX}px`;
+                badge.style.top = `${badgeY}px`;
+                badge.addEventListener("click", () => activateStep(conn));
+                container.appendChild(badge);
+            });
+        }
+
+        function resetAllStates() {
+            document.querySelectorAll(".node").forEach(n => n.classList.remove("dimmed", "active-node"));
+            document.querySelectorAll(".flow-path").forEach(p => {
+                p.classList.remove("active");
+                p.setAttribute("marker-end", "url(#arrow-default)");
+            });
+            document.querySelectorAll(".flow-step-badge").forEach(b => b.classList.remove("active"));
+        }
+
+        function activateStep(conn) {
+            resetAllStates();
+            document.querySelectorAll(".node").forEach(n => n.classList.add("dimmed"));
+
+            const p = document.getElementById(`path-${conn.id}`);
+            const b = document.getElementById(`badge-${conn.id}`);
+            const nFrom = document.getElementById(conn.from);
+            const nTo = document.getElementById(conn.to);
+
+            if (p) {
+                p.classList.add("active");
+                p.setAttribute("marker-end", "url(#arrow-active)");
+            }
+            if (b) b.classList.add("active");
+            if (nFrom) { nFrom.classList.remove("dimmed"); nFrom.classList.add("active-node"); }
+            if (nTo) { nTo.classList.remove("dimmed"); nTo.classList.add("active-node"); }
+        }
+
+        // Auto Tracer Animation (Runs exactly once through all steps, then terminates)
+        let traceIdx = 0;
+        let traceInterval = null;
+
+        document.getElementById("btn-toggle-trace").addEventListener("click", function() {
+            const btn = this;
+
+            if (traceInterval) {
+                clearInterval(traceInterval);
+                traceInterval = null;
+                btn.innerText = "▶ Auto Demo Flow";
+                resetAllStates();
+                return;
+            }
+
+            btn.innerText = "⏹ Stop Demo";
+            traceIdx = 0;
+            activateStep(connections[traceIdx]);
+            
+            traceInterval = setInterval(() => {
+                traceIdx++;
+                if (traceIdx >= connections.length) {
+                    clearInterval(traceInterval);
+                    traceInterval = null;
+                    btn.innerText = "▶ Auto Demo Flow";
+                    resetAllStates();
+                    return;
+                }
+                activateStep(connections[traceIdx]);
+            }, 1400);
+        });
+
+        // Click any node to reveal its inputs and outputs
+        document.querySelectorAll(".node").forEach(node => {
+            node.addEventListener("click", () => {
+                if (traceInterval) {
+                    clearInterval(traceInterval);
+                    traceInterval = null;
+                    document.getElementById("btn-toggle-trace").innerText = "▶ Auto Demo Flow";
+                }
+                const id = node.id;
+                resetAllStates();
+                document.querySelectorAll(".node").forEach(n => n.classList.add("dimmed"));
+                node.classList.remove("dimmed");
+                node.classList.add("active-node");
+
+                connections.forEach(c => {
+                    if (c.from === id || c.to === id) {
+                        const otherNode = document.getElementById(c.from === id ? c.to : c.from);
+                        if (otherNode) otherNode.classList.remove("dimmed");
+                        
+                        const p = document.getElementById(`path-${c.id}`);
+                        const b = document.getElementById(`badge-${c.id}`);
+                        if (p) {
+                            p.classList.add("active");
+                            p.setAttribute("marker-end", "url(#arrow-active)");
+                        }
+                        if (b) b.classList.add("active");
+                    }
+                });
+            });
+        });
+
+        window.addEventListener("resize", drawEdges);
+        window.addEventListener("load", drawEdges);
+    </script>
+</body>
+</html>

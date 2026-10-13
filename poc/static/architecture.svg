@@ -1,0 +1,161 @@
+<svg viewBox="0 0 1000 800" width="100%" height="100%" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <style>
+      <![CDATA[
+      /* Professional Modern Color Palette with CSS Variables */
+      :root {
+        --bg-panel-fill: #f8fafc;
+        --bg-panel-stroke: #cbd5e1;
+        --title-fill: #0f172a;
+        --box-fill: #ffffff;
+        --box-stroke: #cbd5e1;
+        --box-shadow: rgba(148, 163, 184, 0.12);
+        --box-title-fill: #0f172a;
+        --box-text-fill: #334155;
+        --line-stroke: #64748b;
+        --anim-dot-fill: #3b82f6;
+        --anim-dot-shadow: rgba(59, 130, 246, 0.5);
+        --label-fill: #2563eb;
+        --sub-label-fill: #64748b;
+        --target-rect-fill: #f1f5f9;
+      }
+
+      /* Dark Mode Overrides */
+      @media (prefers-color-scheme: dark) {
+        :root {
+          --bg-panel-fill: #0b0f19;
+          --bg-panel-stroke: #1e293b;
+          --title-fill: #f8fafc;
+          --box-fill: #111827;
+          --box-stroke: #374151;
+          --box-shadow: rgba(0, 0, 0, 0.4);
+          --box-title-fill: #f9fafb;
+          --box-text-fill: #d1d5db;
+          --line-stroke: #4b5563;
+          --anim-dot-fill: #60a5fa;
+          --anim-dot-shadow: rgba(96, 165, 250, 0.5);
+          --label-fill: #3b82f6;
+          --sub-label-fill: #9ca3af;
+          --target-rect-fill: #1f2937;
+        }
+      }
+
+      .bg-panel { fill: var(--bg-panel-fill); stroke: var(--bg-panel-stroke); stroke-width: 2; rx: 12; transition: fill 0.3s, stroke 0.3s; }
+      .title { font-family: 'Segoe UI', system-ui, sans-serif; font-size: 18px; font-weight: bold; fill: var(--title-fill); letter-spacing: 0.5px; transition: fill 0.3s; }
+      .box { fill: var(--box-fill); stroke: var(--box-stroke); stroke-width: 2; rx: 8; filter: drop-shadow(0 4px 6px var(--box-shadow)); transition: fill 0.3s, stroke 0.3s; }
+      .box-title { font-family: 'Segoe UI', system-ui, sans-serif; font-size: 14px; font-weight: bold; fill: var(--box-title-fill); transition: fill 0.3s; }
+      .box-text { font-family: 'Segoe UI', system-ui, sans-serif; font-size: 11.5px; fill: var(--box-text-fill); transition: fill 0.3s; }
+      .line { fill: none; stroke: var(--line-stroke); stroke-width: 2.5; transition: stroke 0.3s; }
+      .anim-dot { fill: var(--anim-dot-fill); filter: drop-shadow(0 0 6px var(--anim-dot-shadow)); transition: fill 0.3s; }
+      .label { font-family: 'Segoe UI', system-ui, sans-serif; font-size: 13px; font-weight: 700; fill: var(--label-fill); transition: fill 0.3s; }
+      .sub-label { font-family: 'Segoe UI', system-ui, sans-serif; font-size: 11px; fill: var(--sub-label-fill); font-style: italic; transition: fill 0.3s; }
+      .arrow-head { fill: var(--line-stroke); transition: fill 0.3s; }
+      ]]>
+    </style>
+    <marker id="arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+      <path d="M 0 0 L 10 5 L 0 10 z" class="arrow-head" />
+    </marker>
+  </defs>
+
+  <!-- Planes -->
+  <rect x="50" y="50" width="900" height="270" class="bg-panel" />
+  <text x="70" y="80" class="title">GCP AaaS Control Plane</text>
+
+  <rect x="50" y="430" width="900" height="320" class="bg-panel" />
+  <text x="70" y="465" class="title">CUSTOMER GCP DATA PLANE (TENANT BOUNDARY)</text>
+
+  <!-- Connecting Lines (Symmetric Flow Paths) -->
+  <!-- 1. Ingestion -->
+  <path d="M 250 740 L 250 710" class="line" marker-end="url(#arrow)" />
+  <path d="M 250 520 L 250 415 L 640 415 L 640 300" class="line" marker-end="url(#arrow)" />
+  
+  <!-- 2 and 3. Reasoning and HITL -->
+  <path d="M 600 170 L 400 170" class="line" marker-end="url(#arrow)" />
+  <path d="M 400 230 L 600 230" class="line" marker-end="url(#arrow)" />
+  
+  <!-- 4. Execution -->
+  <path d="M 860 300 L 860 520" class="line" marker-end="url(#arrow)" />
+  <path d="M 860 710 L 860 740" class="line" marker-end="url(#arrow)" />
+
+  <!-- Boxes -->
+  <!-- UI Dashboard -->
+  <rect x="100" y="110" width="300" height="190" class="box" />
+  <text x="120" y="135" class="box-title">Multi-Tenant UI Dashboard</text>
+  <text x="120" y="158" class="box-text">• Incident Triage View &amp;</text>
+  <text x="132" y="174" class="box-text">Live Topology Map</text>
+  <text x="120" y="197" class="box-text">• RCA / Proposed Fix</text>
+  <text x="132" y="213" class="box-text">Verification Pane</text>
+  <text x="120" y="236" class="box-text">• HITL Authorization Gate:</text>
+  <text x="132" y="252" class="box-text">Approves Scope &amp; JIT minting</text>
+
+  <!-- ADK Core -->
+  <rect x="600" y="110" width="300" height="190" class="box" />
+  <text x="610" y="135" class="box-title">ADK Multi-Agent Core (Agent Triad)</text>
+  <text x="610" y="158" class="box-text">• Frontline Watcher:</text>
+  <text x="622" y="174" class="box-text">Perception &amp; Edge Noise Filtering</text>
+  <text x="610" y="197" class="box-text">• Troubleshooting Agent:</text>
+  <text x="622" y="213" class="box-text">Gemini Reasoning &amp; RCA</text>
+  <text x="610" y="236" class="box-text">• Execution Orchestrator:</text>
+  <text x="622" y="252" class="box-text">JIT Minting &amp; Auto-Rollback</text>
+  <text x="610" y="275" class="box-text">• Clear bifurcation:</text>
+  <text x="622" y="291" class="box-text">Autonomous Platform vs. HITL</text>
+
+  <!-- Telemetry -->
+  <rect x="100" y="520" width="300" height="190" class="box" />
+  <text x="120" y="545" class="box-title">Telemetry &amp; Observation Layer</text>
+  <text x="120" y="570" class="box-text">• Edge Heuristic</text>
+  <text x="132" y="586" class="box-text">Pre-Filtering Gateway</text>
+  <text x="120" y="609" class="box-text">• OpenTelemetry hybrid collectors</text>
+  <text x="120" y="632" class="box-text">• Cloud Monitoring Alert</text>
+  <text x="132" y="648" class="box-text">Policies &amp; Metric Streams</text>
+
+  <!-- Remediation Layer -->
+  <rect x="600" y="520" width="300" height="190" class="box" />
+  <text x="610" y="545" class="box-title">Remediation &amp; Safety Layer</text>
+  <text x="610" y="570" class="box-text">• Zero-standing privileges via</text>
+  <text x="622" y="586" class="box-text">WIF &amp; JIT Broker (15-min TTL)</text>
+  <text x="610" y="609" class="box-text">• Bidirectional GitOps</text>
+  <text x="622" y="625" class="box-text">reconciliation, PR dry-runs</text>
+  <text x="622" y="641" class="box-text">&amp; remote state locks</text>
+  <text x="610" y="664" class="box-text">• Canary rollouts &amp; Telemetry</text>
+  <text x="622" y="680" class="box-text">Watchdog auto-rollback</text>
+
+  <!-- Target Resources -->
+  <rect x="100" y="740" width="800" height="36" class="box" fill="var(--target-rect-fill)" stroke="var(--box-stroke)" />
+  <text x="500" y="762" class="box-title" text-anchor="middle" fill="var(--box-title-fill)">GCP Resources ( GKE, Compute, Storage, Vertex AI )</text>
+
+  <!-- Labels -->
+  <text x="250" y="495" class="label" text-anchor="middle">1. INGESTION &amp; DETECTION (Telemetry Streaming)</text>
+  
+  <text x="500" y="145" class="label" text-anchor="middle">2. REASONING</text>
+  <text x="500" y="225" class="label" text-anchor="middle">3. HITL APPROVAL</text>
+  <text x="500" y="185" class="sub-label" text-anchor="middle">A2A Protocol</text>
+
+  <!-- Execution Label Box/Pill -->
+  <rect x="630" y="355" width="240" height="36" rx="8" class="box" />
+  <text x="750" y="370" class="label" text-anchor="middle" font-size="12px">4. CONTROLLED EXECUTION</text>
+  <text x="750" y="383" class="sub-label" text-anchor="middle" font-size="10.5px">(OIDC via WIF + JIT SA Token) ↓</text>
+
+  <!-- Post-Verification Loop Label -->
+  <text x="500" y="728" class="label" text-anchor="middle">5. POST-VERIFICATION WATCHDOG LOOP (Zero-Trust Feedback)</text>
+
+  <!-- Animated Active Pipeline Dots -->
+  <circle r="3" class="anim-dot">
+    <animateMotion dur="3s" repeatCount="indefinite" path="M 250 740 L 250 710" />
+  </circle>
+  <circle r="3" class="anim-dot">
+    <animateMotion dur="5s" repeatCount="indefinite" path="M 250 520 L 250 415 L 640 415 L 640 300" />
+  </circle>
+  <circle r="3" class="anim-dot">
+    <animateMotion dur="3s" repeatCount="indefinite" path="M 590 170 L 410 170" />
+  </circle>
+  <circle r="3" class="anim-dot">
+    <animateMotion dur="3s" repeatCount="indefinite" path="M 410 230 L 590 230" />
+  </circle>
+  <circle r="3" class="anim-dot">
+    <animateMotion dur="4s" repeatCount="indefinite" path="M 860 300 L 860 520" />
+  </circle>
+  <circle r="3" class="anim-dot">
+    <animateMotion dur="3s" repeatCount="indefinite" path="M 860 710 L 860 740" />
+  </circle>
+</svg>

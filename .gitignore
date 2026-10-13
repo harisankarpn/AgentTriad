@@ -1,1 +1,7 @@
 get_token.py
+Skills.md
+AGENTS.md
+.venv/
+__pycache__/
+*.pyc
+
