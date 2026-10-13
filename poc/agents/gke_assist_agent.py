@@ -50,10 +50,10 @@ class GKEAssistAgent:
         self._genai_client = self._build_genai_client()
         self.card = AgentCard(
             id=self.AGENT_ID,
-            name="GKE Assist Bot",
-            role="GKE Remediation Specialist & Harness Executor",
+            name="Worker Agent",
+            role="Remediation Specialist & Harness Executor",
             description=(
-                "Executes Lead Orchestrator-delegated GKE remediations inside the Agent Harness "
+                "Executes Lead Orchestrator-delegated remediations inside the Agent Harness "
                 "sandbox after verifying Stage 2 HITL JIT tokens, OPA/Rego blast-radius rules, "
                 "and Terraform GCS state locks."
             ),
@@ -61,12 +61,12 @@ class GKEAssistAgent:
             skills=[
                 AgentSkill(
                     id="execute_gke_remediation",
-                    name="Execute Approved GKE Remediation",
+                    name="Execute Approved Remediation",
                     description=(
                         "Verifies the 15-minute WIF JIT token, locks Terraform state, pauses GitOps "
-                        "auto-sync, and runs the approved kubectl/GKE remediation (Dry-Run or Live)."
+                        "auto-sync, and runs the approved remediation (Dry-Run or Live)."
                     ),
-                    tags=["gke", "kubernetes", "remediation", "hitl", "jit"],
+                    tags=["worker", "kubernetes", "remediation", "hitl", "jit"],
                 ),
             ],
         )
@@ -77,13 +77,13 @@ class GKEAssistAgent:
             return None
         try:
             return AdkAgent(
-                name="gke_assist_bot",
+                name="worker_agent",
                 model=MODEL_NAME,
-                description="GKE SRE specialist bot that executes approved Kubernetes remediations safely.",
+                description="Specialist Worker Agent that executes approved remediations safely.",
                 instruction=(
-                    "You are the GKE Assist Bot in the AgentTriad AaaS platform. "
-                    "When the Lead Orchestrator delegates an approved GKE incident task to you over A2A, "
-                    "verify the JIT token, validate the kubectl command against blast-radius guardrails, "
+                    "You are the Worker Agent in the AaaS Control Plane. "
+                    "When the Lead Orchestrator delegates an approved incident task to you over A2A, "
+                    "verify the JIT token, validate the command against blast-radius guardrails, "
                     "execute the remediation, and return a clear SRE execution summary."
                 ),
             )
@@ -105,8 +105,8 @@ class GKEAssistAgent:
         if self._genai_client is not None:
             try:
                 prompt = (
-                    "You are the GKE Assist Bot (Google Cloud ADK SRE specialist). "
-                    "Summarize in 2 concise sentences what remediation you just executed for this GKE incident "
+                    "You are the Worker Agent (Google Cloud ADK SRE specialist). "
+                    "Summarize in 2 concise sentences what remediation you just executed for this incident "
                     "and why it resolves the root cause.\n"
                     f"Incident: {json.dumps(incident.get('log_entry', {}), default=str)}\n"
                     f"Command Executed: {exec_result.get('command')}\n"
@@ -122,7 +122,7 @@ class GKEAssistAgent:
                 pass
 
         return (
-            f"GKE Assist Bot validated JIT token and executed `{exec_result.get('command')}` "
+            f"Worker Agent validated JIT token and executed `{exec_result.get('command')}` "
             f"in `{exec_result.get('execution_mode')}` mode for `{incident.get('workload')}`. "
             f"Reconciliation PR {exec_result.get('reconciliation_pr')} opened to keep GitOps state synchronized."
         )
@@ -149,7 +149,7 @@ class GKEAssistAgent:
                     result={
                         "status": "REJECTED_INVALID_JIT_TOKEN",
                         "incident_id": incident_id,
-                        "error": "GKE Assist Bot refused execution: missing or expired Stage 2 HITL JIT token.",
+                        "error": "Worker Agent refused execution: missing or expired Stage 2 HITL JIT token.",
                     },
                 )
 

@@ -142,13 +142,13 @@ class LeadOrchestratorAgent:
         self._genai_client = self._build_genai_client()
         self.card = AgentCard(
             id=self.AGENT_ID,
-            name="Lead Orchestrator Agent",
+            name="Lead Orchestrator",
             role="Central Operations Supervisor, Impact Analyzer & HITL Gatekeeper",
             description=(
                 "Continuously monitors all specialist agents, ingests anomaly alerts from the "
-                "Cloud Logging Watcher Agent via A2A, performs Gemini root-cause & business impact "
+                "Log Watcher Agent via A2A, performs Gemini root-cause & business impact "
                 "analysis, alerts the user with the recommended remedy, and delegates user-accepted "
-                "remediations to the GKE Assist Bot over A2A."
+                "remediations to the Worker Agent over A2A."
             ),
             url="/a2a/lead-orchestrator-agent",
             skills=[
@@ -163,12 +163,12 @@ class LeadOrchestratorAgent:
                 ),
                 AgentSkill(
                     id="delegate_approved_remediation",
-                    name="Mint JIT Token & Delegate Fix to GKE Assist Bot",
+                    name="Mint JIT Token & Delegate Fix to Worker Agent",
                     description=(
                         "Mints a 15-minute WIF JIT token upon user acceptance and delegates the "
-                        "remediation task to GKE Assist Bot via A2A."
+                        "remediation task to Worker Agent via A2A."
                     ),
-                    tags=["delegation", "a2a", "jit", "gke-assist"],
+                    tags=["delegation", "a2a", "jit", "worker-agent"],
                 ),
             ],
         )
@@ -182,14 +182,14 @@ class LeadOrchestratorAgent:
                 name="lead_orchestrator_agent",
                 model=MODEL_NAME,
                 description=(
-                    "Lead Orchestrator Agent that supervises Cloud Logging Watcher and GKE Assist Bot."
+                    "Lead Orchestrator that supervises Log Watcher and Worker Agent."
                 ),
                 instruction=(
-                    "You are the Lead Orchestrator Agent in the AgentTriad AaaS Control Plane. "
-                    "You monitor operations across all agents. When the Cloud Logging Watcher reports "
+                    "You are the Lead Orchestrator in the AaaS Control Plane. "
+                    "You monitor operations across all agents. When the Log Watcher reports "
                     "an anomaly, determine the technical root cause, blast radius, and business/SLO impact, "
-                    "formulate a safe GKE remediation command, and present it to the user for HITL approval. "
-                    "Once approved, delegate execution to the GKE Assist Bot over the A2A protocol."
+                    "formulate a safe remediation command, and present it to the user for HITL approval. "
+                    "Once approved, delegate execution to the Worker Agent over the A2A protocol."
                 ),
             )
         except Exception:
@@ -314,7 +314,7 @@ class LeadOrchestratorAgent:
                 "timeline": [
                     {
                         "timestamp": data.get("detected_at", now_iso),
-                        "agent": "Cloud Logging Watcher Agent",
+                        "agent": "Log Watcher",
                         "event": (
                             f"Detected [{log_entry.get('severity')}] {log_entry.get('error_code')} in "
                             f"Cloud Logging and alerted Lead Orchestrator via A2A."
@@ -322,7 +322,7 @@ class LeadOrchestratorAgent:
                     },
                     {
                         "timestamp": now_iso,
-                        "agent": "Lead Orchestrator Agent",
+                        "agent": "Lead Orchestrator",
                         "event": (
                             f"Evaluated blast radius ({impact_and_remedy['blast_radius_tier']}) and "
                             f"matched Playbook {impact_and_remedy['playbook_id']}. Alerting user with "
@@ -358,7 +358,7 @@ class LeadOrchestratorAgent:
         """
         Called when the user clicks 'Accept & Execute Remedy' in the Dashboard UI:
           1. Mints a 15-minute WIF JIT token scoped to the incident.
-          2. Delegates the remediation task over A2A to `gke-assist-agent`.
+          2. Delegates the remediation task over A2A to `gke-assist-agent` (Worker Agent).
           3. Requests post-remediation telemetry verification over A2A from `log-watcher-agent`.
         """
         incident = self.incidents.get(incident_id)
@@ -379,20 +379,20 @@ class LeadOrchestratorAgent:
             ttl_seconds=900,
         )
         incident["jit_token"] = jit_token
-        incident["status"] = "DELEGATED_TO_GKE_ASSIST"
+        incident["status"] = "DELEGATED_TO_WORKER_AGENT"
         now_iso = datetime.datetime.now(datetime.timezone.utc).isoformat()
         incident["timeline"].append(
             {
                 "timestamp": now_iso,
-                "agent": "Lead Orchestrator Agent",
+                "agent": "Lead Orchestrator",
                 "event": (
                     f"User ({approved_by}) accepted remedy. Minted 15-min JIT token "
-                    f"`{jit_token['token_id'][:20]}...` and delegating task to GKE Assist Bot via A2A."
+                    f"`{jit_token['token_id'][:20]}...` and delegating task to Worker Agent via A2A."
                 ),
             }
         )
 
-        # 2. Delegate execution to GKE Assist Bot via A2A protocol
+        # 2. Delegate execution to Worker Agent via A2A protocol
         delegation_payload = {
             "incident_id": incident_id,
             "jit_token_id": jit_token["token_id"],
@@ -420,7 +420,7 @@ class LeadOrchestratorAgent:
         incident["timeline"].append(
             {
                 "timestamp": exec_time,
-                "agent": "GKE Assist Bot",
+                "agent": "Worker Agent",
                 "event": (
                     f"Executed `{kubectl_cmd}` ({execution_mode}). "
                     f"{incident['execution_result'].get('sre_specialist_notes', '')}"
@@ -428,7 +428,7 @@ class LeadOrchestratorAgent:
             }
         )
 
-        # 3. Trigger Closed-Loop Post-Verification with Cloud Logging Watcher Agent via A2A
+        # 3. Trigger Closed-Loop Post-Verification with Log Watcher via A2A
         verify_resp = await self.a2a_hub.send_a2a_task(
             sender_id=self.AGENT_ID,
             recipient_id="log-watcher-agent",
@@ -448,7 +448,7 @@ class LeadOrchestratorAgent:
         incident["timeline"].append(
             {
                 "timestamp": incident["updated_at"],
-                "agent": "Cloud Logging Watcher Agent",
+                "agent": "Log Watcher",
                 "event": verify_resp.result.get("summary", "Telemetry verified healthy. Incident closed."),
             }
         )

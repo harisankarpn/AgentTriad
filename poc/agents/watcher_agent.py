@@ -41,7 +41,7 @@ class CloudLoggingWatcherAgent:
         self.adk_agent = self._build_adk_agent()
         self.card = AgentCard(
             id=self.AGENT_ID,
-            name="Cloud Logging Watcher Agent",
+            name="Log Watcher",
             role="Perception & Edge Noise Filtering (Frontline Watcher)",
             description=(
                 "Streams GCP Cloud Logging telemetry, suppresses >90% routine noise at the edge, "

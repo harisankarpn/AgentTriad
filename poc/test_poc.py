@@ -20,7 +20,7 @@ def run_e2e_tests() -> None:
     # 1. Verify Dashboard UI loads
     res_ui = client.get("/")
     assert res_ui.status_code == 200, f"Dashboard failed: {res_ui.status_code}"
-    assert "AgentTriad Control Plane Dashboard" in res_ui.text
+    assert "AaaS Control Plane" in res_ui.text
 
     # 2. Verify all 3 A2A AgentCards (/.well-known/agent.json)
     for agent_id in ("log-watcher-agent", "lead-orchestrator-agent", "gke-assist-agent"):
