@@ -157,6 +157,30 @@ async def approve_incident_remedy(incident_id: str, req: ApproveRemedyRequest) -
     }
 
 
+@app.post("/api/incidents/{incident_id}/skip")
+async def skip_incident_remedy(incident_id: str) -> Dict[str, Any]:
+    """User chooses Later / Ignore (handle manually). Worker Agent stands down."""
+    if incident_id not in lead_orchestrator.incidents:
+        raise HTTPException(status_code=404, detail=f"Incident {incident_id} not found")
+    updated = lead_orchestrator.skip_incident_manual(incident_id=incident_id)
+    return {
+        "status": "SKIPPED_MANUAL",
+        "incident": updated,
+    }
+
+
+@app.post("/api/incidents/{incident_id}/reopen")
+async def reopen_incident_remedy(incident_id: str) -> Dict[str, Any]:
+    """Re-opens a previously skipped incident back to awaiting approval."""
+    if incident_id not in lead_orchestrator.incidents:
+        raise HTTPException(status_code=404, detail=f"Incident {incident_id} not found")
+    updated = lead_orchestrator.reopen_incident(incident_id=incident_id)
+    return {
+        "status": "AWAITING_HITL_APPROVAL",
+        "incident": updated,
+    }
+
+
 # ---------------------------------------------------------------------------
 # Standard A2A Protocol Endpoints (`/.well-known/agent.json` & JSON-RPC 2.0)
 # ---------------------------------------------------------------------------

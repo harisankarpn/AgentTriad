@@ -454,9 +454,53 @@ class LeadOrchestratorAgent:
         )
         return incident
 
+    def skip_incident_manual(
+        self,
+        incident_id: str,
+        skipped_by: str = "customer-admin",
+    ) -> Dict[str, Any]:
+        """Marks an incident as skipped so the user can handle it manually or review later."""
+        incident = self.incidents.get(incident_id)
+        if not incident:
+            raise ValueError(f"Incident {incident_id} not found")
+
+        now_iso = datetime.datetime.now(datetime.timezone.utc).isoformat()
+        incident["status"] = "SKIPPED_MANUAL"
+        incident["updated_at"] = now_iso
+        incident["timeline"].append(
+            {
+                "timestamp": now_iso,
+                "agent": "Lead Orchestrator",
+                "event": (
+                    f"User ({skipped_by}) chose 'Skip / Handle Manually'. "
+                    "Worker Agent stood down; no automated changes made."
+                ),
+            }
+        )
+        return incident
+
+    def reopen_incident(self, incident_id: str) -> Dict[str, Any]:
+        """Re-opens a skipped incident back to AWAITING_HITL_APPROVAL if the user decides to let AI fix it."""
+        incident = self.incidents.get(incident_id)
+        if not incident:
+            raise ValueError(f"Incident {incident_id} not found")
+
+        now_iso = datetime.datetime.now(datetime.timezone.utc).isoformat()
+        incident["status"] = "AWAITING_HITL_APPROVAL"
+        incident["updated_at"] = now_iso
+        incident["timeline"].append(
+            {
+                "timestamp": now_iso,
+                "agent": "Lead Orchestrator",
+                "event": "User re-opened incident for automated Worker Agent remediation.",
+            }
+        )
+        return incident
+
     def list_incidents(self) -> List[Dict[str, Any]]:
         return sorted(
             self.incidents.values(),
             key=lambda item: item.get("created_at", ""),
             reverse=True,
         )
+

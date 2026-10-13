@@ -73,7 +73,16 @@ def run_e2e_tests() -> None:
     assert unauth_res.json()["result"]["status"] == "REJECTED_INVALID_JIT_TOKEN"
     print("[PASS] Zero-Standing Privilege verified: GKE Assist rejected unauthenticated A2A mutation")
 
-    # 5. User Accepts Remedy -> Lead Orchestrator mints JIT token & delegates via A2A to GKE Assist Bot
+    # 5a. Test Later / Ignore (Manual Mode) and Reopen
+    skip_res = client.post(f"/api/incidents/{incident_id}/skip")
+    assert skip_res.status_code == 200
+    assert skip_res.json()["incident"]["status"] == "SKIPPED_MANUAL"
+    reopen_res = client.post(f"/api/incidents/{incident_id}/reopen")
+    assert reopen_res.status_code == 200
+    assert reopen_res.json()["incident"]["status"] == "AWAITING_HITL_APPROVAL"
+    print("[PASS] Skip / Manual Mode and Reopen verified!")
+
+    # 5b. User Accepts Remedy -> Lead Orchestrator mints JIT token & delegates via A2A to Worker Agent
     approve_res = client.post(
         f"/api/incidents/{incident_id}/approve",
         json={

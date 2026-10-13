@@ -231,7 +231,7 @@
     function renderDashboard(data) {
       const incidents = data.incidents || [];
       const pending = incidents.find(i => i.status === 'AWAITING_HITL_APPROVAL');
-      const latestResolved = incidents.find(i => i.status === 'RESOLVED');
+      const latestIncident = incidents[0];
 
       // Update Agent Cards visual state
       const watcherCard = document.getElementById('card-log-watcher-agent');
@@ -247,6 +247,10 @@
         document.getElementById('badge-orchestrator').textContent = 'Waiting for You';
         document.getElementById('badge-orchestrator').className = 'text-[10px] font-semibold px-2.5 py-1 rounded-full bg-rose-500/20 text-rose-300 animate-pulse';
         document.getElementById('badge-worker').textContent = 'Ready to Fix';
+      } else if (latestIncident && latestIncident.status === 'SKIPPED_MANUAL') {
+        document.getElementById('badge-orchestrator').textContent = 'Manual Mode';
+        document.getElementById('badge-orchestrator').className = 'text-[10px] font-semibold px-2.5 py-1 rounded-full bg-slate-800 text-slate-300';
+        document.getElementById('badge-worker').textContent = 'Stood Down';
       } else {
         document.getElementById('badge-orchestrator').textContent = 'All Clear';
         document.getElementById('badge-orchestrator').className = 'text-[10px] font-semibold px-2.5 py-1 rounded-full bg-emerald-500/15 text-emerald-400';
@@ -257,8 +261,10 @@
       const stageEl = document.getElementById('centerStage');
       if (pending) {
         stageEl.innerHTML = renderCustomerApprovalCard(pending);
-      } else if (latestResolved) {
-        stageEl.innerHTML = renderResolvedCard(latestResolved);
+      } else if (latestIncident && latestIncident.status === 'SKIPPED_MANUAL') {
+        stageEl.innerHTML = renderSkippedCard(latestIncident);
+      } else if (latestIncident && latestIncident.status === 'RESOLVED') {
+        stageEl.innerHTML = renderResolvedCard(latestIncident);
       } else {
         stageEl.innerHTML = renderHealthyCard();
       }
@@ -303,7 +309,7 @@
             <span class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold bg-amber-500/20 text-amber-300 border border-amber-500/30">
               <i class="fa-solid fa-bell animate-bounce"></i> Action Recommended by Lead Orchestrator
             </span>
-            <span class="text-xs text-slate-400">1-Click Approval</span>
+            <span class="text-xs text-slate-400">Your Decision</span>
           </div>
 
           <!-- Plain-English Headline & Explanation -->
@@ -337,12 +343,18 @@
             </div>
           </div>
 
-          <!-- Primary 1-Click Approval Button -->
-          <div class="pt-1">
+          <!-- Action Buttons: Approve OR Later / Ignore (Manual) -->
+          <div class="flex flex-col sm:flex-row items-stretch gap-3 pt-1">
             <button id="btnApproveMain" onclick="approveIncident('${escapeHtml(inc.incident_id)}')"
-              class="w-full py-3.5 px-6 rounded-2xl bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-400 hover:to-teal-400 text-slate-950 font-extrabold text-sm shadow-xl shadow-emerald-500/20 transition transform hover:scale-[1.01] cursor-pointer flex items-center justify-center gap-2">
+              class="flex-1 py-3.5 px-5 rounded-2xl bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-400 hover:to-teal-400 text-slate-950 font-extrabold text-sm shadow-xl shadow-emerald-500/20 transition transform hover:scale-[1.01] cursor-pointer flex items-center justify-center gap-2">
               <i class="fa-solid fa-check-circle text-base"></i>
-              <span>Approve &amp; Let Worker Agent Fix It Now</span>
+              <span>Approve &amp; Let Worker Agent Fix It</span>
+            </button>
+
+            <button id="btnSkipMain" onclick="skipIncident('${escapeHtml(inc.incident_id)}')"
+              class="py-3.5 px-5 rounded-2xl bg-slate-800/90 hover:bg-slate-700 text-slate-200 border border-slate-700 font-semibold text-xs transition cursor-pointer flex items-center justify-center gap-2">
+              <i class="fa-regular fa-clock"></i>
+              <span>Later / Ignore (Fix Manually)</span>
             </button>
           </div>
 
@@ -360,6 +372,46 @@
                 <input id="kubectl-${escapeHtml(inc.incident_id)}" type="text" value="${escapeHtml(impact.recommended_kubectl || '')}"
                   class="w-full bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-1.5 text-[11px] mono text-emerald-300" />
               </div>
+            </div>
+          </details>
+        </div>
+      `;
+    }
+
+    function renderSkippedCard(inc) {
+      const scenarioId = (inc.log_entry && inc.log_entry.scenario_id) || 'oom_killed';
+      const copy = FRIENDLY_COPY[scenarioId] || FRIENDLY_COPY.oom_killed;
+      const impact = inc.impact_analysis || {};
+
+      return `
+        <div class="glass border border-slate-700 rounded-3xl p-6 sm:p-7 text-center shadow-2xl space-y-4">
+          <div class="w-12 h-12 rounded-2xl bg-slate-800 border border-slate-700 flex items-center justify-center text-amber-300 text-xl mx-auto">
+            <i class="fa-solid fa-user-gear"></i>
+          </div>
+          <div class="space-y-1">
+            <span class="text-xs font-bold uppercase tracking-wider text-amber-300">Skipped — Manual Mode</span>
+            <h2 class="text-xl font-extrabold text-white">${escapeHtml(copy.headline)}</h2>
+            <p class="text-xs text-slate-300 max-w-md mx-auto leading-relaxed">
+              You chose to skip automated remediation. The <strong>Worker Agent</strong> has stood down and made <strong>no changes</strong> to your environment so your team can handle it manually.
+            </p>
+          </div>
+
+          <div class="pt-1 flex justify-center">
+            <button onclick="reopenIncident('${escapeHtml(inc.incident_id)}')"
+              class="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-700 text-xs font-semibold text-emerald-300 transition cursor-pointer">
+              <i class="fa-solid fa-rotate-left"></i>
+              <span>Changed your mind? Review &amp; Let AI Fix It</span>
+            </button>
+          </div>
+
+          <details class="text-left pt-2 border-t border-slate-800/80">
+            <summary class="text-xs text-slate-400 hover:text-slate-200 cursor-pointer flex items-center justify-center gap-1.5">
+              <span>View more (Recommended manual command)</span>
+              <i class="fa-solid fa-chevron-down text-[10px]"></i>
+            </summary>
+            <div class="mt-3 p-3.5 rounded-xl bg-slate-950/90 border border-slate-800 space-y-1.5 text-xs text-slate-300">
+              <div><strong>Manual Fix Step:</strong> ${escapeHtml(impact.remedy_summary)}</div>
+              <div class="mono text-[11px] text-amber-300">${escapeHtml(impact.recommended_kubectl)}</div>
             </div>
           </details>
         </div>
@@ -435,6 +487,33 @@
         await fetchState();
       } catch (err) {
         console.error('Approval failed:', err);
+      }
+    }
+
+    async function skipIncident(incidentId) {
+      const btn = document.getElementById('btnSkipMain');
+      if (btn) {
+        btn.disabled = true;
+        btn.innerHTML = `<i class="fa-solid fa-spinner fa-spin"></i><span>Skipping...</span>`;
+      }
+      try {
+        await fetch(`/api/incidents/${encodeURIComponent(incidentId)}/skip`, {
+          method: 'POST'
+        });
+        await fetchState();
+      } catch (err) {
+        console.error('Skip failed:', err);
+      }
+    }
+
+    async function reopenIncident(incidentId) {
+      try {
+        await fetch(`/api/incidents/${encodeURIComponent(incidentId)}/reopen`, {
+          method: 'POST'
+        });
+        await fetchState();
+      } catch (err) {
+        console.error('Reopen failed:', err);
       }
     }
 
