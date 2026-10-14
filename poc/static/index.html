@@ -119,8 +119,12 @@
       </div>
     </div>
 
-    <!-- Bottom Sidebar Live Telemetry Action -->
-    <div class="pt-4 mt-4 border-t border-slate-800/80 space-y-3">
+    <!-- Bottom Sidebar Live Telemetry & Manual Atlas Chat Actions -->
+    <div class="pt-4 mt-4 border-t border-slate-800/80 space-y-2.5">
+      <button id="btnSidebarAtlasChat" onclick="openDirectAtlasChat()" title="Manually invoke Atlas Chatbot for How-To questions or unlogged troubleshooting" class="w-full inline-flex items-center justify-center gap-2 bg-amber-500/15 hover:bg-amber-500/25 text-amber-300 border border-amber-500/35 text-xs font-semibold px-4 py-2.5 rounded-xl transition cursor-pointer shadow-sm">
+        <i class="fa-solid fa-comments text-amber-400"></i>
+        <span>Ask Atlas (How-To / Chat)</span>
+      </button>
       <button id="btnPollLiveLogs" onclick="pollLiveCloudLogging()" title="Poll Real GCP Cloud Logging via Heartbeat &amp; Telemetry" class="w-full inline-flex items-center justify-center gap-2 bg-sky-500/15 hover:bg-sky-500/25 text-sky-300 border border-sky-500/30 text-xs font-semibold px-4 py-2.5 rounded-xl transition cursor-pointer shadow-sm">
         <i class="fa-solid fa-satellite-dish text-sky-400" id="livePollIcon"></i>
         <span id="livePollText">Poll Live Logs</span>
@@ -144,7 +148,11 @@
           Heartbeat &amp; Telemetry + Atlas (Lead) + Specialist Agent Roster
         </p>
       </div>
-      <div class="flex items-center gap-2 shrink-0">
+      <div class="flex items-center gap-2.5 shrink-0">
+        <button id="btnOpenDirectChat" type="button" onclick="openDirectAtlasChat()" class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-amber-500/15 hover:bg-amber-500/25 border border-amber-500/40 text-xs font-semibold text-amber-300 transition cursor-pointer">
+          <i class="fa-solid fa-wand-magic-sparkles text-amber-400"></i>
+          <span>Chat with Atlas</span>
+        </button>
         <span class="hidden sm:inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-slate-900/90 border border-slate-800 text-[11px] text-slate-300">
           <i class="fa-solid fa-user text-amber-400"></i>
           <span>User: <strong class="text-white">Hari</strong></span>
@@ -213,13 +221,15 @@
                 <span id="badge-orchestrator" class="text-[10px] font-semibold px-2.5 py-1 rounded-full bg-amber-500/15 text-amber-300">AI Co-Pilot</span>
               </div>
               <p class="text-xs text-slate-400 leading-relaxed">
-                Diagnoses the issue, chats with you, and routes accepted fixes with a 15-min JIT token.
+                Diagnoses live alerts, answers How-To questions, and troubleshoots unlogged issues.
               </p>
             </div>
             <div class="pt-3 mt-3 border-t border-slate-800/70 flex items-center justify-between text-[11px]">
-              <span class="text-slate-500 mono">HITL Gatekeeper</span>
-              <button type="button" onclick="switchView('audit')" class="text-amber-300 hover:text-amber-200 font-semibold cursor-pointer">
-                Audit Trail →
+              <button type="button" onclick="openDirectAtlasChat()" class="text-amber-300 hover:text-amber-200 font-semibold cursor-pointer">
+                💬 Ask / Troubleshoot →
+              </button>
+              <button type="button" onclick="switchView('audit')" class="text-slate-400 hover:text-slate-200 cursor-pointer">
+                Audit Trail
               </button>
             </div>
           </div>
@@ -462,6 +472,24 @@
     }
 
     let lastStageSignature = '';
+    let directChatMode = false;
+
+    function openDirectAtlasChat() {
+      directChatMode = true;
+      if (currentView !== 'command') {
+        switchView('command');
+      }
+      renderDashboard(latestState || {}, true);
+      setTimeout(() => {
+        const inputEl = document.getElementById('generalChatInput');
+        if (inputEl) inputEl.focus();
+      }, 50);
+    }
+
+    function closeDirectAtlasChat() {
+      directChatMode = false;
+      renderDashboard(latestState || {}, true);
+    }
 
     function escapeHtml(str) {
       if (str === null || str === undefined) return '';
@@ -649,8 +677,12 @@
       orchCard.classList.remove('agent-active');
       workerCard.classList.remove('agent-active');
 
+      const generalMsgs = data.general_chat_messages || [];
+      const latestGeneralAssistant = [...generalMsgs].reverse().find(m => m.role === 'assistant' && m.specialist_worker && m.id !== 'atlas-welcome');
       const activeInc = pending || latestIncident;
-      const activeSpecialist = (activeInc && activeInc.specialist_worker) ? activeInc.specialist_worker : null;
+      const activeSpecialist = (directChatMode && latestGeneralAssistant)
+        ? latestGeneralAssistant.specialist_worker
+        : ((activeInc && activeInc.specialist_worker) ? activeInc.specialist_worker : null);
 
       // Highlight the matching specialist pill in Step 3 Specialist Roster
       document.querySelectorAll('#workerBoutiquePills .worker-pill').forEach(pill => {
@@ -666,7 +698,17 @@
       renderSpecialistRoster(activeSpecialist);
 
       const navBadgeCommand = document.getElementById('navBadgeCommand');
-      if (pending) {
+      if (directChatMode) {
+        orchCard.classList.add('agent-active');
+        document.getElementById('badge-orchestrator').textContent = 'Direct Chat • Active';
+        document.getElementById('badge-orchestrator').className = 'text-[10px] font-semibold px-2.5 py-1 rounded-full bg-amber-500/20 text-amber-300 animate-pulse';
+        document.getElementById('badge-worker').textContent = activeSpecialist ? `${activeSpecialist.name} Consulted` : '7 Specialists Ready';
+        document.getElementById('badge-worker').className = 'text-[10px] font-semibold px-2.5 py-1 rounded-full bg-emerald-500/20 text-emerald-300';
+        if (navBadgeCommand) {
+          navBadgeCommand.textContent = pending ? '1 Alert' : 'Chatting';
+          navBadgeCommand.className = 'px-2 py-0.5 text-[10px] font-bold rounded-full bg-amber-500/20 text-amber-300 border border-amber-500/40 shrink-0';
+        }
+      } else if (pending) {
         orchCard.classList.add('agent-active');
         document.getElementById('badge-orchestrator').textContent = 'Chatting with Hari';
         document.getElementById('badge-orchestrator').className = 'text-[10px] font-semibold px-2.5 py-1 rounded-full bg-amber-500/20 text-amber-300 animate-pulse';
@@ -697,17 +739,21 @@
       }
 
       // Render Center Stage only when state signature changes so typing in chat is never interrupted
-      const stageSig = activeInc
-        ? `${activeInc.incident_id}:${activeInc.status}:${(activeInc.chat_messages || []).length}`
-        : 'healthy';
+      const stageSig = directChatMode
+        ? `direct:${generalMsgs.length}:${pending ? pending.incident_id : 'none'}`
+        : (activeInc
+            ? `${activeInc.incident_id}:${activeInc.status}:${(activeInc.chat_messages || []).length}`
+            : `healthy:${generalMsgs.length}`);
 
       const stageEl = document.getElementById('centerStage');
       if (forceRender || stageSig !== lastStageSignature) {
-        const activeInput = document.querySelector('[id^="chatInput-"]');
+        const activeInput = document.querySelector('[id^="chatInput-"], #generalChatInput');
         const savedDraft = activeInput ? activeInput.value : '';
         lastStageSignature = stageSig;
 
-        if (pending) {
+        if (directChatMode) {
+          stageEl.innerHTML = renderDirectAtlasChatCard(generalMsgs, pending);
+        } else if (pending) {
           stageEl.innerHTML = renderCustomerApprovalCard(pending);
         } else if (latestIncident && latestIncident.status === 'SKIPPED_MANUAL') {
           stageEl.innerHTML = renderSkippedCard(latestIncident);
@@ -717,11 +763,11 @@
           stageEl.innerHTML = renderHealthyCard();
         }
 
-        const newInput = document.querySelector('[id^="chatInput-"]');
+        const newInput = document.querySelector('[id^="chatInput-"], #generalChatInput');
         if (newInput && savedDraft) {
           newInput.value = savedDraft;
         }
-        const chatBox = document.getElementById('chatMessagesContainer');
+        const chatBox = document.getElementById('chatMessagesContainer') || document.getElementById('generalChatMessagesContainer');
         if (chatBox) {
           chatBox.scrollTop = chatBox.scrollHeight;
         }
@@ -922,15 +968,16 @@
               </div>
             </div>
 
-            <!-- Compact Reassurance Badges -->
-            <div class="hidden sm:flex items-center gap-1.5">
-              <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg bg-slate-900 border border-slate-700 text-[10px] text-emerald-300">
-                <i class="fa-solid fa-bolt"></i> ${escapeHtml(copy.downtime_badge)}
-              </span>
-              <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg bg-slate-900 border border-slate-700 text-[10px] text-indigo-300">
-                <i class="fa-solid fa-rotate-left"></i> ${escapeHtml(copy.safety_badge)}
-              </span>
-            </div>
+              <!-- Compact Reassurance Badges + Direct How-To Chat Switch -->
+              <div class="hidden sm:flex items-center gap-1.5">
+                <button type="button" onclick="openDirectAtlasChat()"
+                  class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-amber-500/15 hover:bg-amber-500/25 border border-amber-500/40 text-[10px] font-bold text-amber-300 transition cursor-pointer">
+                  <i class="fa-solid fa-comments"></i> Ask How-To / Unlogged Issue
+                </button>
+                <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg bg-slate-900 border border-slate-700 text-[10px] text-emerald-300">
+                  <i class="fa-solid fa-bolt"></i> ${escapeHtml(copy.downtime_badge)}
+                </span>
+              </div>
           </div>
 
           <!-- Interactive Chat Conversation Thread -->
@@ -997,6 +1044,100 @@
       `;
     }
 
+    function renderDirectAtlasChatCard(messages, pendingIncident) {
+      const latestAssistant = [...(messages || [])].reverse().find(m => m.role === 'assistant' && m.specialist_worker);
+      const spec = (latestAssistant && latestAssistant.specialist_worker)
+        ? latestAssistant.specialist_worker
+        : { name: 'Serverless Agent', icon: 'fa-bolt', domain: 'Cloud Run & Cloud Functions' };
+
+      return `
+        <div class="glass border-2 border-amber-500/50 rounded-3xl p-5 sm:p-6 shadow-2xl space-y-4">
+          <!-- Direct Chatbot Header -->
+          <div class="flex flex-wrap items-center justify-between gap-2 pb-3 border-b border-slate-800/80">
+            <div class="flex items-center gap-2.5">
+              <div class="w-10 h-10 rounded-xl bg-amber-500/20 border border-amber-500/40 flex items-center justify-center text-amber-300 p-1">
+                ${getAtlasGcpIconSvg()}
+              </div>
+              <div>
+                <div class="flex items-center gap-2 flex-wrap">
+                  <span class="text-sm font-extrabold text-white">Atlas • Interactive AaaS Chatbot</span>
+                  <span class="px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-500/20 text-amber-300 border border-amber-500/40">
+                    How-To &amp; Unlogged Troubleshooting
+                  </span>
+                  <span class="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-500/15 text-emerald-300 border border-emerald-500/30">
+                    <i class="fa-solid ${escapeHtml(spec.icon || 'fa-bolt')} mr-1"></i>Consulting ${escapeHtml(spec.name)}
+                  </span>
+                </div>
+                <div class="text-[11px] text-slate-400">
+                  Ask random GCP "How-To" questions or troubleshoot silent/unlogged issues with Atlas &amp; the 7-Agent Specialist Roster.
+                </div>
+              </div>
+            </div>
+
+            <div class="flex items-center gap-1.5">
+              <button type="button" onclick="resetGeneralAtlasChat()"
+                class="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-xl bg-slate-900 hover:bg-slate-800 border border-slate-700 text-[11px] text-slate-300 transition cursor-pointer"
+                title="Clear conversation history">
+                <i class="fa-solid fa-rotate-left text-[10px]"></i>
+                <span>Reset</span>
+              </button>
+              ${pendingIncident ? `
+                <button type="button" onclick="closeDirectAtlasChat()"
+                  class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-rose-500/20 hover:bg-rose-500/30 border border-rose-500/40 text-[11px] font-bold text-rose-300 transition cursor-pointer">
+                  <i class="fa-solid fa-bell"></i>
+                  <span>Back to Active Alert</span>
+                </button>
+              ` : `
+                <button type="button" onclick="closeDirectAtlasChat()"
+                  class="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-xl bg-slate-900 hover:bg-slate-800 border border-slate-700 text-[11px] text-slate-400 hover:text-white transition cursor-pointer">
+                  <i class="fa-solid fa-xmark"></i>
+                  <span>Close</span>
+                </button>
+              `}
+            </div>
+          </div>
+
+          <!-- Chat Thread -->
+          <div id="generalChatMessagesContainer" class="space-y-3 max-h-72 overflow-y-auto pr-1 py-1">
+            ${renderChatBubbles(messages)}
+          </div>
+
+          <!-- Quick Starter Chips for How-To & Unlogged Issues -->
+          <div class="flex flex-wrap items-center gap-1.5 pt-1">
+            <span class="text-[10px] text-slate-400 mr-1">Quick Prompts:</span>
+            <button type="button" onclick="askGeneralQuickQuestion('How do I connect a Cloud Run service to Cloud SQL safely?')"
+              class="px-2.5 py-1 rounded-full bg-slate-900 hover:bg-slate-800 border border-slate-700 text-[11px] text-slate-300 transition cursor-pointer">
+              💡 How-To: Cloud Run → Cloud SQL
+            </button>
+            <button type="button" onclick="askGeneralQuickQuestion('My service has slow latency and intermittent timeouts not showing in Cloud Logging. How do I troubleshoot?')"
+              class="px-2.5 py-1 rounded-full bg-slate-900 hover:bg-slate-800 border border-slate-700 text-[11px] text-slate-300 transition cursor-pointer">
+              🔍 Unlogged Issue: Latency / Timeouts
+            </button>
+            <button type="button" onclick="askGeneralQuickQuestion('How do I configure least-privilege IAM and Workload Identity Federation?')"
+              class="px-2.5 py-1 rounded-full bg-slate-900 hover:bg-slate-800 border border-slate-700 text-[11px] text-slate-300 transition cursor-pointer">
+              🔐 How-To: IAM &amp; WIF Security
+            </button>
+            <button type="button" onclick="askGeneralQuickQuestion('How can I check for unexpected GCP billing spikes or quota exhaustion?')"
+              class="px-2.5 py-1 rounded-full bg-slate-900 hover:bg-slate-800 border border-slate-700 text-[11px] text-slate-300 transition cursor-pointer">
+              💰 FinOps: Cost Spikes &amp; Quotas
+            </button>
+          </div>
+
+          <!-- Free-text Chat Input -->
+          <form onsubmit="sendGeneralAtlasChat(event)" class="flex items-center gap-2">
+            <input id="generalChatInput" type="text"
+              placeholder="Ask Atlas any GCP 'How-To' question or describe an unlogged issue you're seeing..."
+              class="flex-1 bg-slate-950/90 border border-slate-700 focus:border-amber-400 rounded-xl px-3.5 py-2.5 text-xs sm:text-sm text-white placeholder-slate-500 focus:outline-none" />
+            <button id="btnSendGeneralChat" type="submit"
+              class="px-4 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-xs transition cursor-pointer flex items-center gap-1.5 shrink-0">
+              <i class="fa-solid fa-paper-plane"></i>
+              <span>Send</span>
+            </button>
+          </form>
+        </div>
+      `;
+    }
+
     function renderSkippedCard(inc) {
       const copy = getCustomerCopy(inc);
       const impact = inc.impact_analysis || {};
@@ -1015,11 +1156,16 @@
             </p>
           </div>
 
-          <div class="pt-1 flex justify-center">
+          <div class="pt-1 flex flex-wrap justify-center gap-2">
             <button onclick="reopenIncident('${escapeHtml(inc.incident_id)}')"
               class="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-700 text-xs font-semibold text-emerald-300 transition cursor-pointer">
               <i class="fa-solid fa-comments"></i>
-              <span>Reopen Chat with Atlas &amp; Let AI Fix It</span>
+              <span>Reopen Incident Chat &amp; Let AI Fix It</span>
+            </button>
+            <button onclick="openDirectAtlasChat()"
+              class="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-amber-500/15 hover:bg-amber-500/25 border border-amber-500/40 text-xs font-semibold text-amber-300 transition cursor-pointer">
+              <i class="fa-solid fa-wand-magic-sparkles"></i>
+              <span>Ask Atlas a How-To / Unlogged Question</span>
             </button>
           </div>
 
@@ -1055,6 +1201,14 @@
             </p>
           </div>
 
+          <div class="pt-1 flex justify-center">
+            <button onclick="openDirectAtlasChat()"
+              class="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-amber-500/15 hover:bg-amber-500/25 border border-amber-500/40 text-xs font-bold text-amber-300 transition cursor-pointer">
+              <i class="fa-solid fa-comments"></i>
+              <span>Chat with Atlas (How-To &amp; Unlogged Troubleshooting)</span>
+            </button>
+          </div>
+
           <details class="text-left pt-2 border-t border-slate-800/80">
             <summary class="text-xs text-slate-400 hover:text-slate-200 cursor-pointer flex items-center justify-center gap-1.5">
               <span>View more (Execution Steps &amp; What ${escapeHtml(spec.name)} did)</span>
@@ -1071,16 +1225,68 @@
 
     function renderHealthyCard() {
       return `
-        <div class="glass border border-slate-800 rounded-3xl p-7 text-center shadow-xl space-y-3">
+        <div class="glass border border-slate-800 rounded-3xl p-7 text-center shadow-xl space-y-4">
           <div class="w-14 h-14 rounded-2xl bg-amber-500/15 border border-amber-500/40 flex items-center justify-center text-amber-300 text-xl mx-auto p-1.5">
             ${getAtlasGcpIconSvg()}
           </div>
           <h2 class="text-lg font-bold text-white">Hey Hari 👋 — Atlas (AaaS Lead) is Holding Up Your Cloud</h2>
           <p class="text-xs text-slate-400 max-w-md mx-auto leading-relaxed">
-            Right now your environment is calm. Click <strong>"Poll Live Logs"</strong> at the top right to scan real GCP logs in <code>agent-triad</code> via <strong>Heartbeat &amp; Telemetry</strong>, and I'll route any issue to the right specialist in our <strong>Specialist Agent Roster</strong>.
+            Right now your environment is calm. Click <strong>"Poll Live Logs"</strong> at the top right to scan real GCP logs in <code>agent-triad</code> via <strong>Heartbeat &amp; Telemetry</strong>, or manually invoke <strong>Atlas Chatbot</strong> below for random GCP "How-To" questions and unlogged troubleshooting.
           </p>
+          <div class="pt-1 flex justify-center">
+            <button onclick="openDirectAtlasChat()"
+              class="inline-flex items-center gap-2 px-5 py-2.5 rounded-2xl bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-400 hover:to-orange-400 text-slate-950 font-extrabold text-xs shadow-lg shadow-amber-500/20 transition transform hover:scale-[1.01] cursor-pointer">
+              <i class="fa-solid fa-comments"></i>
+              <span>Chat with Atlas (How-To &amp; Troubleshooting)</span>
+            </button>
+          </div>
         </div>
       `;
+    }
+
+    async function sendGeneralAtlasChat(event) {
+      if (event) event.preventDefault();
+      const inputEl = document.getElementById('generalChatInput');
+      const sendBtn = document.getElementById('btnSendGeneralChat');
+      if (!inputEl || !inputEl.value.trim()) return;
+
+      const userText = inputEl.value.trim();
+      inputEl.value = '';
+      if (sendBtn) {
+        sendBtn.disabled = true;
+        sendBtn.innerHTML = `<i class="fa-solid fa-spinner fa-spin"></i><span>Thinking...</span>`;
+      }
+
+      try {
+        await fetch('/api/atlas/chat', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ message: userText })
+        });
+        await fetchState(true);
+      } catch (err) {
+        console.error('Direct Atlas chat failed:', err);
+      } finally {
+        if (sendBtn) {
+          sendBtn.disabled = false;
+          sendBtn.innerHTML = `<i class="fa-solid fa-paper-plane"></i><span>Send</span>`;
+        }
+      }
+    }
+
+    async function askGeneralQuickQuestion(questionText) {
+      const inputEl = document.getElementById('generalChatInput');
+      if (inputEl) inputEl.value = questionText;
+      await sendGeneralAtlasChat(null);
+    }
+
+    async function resetGeneralAtlasChat() {
+      try {
+        await fetch('/api/atlas/chat/reset', { method: 'POST' });
+        await fetchState(true);
+      } catch (err) {
+        console.error('Reset Atlas chat failed:', err);
+      }
     }
 
     async function sendIncidentChat(event, incidentId) {
@@ -1173,6 +1379,7 @@
     }
 
     async function pollLiveCloudLogging() {
+      directChatMode = false;
       const btn = document.getElementById('btnPollLiveLogs');
       const liveIcon = document.getElementById('livePollIcon');
       const liveText = document.getElementById('livePollText');
@@ -1187,7 +1394,7 @@
 
       try {
         await fetch('/api/poll-cloud-logging', { method: 'POST' });
-        await fetchState();
+        await fetchState(true);
       } finally {
         if (btn) btn.disabled = false;
         if (liveIcon) liveIcon.className = 'fa-solid fa-satellite-dish text-sky-400';

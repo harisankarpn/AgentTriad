@@ -158,6 +158,7 @@ async def get_system_state() -> Dict[str, Any]:
         "logs": logs,
         "incidents": lead_orchestrator.list_incidents(),
         "audit_events": lead_orchestrator.list_audit_events(),
+        "general_chat_messages": lead_orchestrator.list_general_chat_messages(),
         "a2a_ledger": a2a_hub.message_ledger[:30],
     }
 
@@ -274,7 +275,7 @@ async def reopen_incident_remedy(incident_id: str) -> Dict[str, Any]:
 @app.post("/api/incidents/{incident_id}/chat")
 async def chat_about_incident(incident_id: str, req: IncidentChatRequest) -> Dict[str, Any]:
     """
-    Interactive chatbot endpoint for Hari to ask the AaaS Lead Orchestrator (`Aria`)
+    Interactive chatbot endpoint for Hari to ask the AaaS Lead Orchestrator (`Atlas`)
     questions about root cause, downtime, blast radius, or instruct it to proceed with the fix.
     """
     if incident_id not in lead_orchestrator.incidents:
@@ -286,6 +287,31 @@ async def chat_about_incident(incident_id: str, req: IncidentChatRequest) -> Dic
     return {
         "status": "CHAT_UPDATED",
         **result,
+    }
+
+
+@app.post("/api/atlas/chat")
+async def chat_general_atlas(req: IncidentChatRequest) -> Dict[str, Any]:
+    """
+    Direct on-demand chatbot endpoint for Hari to manually invoke Atlas for
+    'How-to' GCP questions or ad-hoc troubleshooting not captured in Cloud Logging.
+    """
+    if not req.message or not req.message.strip():
+        raise HTTPException(status_code=400, detail="Message cannot be empty")
+    result = await lead_orchestrator.chat_general_with_atlas(user_message=req.message)
+    return {
+        "status": "CHAT_UPDATED",
+        **result,
+    }
+
+
+@app.post("/api/atlas/chat/reset")
+async def reset_general_atlas_chat() -> Dict[str, Any]:
+    """Resets the direct/manual Atlas chat history back to the initial greeting."""
+    messages = lead_orchestrator.reset_general_chat()
+    return {
+        "status": "CHAT_RESET",
+        "messages": messages,
     }
 
 

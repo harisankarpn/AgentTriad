@@ -31,7 +31,7 @@ def run_e2e_tests() -> None:
     assert "I accept — Dispatch" in res_ui.text
     assert "I'm Convinced" not in res_ui.text
     assert "Audit &amp; Event Tracker" in res_ui.text
-    for nav_id in ("nav-command", "nav-roster", "nav-audit", "nav-logs", "view-command", "view-roster", "view-audit", "view-logs"):
+    for nav_id in ("nav-command", "nav-roster", "nav-audit", "nav-logs", "view-command", "view-roster", "view-audit", "view-logs", "btnOpenDirectChat", "btnSidebarAtlasChat"):
         assert nav_id in res_ui.text, f"Missing sidebar/view element {nav_id} in Dashboard UI"
     for specialist_label in (
         "Serverless Agent",
@@ -45,7 +45,34 @@ def run_e2e_tests() -> None:
         assert specialist_label in res_ui.text, f"Missing {specialist_label} in Dashboard UI"
     assert "Simulate Issue" not in res_ui.text
     assert "scenarioSelect" not in res_ui.text
-    print("[PASS] Dashboard UI verified: AaaS Command Center, User: Hari, Left Sidebar Navigation Rail, Atlas Holding GCP Cloud icon, 'I accept' button & 7 Specialists present")
+    print("[PASS] Dashboard UI verified: AaaS Command Center, User: Hari, Direct Atlas Chat buttons, Left Sidebar Navigation Rail, Atlas Holding GCP Cloud icon, 'I accept' button & 7 Specialists present")
+
+    # 1b. Verify Manual Invocation of Atlas Chatbot for "How-To" & Unlogged Troubleshooting
+    direct_howto_res = client.post(
+        "/api/atlas/chat",
+        json={"message": "How do I connect a Cloud Run service to Cloud SQL Postgres safely?"},
+    )
+    assert direct_howto_res.status_code == 200, f"Direct Atlas How-To chat failed: {direct_howto_res.text}"
+    howto_json = direct_howto_res.json()
+    assert howto_json["action_taken"] == "DIRECT_ATLAS_CHAT_REPLY"
+    assert howto_json["specialist_worker"]["name"] == "Database Agent"
+    assert len(howto_json["messages"]) >= 3
+    print(f"[PASS] Direct Atlas How-To Chat verified: routed to {howto_json['specialist_worker']['name']} ({howto_json['reply'][:70]}...)")
+
+    direct_unlogged_res = client.post(
+        "/api/atlas/chat",
+        json={"message": "My service has intermittent slow latency and timeouts not captured in Cloud Logging. How do I troubleshoot?"},
+    )
+    assert direct_unlogged_res.status_code == 200, f"Direct Atlas unlogged troubleshooting failed: {direct_unlogged_res.text}"
+    unlogged_json = direct_unlogged_res.json()
+    assert unlogged_json["action_taken"] == "DIRECT_ATLAS_CHAT_REPLY"
+    assert unlogged_json["specialist_worker"]["name"] == "Networking Agent"
+    print(f"[PASS] Direct Atlas Unlogged Troubleshooting verified: routed to {unlogged_json['specialist_worker']['name']}")
+
+    reset_chat_res = client.post("/api/atlas/chat/reset")
+    assert reset_chat_res.status_code == 200
+    assert len(reset_chat_res.json()["messages"]) == 1
+    print("[PASS] Direct Atlas Chat Reset verified!")
 
     # 2. Verify all 3 A2A AgentCards (/.well-known/agent.json)
     for agent_id in ("log-watcher-agent", "lead-orchestrator-agent", "gke-assist-agent"):
@@ -180,6 +207,7 @@ def run_e2e_tests() -> None:
 
 if __name__ == "__main__":
     run_e2e_tests()
+
 
 
 

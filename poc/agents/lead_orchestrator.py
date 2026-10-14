@@ -234,6 +234,7 @@ class LeadOrchestratorAgent:
         self.audit_events: Dict[str, Dict[str, Any]] = {}
         self.adk_agent = self._build_adk_agent()
         self._genai_client = self._build_genai_client()
+        self.general_chat_messages: List[Dict[str, Any]] = self._default_general_chat_greeting()
         self.card = AgentCard(
             id=self.AGENT_ID,
             name="Atlas • Lead Orchestrator",
@@ -951,5 +952,178 @@ class LeadOrchestratorAgent:
             key=lambda item: item.get("detected_at", ""),
             reverse=True,
         )
+
+    def _default_general_chat_greeting(self) -> List[Dict[str, Any]]:
+        now_iso = datetime.datetime.now(datetime.timezone.utc).isoformat()
+        return [
+            {
+                "id": "atlas-welcome",
+                "role": "assistant",
+                "sender": "Atlas • AaaS Lead",
+                "specialist": WORKER_AGENT_BOUTIQUE[0],
+                "specialist_worker": WORKER_AGENT_BOUTIQUE[0],
+                "text": (
+                    "Hey Hari 👋 You've opened a direct chat with **Atlas (AaaS Lead)**!\n\n"
+                    "You can ask me any **GCP 'How-to' question** or walk me through **ad-hoc troubleshooting for issues not captured in Cloud Logging** "
+                    "(such as intermittent latency, VPC routing, Cloud SQL connection tuning, IAM least-privilege policies, or FinOps billing caps).\n\n"
+                    "What would you like to explore or troubleshoot today?"
+                ),
+                "timestamp": now_iso,
+            }
+        ]
+
+    def _select_specialist_for_query(self, query_text: str) -> Dict[str, str]:
+        lower = query_text.lower()
+        if any(k in lower for k in ("billing", "cost", "budget", "finops", "price", "spend", "invoice")):
+            return WORKER_AGENT_BOUTIQUE[6]  # Billing Agent
+        if any(k in lower for k in ("iam", "security", "permission", "role", "wif", "secret", "armor", "auth", "token", "least privilege")):
+            return WORKER_AGENT_BOUTIQUE[5]  # Security Agent
+        if any(k in lower for k in ("sql", "database", "db", "postgres", "alloydb", "spanner", "connection pool", "socket")):
+            return WORKER_AGENT_BOUTIQUE[1]  # Database Agent
+        if any(k in lower for k in ("vpc", "network", "latency", "dns", "load balanc", "firewall", "ingress", "timeout", "packet", "routing", "connector")):
+            return WORKER_AGENT_BOUTIQUE[3]  # Networking Agent
+        if any(k in lower for k in ("bigquery", "dataflow", "pubsub", "pub/sub", "analytics", "vertex", "rag", "slot")):
+            return WORKER_AGENT_BOUTIQUE[4]  # Data Analytics Agent
+        if any(k in lower for k in ("gke", "kubernetes", "pod", "node", "vm", "compute engine", "gce", "disk", "cluster")):
+            return WORKER_AGENT_BOUTIQUE[2]  # Infra Agent
+        return WORKER_AGENT_BOUTIQUE[0]  # Serverless Agent
+
+    def list_general_chat_messages(self) -> List[Dict[str, Any]]:
+        return list(self.general_chat_messages)
+
+    def reset_general_chat(self) -> List[Dict[str, Any]]:
+        self.general_chat_messages = self._default_general_chat_greeting()
+        return list(self.general_chat_messages)
+
+    async def chat_general_with_atlas(self, user_message: str) -> Dict[str, Any]:
+        """
+        Handles manual/direct user conversations with Atlas for:
+          1. General Google Cloud 'How-to' questions.
+          2. Ad-hoc troubleshooting of symptoms not captured in Cloud Logging.
+        Consults the matched domain specialist from the 7-Agent Specialist Roster.
+        """
+        clean_msg = user_message.strip()
+        if not clean_msg:
+            raise ValueError("Message cannot be empty")
+
+        now_iso = datetime.datetime.now(datetime.timezone.utc).isoformat()
+        self.general_chat_messages.append(
+            {
+                "role": "user",
+                "sender": "Hari",
+                "text": clean_msg,
+                "timestamp": now_iso,
+            }
+        )
+
+        specialist = self._select_specialist_for_query(clean_msg)
+        spec_name = specialist["name"]
+        spec_domain = specialist["domain"]
+        lower_msg = clean_msg.lower()
+
+        history_text = "\n".join(
+            f"{m.get('sender', m.get('role'))}: {m.get('text')}"
+            for m in self.general_chat_messages[-8:]
+        )
+        roster_summary = ", ".join(f"{w['name']} ({w['domain']})" for w in WORKER_AGENT_BOUTIQUE)
+
+        reply_text = ""
+        if self._genai_client is not None:
+            try:
+                prompt = (
+                    "You are Atlas, the friendly and authoritative AaaS Lead Orchestrator chatbot for Hari's Google Cloud project (`agent-triad`).\n"
+                    "Hari has manually invoked you for a direct consultation — either a 'How-to' question or ad-hoc troubleshooting for an issue not captured in Cloud Logging.\n\n"
+                    f"Matched Domain Specialist Consulted: {spec_name} ({spec_domain})\n"
+                    f"Available Specialist Roster (7 Agents): {roster_summary}\n\n"
+                    f"Recent Conversation:\n{history_text}\n\n"
+                    "Provide a clear, practical, and concise answer (3-6 bullet points or short paragraphs) with exact `gcloud`, `kubectl`, or diagnostic steps where helpful. "
+                    f"Mention how {spec_name} helps with this domain."
+                )
+                resp = self._genai_client.models.generate_content(
+                    model=MODEL_NAME,
+                    contents=prompt,
+                )
+                if resp and resp.text:
+                    reply_text = resp.text.strip()
+            except Exception:
+                reply_text = ""
+
+        if not reply_text:
+            if spec_name == "Database Agent":
+                reply_text = (
+                    f"I consulted our **{spec_name}** (*{spec_domain}*) for your question, Hari:\n"
+                    "• **Cloud Run → Cloud SQL Auth Proxy Setup**: Attach the Cloud SQL instance using `--add-cloudsql-instances=agent-triad:us-central1:INSTANCE` so Cloud Run mounts the Unix socket at `/cloudsql/...`.\n"
+                    "• **Unlogged Connection Timeouts**: Check if `max_connections` is saturated or if connection pooling (`PgBouncer` / SQLAlchemy `pool_size=5, max_overflow=2`) needs tuning:\n"
+                    "  `gcloud sql operations list --instance=INSTANCE --project=agent-triad`\n"
+                    "• **Private IP Verification**: Ensure your Serverless VPC Access connector has `/28` CIDR capacity and egress is set to `private-ranges-only`."
+                )
+            elif spec_name == "Networking Agent":
+                reply_text = (
+                    f"I consulted our **{spec_name}** (*{spec_domain}*) to troubleshoot this unlogged network/latency symptom, Hari:\n"
+                    "• **Check Cold-Start vs. Network RTT**: Run a timing probe to separate TLS/DNS handshake time from container response time:\n"
+                    "  `curl -w 'dns:%{time_namelookup}s connect:%{time_connect}s ttfb:%{time_starttransfer}s\\n' -o /dev/null -s https://SERVICE_URL`\n"
+                    "• **Inspect VPC Connector Throughput**: Silent packet drops often occur when a Serverless VPC Access connector hits its throughput ceiling:\n"
+                    "  `gcloud compute networks vpc-access connectors describe CONNECTOR --region=us-central1 --project=agent-triad`\n"
+                    "• **Keep Warm Instance**: Set `--min-instances=1` on latency-sensitive Cloud Run services to eliminate cold-start spikes."
+                )
+            elif spec_name == "Security Agent":
+                reply_text = (
+                    f"I consulted our **{spec_name}** (*{spec_domain}*) for your security/IAM question, Hari:\n"
+                    "• **Audit Service Account Bindings**: List active IAM roles granted across `agent-triad`:\n"
+                    "  `gcloud projects get-iam-policy agent-triad --flatten='bindings[].members' --format='table(bindings.role,bindings.members)'`\n"
+                    "• **Zero-Standing Privilege (WIF + JIT)**: Avoid long-lived JSON keys—use Workload Identity Federation and short-lived 15-minute JIT tokens (`gcloud auth print-access-token`).\n"
+                    "• **Secret Manager Best Practice**: Mount secrets directly as environment variables (`--set-secrets=DB_PASS=db-secret:latest`) and grant `roles/secretmanager.secretAccessor` only to the target service account."
+                )
+            elif spec_name == "Billing Agent":
+                reply_text = (
+                    f"I consulted our **{spec_name}** (*{spec_domain}*) for your FinOps & cost control question, Hari:\n"
+                    "• **Cap Auto-Scaling Spend**: Always set a hard `--max-instances` ceiling on Cloud Run services so unexpected traffic bursts cannot trigger runaway compute charges:\n"
+                    "  `gcloud run services update SERVICE --max-instances=10 --region=us-central1 --project=agent-triad`\n"
+                    "• **CPU Allocation Mode**: Use `--cpu-throttling` (CPU only allocated during request processing) for request-driven services.\n"
+                    "• **Budget Alerts & Quota Checks**: Configure Cloud Billing budget alerts at 50%, 80%, and 100% thresholds via `gcloud billing budgets list`."
+                )
+            elif spec_name == "Data Analytics Agent":
+                reply_text = (
+                    f"I consulted our **{spec_name}** (*{spec_domain}*), Hari:\n"
+                    "• **BigQuery / Vertex AI Diagnostics**: Inspect active jobs and slot utilization without waiting for error logs:\n"
+                    "  `bq ls -j -a -n 20 agent-triad`\n"
+                    "• **Pub/Sub Unacked Backlog**: If downstream workers stall silently without throwing errors, check oldest unacked message age:\n"
+                    "  `gcloud pubsub subscriptions describe SUB_ID --project=agent-triad`"
+                )
+            elif spec_name == "Infra Agent":
+                reply_text = (
+                    f"I consulted our **{spec_name}** (*{spec_domain}*), Hari:\n"
+                    "• **Silent Resource Contention (CPU Throttling / OOM)**: Even when application logs look quiet, container memory pressure or node CPU throttling can degrade performance:\n"
+                    "  `gcloud compute instances list --project=agent-triad`\n"
+                    "• **GKE / Container Health**: Check pod restarts, liveness probes, and node conditions with `kubectl get pods -A` and `kubectl top pods`."
+                )
+            else:
+                reply_text = (
+                    f"I consulted our **{spec_name}** (*{spec_domain}*) for your request, Hari:\n"
+                    "• **Inspect Live Service Configuration & Revisions**:\n"
+                    "  `gcloud run services describe agent-triad-control-plane --region=us-central1 --project=agent-triad`\n"
+                    "• **Troubleshoot Unlogged Issues (Latency / Silent Timeouts)**:\n"
+                    "  1. Check container concurrency & CPU limits (`--concurrency=80`, `--cpu=1`, `--memory=512Mi`).\n"
+                    "  2. Verify revision traffic split and startup/liveness probes (`gcloud run revisions list --region=us-central1`).\n"
+                    "  3. Run a live health check or ask me about any specific GCP service (`Cloud Run`, `Cloud SQL`, `VPC`, `IAM`, `BigQuery`, or `Billing`)!"
+                )
+
+        reply_msg = {
+            "role": "assistant",
+            "sender": f"Atlas • AaaS Lead (with {spec_name})",
+            "specialist": specialist,
+            "specialist_worker": specialist,
+            "text": reply_text,
+            "timestamp": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+        }
+        self.general_chat_messages.append(reply_msg)
+        return {
+            "action_taken": "DIRECT_ATLAS_CHAT_REPLY",
+            "reply": reply_text,
+            "specialist_worker": specialist,
+            "consulted_specialist": specialist,
+            "messages": list(self.general_chat_messages),
+        }
+
 
 
