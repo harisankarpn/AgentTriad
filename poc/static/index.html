@@ -87,7 +87,7 @@
           <button id="nav-command" onclick="switchView('command')" class="nav-btn nav-btn-active w-full flex items-center justify-between gap-2 px-3 py-2.5 rounded-xl border border-transparent text-xs font-semibold text-slate-300 hover:text-white hover:bg-slate-800/60 transition cursor-pointer text-left">
             <span class="flex items-center gap-2.5 truncate">
               <i class="fa-solid fa-comments text-amber-400 w-4 text-center"></i>
-              <span class="truncate">Atlas Command</span>
+              <span class="truncate">AaaS Command Center</span>
             </span>
             <span id="navBadgeCommand" class="px-2 py-0.5 text-[10px] font-bold rounded-full bg-emerald-500/15 text-emerald-400 shrink-0">Live</span>
           </button>
@@ -138,7 +138,7 @@
     <header class="w-full px-5 sm:px-8 py-3.5 border-b border-slate-800/80 flex items-center justify-between gap-4 bg-slate-950/40">
       <div class="min-w-0">
         <h2 id="workspaceViewTitle" class="text-sm sm:text-base font-bold text-white truncate">
-          Atlas Command Center
+          AaaS Command Center
         </h2>
         <p id="workspaceViewSubtitle" class="text-[11px] text-slate-400 truncate">
           Heartbeat &amp; Telemetry + Atlas (Lead) + Specialist Agent Roster
@@ -146,8 +146,8 @@
       </div>
       <div class="flex items-center gap-2 shrink-0">
         <span class="hidden sm:inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-slate-900/90 border border-slate-800 text-[11px] text-slate-300">
-          <i class="fa-solid fa-user-astronaut text-amber-400"></i>
-          <span>Operator: <strong class="text-white">Hari</strong></span>
+          <i class="fa-solid fa-user text-amber-400"></i>
+          <span>User: <strong class="text-white">Hari</strong></span>
         </span>
       </div>
     </header>
@@ -291,7 +291,7 @@
               <p class="text-xs text-slate-400">Atlas dynamically selects and dispatches the right domain specialist with a single-use 15-minute WIF JIT token after you click "I accept".</p>
             </div>
             <button type="button" onclick="switchView('command')" class="text-xs text-amber-300 hover:text-amber-200 font-semibold cursor-pointer shrink-0">
-              ← Back to Atlas Command
+              ← Back to AaaS Command Center
             </button>
           </div>
           <div id="rosterGridContainer" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3.5 pt-4">
@@ -484,7 +484,7 @@
 
     const VIEW_METADATA = {
       command: {
-        title: 'Atlas Command Center',
+        title: 'AaaS Command Center',
         subtitle: 'Heartbeat & Telemetry + Atlas (Lead) + Specialist Agent Roster'
       },
       roster: {
