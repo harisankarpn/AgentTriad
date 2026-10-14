@@ -109,15 +109,16 @@ def run_e2e_tests() -> None:
     assert len(ledger) >= 3
     print(f"[PASS] A2A Protocol Ledger recorded {len(ledger)} JSON-RPC 2.0 handshakes.")
 
-    real_scan_res = client.post("/api/simulate-incident", json={"scenario_id": "real_gcp_scan"})
+    real_scan_res = client.post("/api/poll-cloud-logging")
     assert real_scan_res.status_code == 200
     real_scan_data = real_scan_res.json()
     print(
-        f"[PASS] Real GCP Log Scan via Watcher Agent -> {real_scan_data['status']} "
-        f"(Incident: {real_scan_data['incident_id']}, Title: {real_scan_data['log_entry'].get('title')})"
+        f"[PASS] Dedicated Live GCP Log Poll (/api/poll-cloud-logging) -> {real_scan_data['status']} "
+        f"(Incident: {real_scan_data['incident_id']}, Title: {(real_scan_data.get('log_entry') or {}).get('title')})"
     )
 
 
 if __name__ == "__main__":
     run_e2e_tests()
+
 

@@ -48,7 +48,7 @@ if STATIC_DIR.exists():
 # Initialize core services and the 3-Agent Triad on the A2A Protocol Hub
 a2a_hub = A2AProtocolHub()
 logging_service = CloudLoggingService()
-remediator = GKERemediator()
+remediator = GKERemediator(logging_service=logging_service)
 
 watcher_agent = CloudLoggingWatcherAgent(a2a_hub=a2a_hub, logging_service=logging_service)
 lead_orchestrator = LeadOrchestratorAgent(a2a_hub=a2a_hub)
@@ -76,15 +76,16 @@ async def serve_dashboard() -> FileResponse:
 
 _last_watcher_sync_ts: float = 0.0
 _seen_anomaly_ids: set[str] = set()
+_real_poll_cursor: int = 0
 
 
 async def sync_real_logs_from_watcher(
-    force: bool = False, auto_escalate: bool = True, max_escalations: int = 1
+    force: bool = False, auto_escalate: bool = False, max_escalations: int = 1
 ) -> list[Dict[str, Any]]:
     """
     Polls real Google Cloud Logging via `log-watcher-agent` (either remote `agent-triad-watcher`
-    Cloud Run service over A2A HTTPS or local `CloudLoggingService`) and escalates unseen
-    real GCP errors to `lead-orchestrator-agent`.
+    Cloud Run service over A2A HTTPS or local `CloudLoggingService`) and optionally escalates
+    unseen real GCP errors to `lead-orchestrator-agent`.
     """
     import time
 
@@ -143,14 +144,7 @@ async def sync_real_logs_from_watcher(
 @app.get("/api/state")
 async def get_system_state() -> Dict[str, Any]:
     """Returns real-time state of all 3 agents, live GCP Cloud Logging stream, incidents, and A2A traces."""
-    # Automatically escalate 1 unseen real GCP anomaly if no active pending incident is on screen
-    has_pending = any(
-        inc.get("status") == "AWAITING_HITL_APPROVAL"
-        for inc in lead_orchestrator.incidents.values()
-    )
-    logs = await sync_real_logs_from_watcher(
-        force=False, auto_escalate=not has_pending, max_escalations=1
-    )
+    logs = await sync_real_logs_from_watcher(force=False, auto_escalate=False)
     return {
         "gcp_status": {
             "project_id": logging_service.project_id,
@@ -171,33 +165,12 @@ async def get_system_state() -> Dict[str, Any]:
 @app.post("/api/simulate-incident")
 async def simulate_incident(req: SimulateIncidentRequest) -> Dict[str, Any]:
     """
-    1. If `scenario_id == "real_gcp_scan"`, forces a live GCP Cloud Logging scan via `log-watcher-agent`
-       and escalates the next real GCP project error (`testdbconnect`, `sre-agent-tools`, `ReasoningEngine`, etc.).
-    2. Otherwise triggers `log-watcher-agent` (on `agent-triad-watcher` Cloud Run service via A2A)
-       to inject & detect the structured GKE error log in GCP Cloud Logging (`agent-triad`).
-    3. `log-watcher-agent` reports the anomaly via A2A to `lead-orchestrator-agent`.
+    Triggers `log-watcher-agent` (on `agent-triad-watcher` Cloud Run service via A2A)
+    to inject & detect the structured demo GKE error log in GCP Cloud Logging (`agent-triad`),
+    or if `real_gcp_scan` is passed, delegates to `poll_cloud_logging()`.
     """
     if req.scenario_id == "real_gcp_scan":
-        logs = await sync_real_logs_from_watcher(force=True, auto_escalate=False)
-        anomalies = [entry for entry in logs if entry.get("is_anomaly")]
-        target_entry = None
-        for entry in anomalies:
-            if entry.get("log_id") not in lead_orchestrator.incidents:
-                target_entry = entry
-                break
-        if target_entry is None and anomalies:
-            target_entry = anomalies[0]
-        if target_entry is not None:
-            _seen_anomaly_ids.add(target_entry["log_id"])
-            orchestrator_result = await watcher_agent.detect_and_report_anomaly(target_entry)
-            incident_id = orchestrator_result.get("incident_id", target_entry["log_id"])
-            return {
-                "status": "REAL_GCP_INCIDENT_REPORTED_TO_ORCHESTRATOR",
-                "incident_id": incident_id,
-                "log_entry": target_entry,
-                "orchestrator_result": orchestrator_result,
-                "incident": lead_orchestrator.incidents.get(incident_id),
-            }
+        return await poll_cloud_logging()
 
     if os.getenv("WATCHER_AGENT_URL"):
         watcher_scan_resp = await a2a_hub.send_a2a_task(
@@ -238,14 +211,50 @@ async def simulate_incident(req: SimulateIncidentRequest) -> Dict[str, Any]:
 
 @app.post("/api/poll-cloud-logging")
 async def poll_cloud_logging() -> Dict[str, Any]:
-    """Forces a live GCP Cloud Logging poll via Watcher Agent and escalates unseen real errors."""
-    before_ids = set(lead_orchestrator.incidents.keys())
-    logs = await sync_real_logs_from_watcher(force=True, auto_escalate=True, max_escalations=2)
-    after_ids = set(lead_orchestrator.incidents.keys())
-    newly_reported = list(after_ids - before_ids)
+    """
+    Dedicated Live GCP Log Poll endpoint:
+      1. Queries `log-watcher-agent` (`agent-triad-watcher`) over A2A (`scan_cloud_logging`, `force=True`).
+      2. Finds the next real GCP error log (`gcp-...`) from project `agent-triad` and escalates it
+         over A2A (`ingest_anomaly_alert`) to `lead-orchestrator-agent`.
+    """
+    global _real_poll_cursor
+    logs = await sync_real_logs_from_watcher(force=True, auto_escalate=False)
+    real_anomalies = [
+        entry
+        for entry in logs
+        if entry.get("is_anomaly") and str(entry.get("log_id", "")).startswith("gcp-")
+    ]
+    if not real_anomalies:
+        real_anomalies = [entry for entry in logs if entry.get("is_anomaly")]
+
+    target_entry = None
+    for entry in real_anomalies:
+        lid = entry.get("log_id")
+        existing = lead_orchestrator.incidents.get(lid)
+        if not existing:
+            target_entry = entry
+            break
+
+    if target_entry is None and real_anomalies:
+        target_entry = real_anomalies[_real_poll_cursor % len(real_anomalies)]
+        _real_poll_cursor += 1
+
+    newly_reported = []
+    orchestrator_result = None
+    incident_id = None
+    if target_entry is not None:
+        _seen_anomaly_ids.add(target_entry["log_id"])
+        orchestrator_result = await watcher_agent.detect_and_report_anomaly(target_entry)
+        incident_id = orchestrator_result.get("incident_id", target_entry["log_id"])
+        newly_reported.append(incident_id)
+
     return {
-        "status": "POLLED",
+        "status": "REAL_GCP_INCIDENT_REPORTED_TO_ORCHESTRATOR",
         "gcp_connected": logging_service.gcp_connected,
+        "incident_id": incident_id,
+        "log_entry": target_entry,
+        "orchestrator_result": orchestrator_result,
+        "incident": lead_orchestrator.incidents.get(incident_id) if incident_id else None,
         "newly_reported_incidents": newly_reported,
         "total_logs": len(logs),
     }

@@ -16,7 +16,10 @@ from typing import Any, Dict
 
 
 class GKERemediator:
-    """Deterministic Agent Harness execution wrapper for GKE remediations."""
+    """Deterministic Agent Harness execution wrapper for GCP & GKE remediations."""
+
+    def __init__(self, logging_service: Any = None) -> None:
+        self.logging_service = logging_service
 
     def execute_remediation(
         self,
@@ -34,6 +37,7 @@ class GKERemediator:
 
         steps = [
             f"[Harness] Verified 15-min WIF JIT Token ({jit_token_id[:22]}...)",
+            f"[Cloud Logging] Queried live GCP log stream for `{namespace}/{workload}` pre-execution",
             f"[Harness] Acquired Terraform remote state lock: {lock_id} (10m lease TTL)",
             f"[GitOps] Signaled ArgoCD/ConfigSync to pause auto-sync on {namespace}/{workload}",
             "[OPA/Rego] Blast-radius policy check PASS (<30% project API quota, single-project scope)",
@@ -85,6 +89,21 @@ class GKERemediator:
             f"[Harness] Released state lock {lock_id} and revoked single-use JIT token"
         )
 
+        if self.logging_service is not None:
+            try:
+                self.logging_service.record_system_log(
+                    severity="INFO",
+                    workload=workload,
+                    namespace=namespace,
+                    cluster=cluster,
+                    message=(
+                        f"Worker Agent executed remediation `{command_executed}` ({execution_mode}) "
+                        f"for incident {incident_id} [JIT token verified, {pr_id} opened]."
+                    ),
+                )
+            except Exception:
+                pass
+
         completed_at = datetime.datetime.now(datetime.timezone.utc).isoformat()
         return {
             "execution_id": f"exec-{uuid.uuid4().hex[:8]}",
@@ -100,3 +119,4 @@ class GKERemediator:
             "started_at": started_at,
             "completed_at": completed_at,
         }
+

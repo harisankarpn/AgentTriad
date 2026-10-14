@@ -50,10 +50,16 @@
       </h1>
     </div>
 
-    <!-- Simple Demo Trigger -->
-    <div class="flex items-center gap-2">
+    <!-- Live GCP Log Poll Icon + Separate Demo Trigger -->
+    <div class="flex items-center gap-2.5">
+      <button id="btnPollLiveLogs" onclick="pollLiveCloudLogging()" title="Poll Real GCP Cloud Logging via Log Watcher" class="inline-flex items-center gap-2 bg-sky-500/15 hover:bg-sky-500/25 text-sky-300 border border-sky-500/30 text-xs font-semibold px-3.5 py-2.5 rounded-xl transition cursor-pointer">
+        <i class="fa-solid fa-satellite-dish text-sky-400" id="livePollIcon"></i>
+        <span id="livePollText">Poll Live Logs</span>
+      </button>
+
+      <div class="h-5 w-px bg-slate-800 hidden sm:block"></div>
+
       <select id="scenarioSelect" class="bg-slate-900 border border-slate-700 text-slate-200 text-xs rounded-xl px-3 py-2.5 focus:outline-none focus:border-indigo-500">
-        <option value="real_gcp_scan">Live GCP: Scan Real Project Logs</option>
         <option value="oom_killed">Demo: Checkout Memory Spike</option>
         <option value="cpu_throttling">Demo: Website Traffic Overload</option>
         <option value="image_pull_backoff">Demo: Broken App Update</option>
@@ -502,7 +508,7 @@
           </div>
           <h2 class="text-lg font-bold text-white">Your Cloud Environment is Healthy</h2>
           <p class="text-xs text-slate-400 max-w-sm mx-auto leading-relaxed">
-            The <strong>Log Watcher</strong> and <strong>Lead Orchestrator</strong> are monitoring your services 24/7. Click <strong>"Simulate Issue"</strong> at the top right to see how an issue is caught and fixed.
+            The <strong>Log Watcher</strong> and <strong>Lead Orchestrator</strong> are monitoring your services 24/7. Click <strong>"Poll Live Logs"</strong> to scan real GCP logs or <strong>"Simulate Issue"</strong> to run a demo.
           </p>
         </div>
       `;
@@ -588,13 +594,26 @@
     }
 
     async function pollLiveCloudLogging() {
-      const icon = document.getElementById('pollIcon');
-      if (icon) icon.className = 'fa-solid fa-rotate fa-spin mr-1';
+      const btn = document.getElementById('btnPollLiveLogs');
+      const liveIcon = document.getElementById('livePollIcon');
+      const liveText = document.getElementById('livePollText');
+      const drawerIcon = document.getElementById('pollIcon');
+
+      if (btn) btn.disabled = true;
+      if (liveIcon) liveIcon.className = 'fa-solid fa-spinner fa-spin text-sky-400';
+      if (liveText) liveText.textContent = 'Polling GCP...';
+      if (drawerIcon) drawerIcon.className = 'fa-solid fa-rotate fa-spin mr-1';
+
+      document.getElementById('card-log-watcher-agent').classList.add('agent-active');
+
       try {
         await fetch('/api/poll-cloud-logging', { method: 'POST' });
         await fetchState();
       } finally {
-        if (icon) icon.className = 'fa-solid fa-rotate mr-1';
+        if (btn) btn.disabled = false;
+        if (liveIcon) liveIcon.className = 'fa-solid fa-satellite-dish text-sky-400';
+        if (liveText) liveText.textContent = 'Poll Live Logs';
+        if (drawerIcon) drawerIcon.className = 'fa-solid fa-rotate mr-1';
       }
     }
 
