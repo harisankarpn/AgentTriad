@@ -31,8 +31,9 @@ def run_e2e_tests() -> None:
     assert "I accept — Dispatch" in res_ui.text
     assert "I'm Convinced" not in res_ui.text
     assert "Audit &amp; Event Tracker" in res_ui.text
-    for nav_id in ("nav-command", "nav-roster", "nav-audit", "nav-logs", "view-command", "view-roster", "view-audit", "view-logs", "btnOpenDirectChat", "btnSidebarAtlasChat"):
+    for nav_id in ("nav-command", "nav-roster", "nav-audit", "nav-logs", "view-command", "view-roster", "view-audit", "view-logs", "btnOpenDirectChat", "btnPollLiveLogs"):
         assert nav_id in res_ui.text, f"Missing sidebar/view element {nav_id} in Dashboard UI"
+    assert "btnSidebarAtlasChat" not in res_ui.text
     for specialist_label in (
         "Serverless Agent",
         "Database Agent",
@@ -45,7 +46,7 @@ def run_e2e_tests() -> None:
         assert specialist_label in res_ui.text, f"Missing {specialist_label} in Dashboard UI"
     assert "Simulate Issue" not in res_ui.text
     assert "scenarioSelect" not in res_ui.text
-    print("[PASS] Dashboard UI verified: AaaS Command Center, User: Hari, Direct Atlas Chat buttons, Left Sidebar Navigation Rail, Atlas Holding GCP Cloud icon, 'I accept' button & 7 Specialists present")
+    print("[PASS] Dashboard UI verified: AaaS Command Center, User: Hari, Top-Bar Poll Live Logs & Chat with Atlas, Clean Sidebar Footer, Atlas Holding GCP Cloud icon, 'I accept' button & 7 Specialists present")
 
     # 1b. Verify Manual Invocation of Atlas Chatbot for "How-To" & Unlogged Troubleshooting
     direct_howto_res = client.post(
