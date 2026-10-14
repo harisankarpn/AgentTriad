@@ -17,12 +17,15 @@ from app import app
 def run_e2e_tests() -> None:
     client = TestClient(app)
 
-    # 1. Verify Dashboard UI loads with Heartbeat & Telemetry, Specialist Agent Roster (7 specialists), Audit Tracker, and without Simulate/Demo controls
+    # 1. Verify Dashboard UI loads with Heartbeat & Telemetry, Specialist Agent Roster (7 specialists), Atlas Holding GCP Cloud icon, 'I accept', Audit Tracker, and without Simulate/Demo controls
     res_ui = client.get("/")
     assert res_ui.status_code == 200, f"Dashboard failed: {res_ui.status_code}"
     assert "AaaS Control Plane" in res_ui.text
     assert "Heartbeat &amp; Telemetry" in res_ui.text
     assert "Specialist Agent Roster" in res_ui.text
+    assert "Atlas Holding GCP Cloud" in res_ui.text
+    assert "I accept — Dispatch" in res_ui.text
+    assert "I'm Convinced" not in res_ui.text
     assert "Audit &amp; Event Tracker" in res_ui.text
     for specialist_label in (
         "Serverless Agent",
@@ -36,7 +39,7 @@ def run_e2e_tests() -> None:
         assert specialist_label in res_ui.text, f"Missing {specialist_label} in Dashboard UI"
     assert "Simulate Issue" not in res_ui.text
     assert "scenarioSelect" not in res_ui.text
-    print("[PASS] Dashboard UI verified: Heartbeat & Telemetry, Specialist Agent Roster (7 specialists) & Audit Tracker present; Simulate/Demo removed")
+    print("[PASS] Dashboard UI verified: Atlas Holding GCP Cloud icon, 'I accept' button, Heartbeat & Telemetry, Specialist Agent Roster (7 specialists) & Audit Tracker present")
 
     # 2. Verify all 3 A2A AgentCards (/.well-known/agent.json)
     for agent_id in ("log-watcher-agent", "lead-orchestrator-agent", "gke-assist-agent"):
@@ -133,10 +136,10 @@ def run_e2e_tests() -> None:
     assert reopen_res.json()["incident"]["status"] == "AWAITING_HITL_APPROVAL"
     print("[PASS] Skip / Manual Mode and Reopen verified!")
 
-    # 5b. User gets convinced and approves via chat -> Atlas mints JIT token & delegates via A2A to Worker Agent
+    # 5b. User accepts via chat ("I accept") -> Atlas mints JIT token & delegates via A2A to Specialist Agent
     approve_res = client.post(
         f"/api/incidents/{incident_id}/chat",
-        json={"message": "I am convinced, please proceed with the fix now."},
+        json={"message": "I accept, please proceed with the fix now."},
     )
     assert approve_res.status_code == 200, f"Chat approval failed: {approve_res.text}"
     assert approve_res.json()["action_taken"] == "APPROVED_AND_EXECUTED"

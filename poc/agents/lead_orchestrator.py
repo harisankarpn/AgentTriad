@@ -489,7 +489,7 @@ class LeadOrchestratorAgent:
             f"• **Assigned Specialist**: **{spec_name}** ({spec_domain})\n"
             f"• **Next Steps**: {next_step}\n\n"
             "Ask me anything about why this happened, whether there's any downtime, the rollback plan, "
-            "or the exact command. Once you're convinced, tell me to **proceed with the fix** (or click Approve below)!"
+            "or the exact command. Whenever you're ready, type **'I accept'** or click **I accept** below to proceed with the fix!"
         )
         return [
             {
@@ -609,8 +609,10 @@ class LeadOrchestratorAgent:
 
         lower_msg = clean_msg.lower()
 
-        # Check if Hari is convinced and telling the chatbot to proceed with the fix
+        # Check if Hari accepts and tells the chatbot to proceed with the fix
         approve_phrases = (
+            "i accept",
+            "accept",
             "proceed",
             "go ahead",
             "fix it",
@@ -666,7 +668,7 @@ class LeadOrchestratorAgent:
             try:
                 prompt = (
                     "You are Atlas, the friendly and sharp AaaS Lead Orchestrator chatbot for Hari's Google Cloud environment (`agent-triad`).\n"
-                    "You are currently discussing an active cloud incident with Hari before he decides whether to approve the automated fix.\n\n"
+                    "You are currently discussing an active cloud incident with Hari before he decides whether to accept the automated fix.\n\n"
                     f"Incident Summary:\n- Service/Workload: {incident.get('workload')} in {incident.get('cluster')}\n"
                     f"- Severity: {incident.get('severity')} ({impact.get('blast_radius_tier')})\n"
                     f"- Technical Root Cause: {impact.get('root_cause')}\n"
@@ -674,10 +676,10 @@ class LeadOrchestratorAgent:
                     f"- Raw Log Message: {log_entry.get('message')}\n"
                     f"- Proposed Fix Summary: {impact.get('remedy_summary')}\n"
                     f"- Exact Command Worker Agent Will Run: `{impact.get('recommended_kubectl')}`\n"
-                    f"- Rollback & Safety Plan: {impact.get('rollback_plan')} (Plus 15-minute single-use JIT token and 45s Log Watcher post-check)\n\n"
+                    f"- Rollback & Safety Plan: {impact.get('rollback_plan')} (Plus 15-minute single-use JIT token and 45s Heartbeat & Telemetry post-check)\n\n"
                     f"Conversation so far:\n{history_text}\n\n"
                     "Respond directly to Hari's latest message in 2-4 concise, helpful sentences (use bullet points if helpful). "
-                    "Be warm, clear, and transparent. Remind Hari that whenever he feels confident, he can say 'Proceed with the fix' or click the Approve button."
+                    "Be warm, clear, and transparent. Remind Hari that whenever he is ready, he can say 'I accept' or click the 'I accept' button."
                 )
                 resp = self._genai_client.models.generate_content(
                     model=MODEL_NAME,
@@ -700,10 +702,10 @@ class LeadOrchestratorAgent:
             elif any(k in lower_msg for k in ("safe", "downtime", "risk", "break", "rollback", "revert")):
                 reply_text = (
                     f"It's completely safe and causes **zero downtime**, Hari:\n"
-                    f"• **Guardrails**: The **Worker Agent** gets a single-use 15-minute JIT token scoped only to `{incident.get('workload')}`.\n"
+                    f"• **Guardrails**: The specialist agent gets a single-use 15-minute JIT token scoped only to `{incident.get('workload')}`.\n"
                     f"• **Auto-Rollback Plan**: {impact.get('rollback_plan')}\n"
-                    "• **Verification**: Immediately after the fix, **Log Watcher** monitors live logs for 45s to verify 0 errors.\n\n"
-                    "Let me know if you're ready for me to proceed with the fix!"
+                    "• **Verification**: Immediately after the fix, **Heartbeat & Telemetry** monitors live logs for 45s to verify 0 errors.\n\n"
+                    "Let me know or click **I accept** when you're ready for me to proceed with the fix!"
                 )
             elif any(k in lower_msg for k in ("command", "kubectl", "gcloud", "log", "raw", "code")):
                 reply_text = (
@@ -711,7 +713,7 @@ class LeadOrchestratorAgent:
                     f"• **Error Code**: `{log_entry.get('error_code')}`\n"
                     f"• **Raw Log**: `{str(log_entry.get('message', ''))[:180]}`\n"
                     f"• **Command to Execute**: `{impact.get('recommended_kubectl')}`\n\n"
-                    "Once you're comfortable with this command, just say **'Proceed with the fix'** or click Approve!"
+                    "Once you're comfortable with this command, just say **'I accept'** or click **I accept** below!"
                 )
             else:
                 reply_text = (
@@ -719,7 +721,7 @@ class LeadOrchestratorAgent:
                     f"• **Root Cause**: {impact.get('root_cause')}\n"
                     f"• **Proposed Fix**: {impact.get('remedy_summary')} (`{impact.get('recommended_kubectl')}`)\n"
                     f"• **Safety**: Zero downtime + automatic rollback ({impact.get('rollback_plan')}).\n\n"
-                    "Whenever you're convinced, say **'Proceed with the fix'** or click the green button below!"
+                    "Whenever you're ready, say **'I accept'** or click the **I accept** button below!"
                 )
 
         reply_msg = {
