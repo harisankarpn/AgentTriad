@@ -47,100 +47,6 @@ MODEL_NAME = os.getenv("AAAS_GEMINI_MODEL", "gemini-2.5-flash")
 
 
 GOLDEN_PLAYBOOKS: Dict[str, Dict[str, Any]] = {
-    "oom_killed": {
-        "playbook_id": "PB-GKE-101",
-        "title": "GKE Container OOMKilled / Exit Code 137 Remediation",
-        "blast_radius_tier": "HIGH (Tier-1 Payment Checkout Flow)",
-        "affected_services": [
-            "payment-checkout-service",
-            "cart-api-gateway (upstream 502s)",
-            "stripe-webhook-dispatcher",
-        ],
-        "business_impact": (
-            "18.4% of customer checkout requests are failing with HTTP 502/503 due to container "
-            "OOM restarts (7 restarts in 5m). P99 checkout latency degraded to 3,850ms."
-        ),
-        "root_cause": (
-            "Container `checkout-worker` hit its hard cgroup memory limit (512Mi) during a "
-            "concurrent flash-sale payload spike, triggering Linux kernel OOM killer (SIGKILL 137)."
-        ),
-        "remedy_summary": (
-            "Vertically scale `checkout-worker` memory limit from 512Mi to 1Gi (request 768Mi) "
-            "via rolling update with pre-execution snapshot and GitOps reconciliation PR."
-        ),
-        "rollback_plan": (
-            "Stateless compute atomic rollback (`kubectl rollout undo deployment/payment-checkout-service`) "
-            "if post-change error rate > 1% within 45s watchdog window."
-        ),
-        "customer_headline": "Checkout Service Needs More Memory",
-        "customer_what_happened": "A surge in customer orders caused the Checkout service to run out of memory and restart.",
-        "customer_why_approve": "Safely increases memory from 512 MB to 1 GB so customer checkouts stop failing.",
-        "risk_badge": "Low Risk • Safe Memory Upgrade",
-        "downtime_badge": "Zero Downtime",
-        "safety_badge": "Auto-Rollback Protected",
-    },
-    "cpu_throttling": {
-        "playbook_id": "PB-GKE-204",
-        "title": "GKE CFS CPU Quota Throttling & Horizontal Scaling",
-        "blast_radius_tier": "MEDIUM-HIGH (Storefront API Latency Breach)",
-        "affected_services": [
-            "gke-web-v2",
-            "cdn-edge-ingress",
-            "product-catalog-bff",
-        ],
-        "business_impact": (
-            "Storefront P99 latency spiked to 4,210ms (SLO target < 400ms) with 9.6% request timeouts "
-            "across 2 overloaded replicas."
-        ),
-        "root_cause": (
-            "High JVM worker thread contention (PID 40) holding CPU above 97% for >45s, causing Linux "
-            "CFS bandwidth controller to throttle 84% of scheduling periods."
-        ),
-        "remedy_summary": (
-            "Horizontally scale `deployment/gke-web-v2` from 2 to 6 replicas to distribute request concurrency "
-            "below 45% CPU per pod."
-        ),
-        "rollback_plan": (
-            "Scale back to baseline replicas (2) after 45-minute Temporal Hysteresis window or if "
-            "cluster node CPU pressure exceeds 85%."
-        ),
-        "customer_headline": "Website Storefront is Overloaded",
-        "customer_what_happened": "High visitor traffic is overloading the 2 active web servers, causing slow page loads.",
-        "customer_why_approve": "Adds 4 extra servers (2 → 6) so pages load fast again for all visitors.",
-        "risk_badge": "Low Risk • Auto-Scaling",
-        "downtime_badge": "Zero Downtime",
-        "safety_badge": "Auto-Rollback Protected",
-    },
-    "image_pull_backoff": {
-        "playbook_id": "PB-GKE-309",
-        "title": "GKE Canary Rollout ImagePullBackOff Auto-Rollback",
-        "blast_radius_tier": "HIGH (Order Fulfillment Pipeline Degraded)",
-        "affected_services": [
-            "order-processor (canary track)",
-            "inventory-reservation-worker",
-        ],
-        "business_impact": (
-            "50% of order-processor replicas are unavailable (`2/4 Ready`), causing 12.1% order queue "
-            "backlog growth and delayed fulfillment confirmations."
-        ),
-        "root_cause": (
-            "Canary deployment referenced non-existent Artifact Registry tag `v2.4.9-rc` (`manifest unknown`), "
-            "stranding new pods in `ImagePullBackOff`."
-        ),
-        "remedy_summary": (
-            "Execute atomic canary rollback of `deployment/order-processor` to known-good revision 14 "
-            "(`v2.4.8-stable`) and quarantine broken image digest."
-        ),
-        "rollback_plan": (
-            "Pin deployment to revision 14 and quarantine tag `v2.4.9-rc` in Poison-Pill Registry for 7 days."
-        ),
-        "customer_headline": "Recent Order Update Needs Rollback",
-        "customer_what_happened": "A new software update for the Order service couldn't start properly.",
-        "customer_why_approve": "Instantly switches back to the previous stable version so orders keep processing.",
-        "risk_badge": "Safe Version Restore",
-        "downtime_badge": "Zero Downtime",
-        "safety_badge": "Verified Stable Version",
-    },
     "cloud_run_port_error": {
         "playbook_id": "PB-RUN-401",
         "title": "Cloud Run Container Port 8080 Startup Probe Remediation",
@@ -259,23 +165,64 @@ GOLDEN_PLAYBOOKS: Dict[str, Dict[str, Any]] = {
 }
 
 
+WORKER_AGENT_BOUTIQUE: List[Dict[str, str]] = [
+    {
+        "id": "serverless-agent",
+        "name": "Serverless Agent",
+        "domain": "Cloud Run & Cloud Functions",
+        "icon": "fa-bolt",
+        "description": "Remediates Cloud Run scaling limits, revision port bindings, and Cloud Functions runtime errors.",
+    },
+    {
+        "id": "database-agent",
+        "name": "Database Agent",
+        "domain": "Cloud SQL, AlloyDB & DB Connectors",
+        "icon": "fa-database",
+        "description": "Troubleshoots Cloud SQL connectivity, connection pools, socket proxies, and DB port probes.",
+    },
+    {
+        "id": "infra-agent",
+        "name": "Infra Agent",
+        "domain": "GKE, Compute Engine & IAM",
+        "icon": "fa-server",
+        "description": "Handles GKE pods/nodes, Compute Engine VMs, persistent disks, and IAM bindings.",
+    },
+    {
+        "id": "networking-agent",
+        "name": "Networking Agent",
+        "domain": "VPC, Load Balancing & Cloud Armor",
+        "icon": "fa-network-wired",
+        "description": "Resolves VPC routing, Serverless VPC Access connectors, Load Balancers, and DNS/Ingress rules.",
+    },
+    {
+        "id": "data-analytics-agent",
+        "name": "Data Analytics Agent",
+        "domain": "Vertex AI, BigQuery & Dataflow",
+        "icon": "fa-chart-line",
+        "description": "Recovers Vertex AI Reasoning Engines, BigQuery slots, Dataflow pipelines, and Pub/Sub backlog.",
+    },
+]
+
+
 class LeadOrchestratorAgent:
     """
-    Central ADK Lead/Orchestrator Agent that supervises all agents, computes
-    incident impact & remedies, gates on user HITL approval, and delegates execution
-    to specialist agents over A2A.
+    Central ADK Lead/Orchestrator Agent (Atlas) that supervises all agents, computes
+    incident impact & remedies, gates on user HITL approval, tracks auditable events,
+    and delegates execution to the Boutique of Domain Worker Agents over A2A.
     """
 
     AGENT_ID = "lead-orchestrator-agent"
 
-    def __init__(self, a2a_hub: A2AProtocolHub) -> None:
+    def __init__(self, a2a_hub: A2AProtocolHub, logging_service: Any = None) -> None:
         self.a2a_hub = a2a_hub
+        self.logging_service = logging_service
         self.incidents: Dict[str, Dict[str, Any]] = {}
+        self.audit_events: Dict[str, Dict[str, Any]] = {}
         self.adk_agent = self._build_adk_agent()
         self._genai_client = self._build_genai_client()
         self.card = AgentCard(
             id=self.AGENT_ID,
-            name="Lead Orchestrator",
+            name="Atlas • Lead Orchestrator",
             role="Central Operations Supervisor, Impact Analyzer & HITL Gatekeeper",
             description=(
                 "Continuously monitors all specialist agents, ingests anomaly alerts from the "
@@ -344,11 +291,11 @@ class LeadOrchestratorAgent:
         determine the operational impact, blast radius, root cause, recommended remedy,
         and plain-English customer summary for real GCP logs.
         """
-        scenario_id = log_entry.get("scenario_id", "oom_killed")
+        scenario_id = log_entry.get("scenario_id", "real_gcp_anomaly")
         playbook = GOLDEN_PLAYBOOKS.get(scenario_id, GOLDEN_PLAYBOOKS["real_gcp_anomaly"])
         default_kubectl = log_entry.get(
             "recommended_kubectl",
-            "kubectl rollout restart deployment/payment-checkout-service -n prod-payments",
+            f"gcloud run services update {log_entry.get('container', 'service')} --region={log_entry.get('cluster', 'us-central1')} --project={PROJECT_ID}",
         )
 
         analysis = {
@@ -438,21 +385,90 @@ class LeadOrchestratorAgent:
             return f"Cloud SQL ({workload})"
         if "gce_instance" in source:
             return f"Compute Engine ({workload})"
-        return f"GKE ({workload})"
+        return f"GCP ({workload})"
+
+    def _select_specialist_worker(self, log_entry: Dict[str, Any]) -> Dict[str, str]:
+        """Selects the appropriate domain specialist from the Worker Agent Boutique based on telemetry."""
+        source = str(log_entry.get("source", "")).lower()
+        scen = str(log_entry.get("scenario_id", "")).lower()
+        workload = str(log_entry.get("workload", "")).lower()
+        msg = str(log_entry.get("message", "")).lower()
+
+        if "testdbconnect" in workload or "cloudsql" in source or "sql" in workload or "database" in msg:
+            return WORKER_AGENT_BOUTIQUE[1]  # Database Agent
+        if "reasoningengine" in source or "reasoning_engine" in scen or "bigquery" in source or "dataflow" in source:
+            return WORKER_AGENT_BOUTIQUE[4]  # Data Analytics Agent
+        if "vpc" in source or "network" in source or "loadbalancing" in source or "ingress" in workload:
+            return WORKER_AGENT_BOUTIQUE[3]  # Networking Agent
+        if "cloud_run" in source or "cloud_run" in scen or "cloud_function" in source or "cloud_function" in scen:
+            return WORKER_AGENT_BOUTIQUE[0]  # Serverless Agent
+        return WORKER_AGENT_BOUTIQUE[2]  # Infra Agent
+
+    def _upsert_audit_event(self, incident: Dict[str, Any], event_type: str) -> Dict[str, Any]:
+        """Maintains a structured, auditable Event Tracker record for every incident and approval."""
+        incident_id = incident["incident_id"]
+        jit = incident.get("jit_token") or {}
+        exec_res = incident.get("execution_result") or {}
+        impact = incident.get("impact_analysis") or {}
+        specialist = incident.get("specialist_worker") or self._select_specialist_worker(incident.get("log_entry", {}))
+        audit_entry: Dict[str, Any] = {
+            "incident_id": incident_id,
+            "service_label": incident.get("service_label") or self._friendly_service_name(incident.get("log_entry", {})),
+            "workload": incident.get("workload", ""),
+            "cluster": incident.get("cluster", ""),
+            "severity": incident.get("severity", "ERROR"),
+            "title": impact.get("customer_headline") or incident.get("title", "Cloud Service Anomaly"),
+            "technical_title": incident.get("title", ""),
+            "specialist_agent_id": specialist.get("id", "serverless-agent"),
+            "specialist_agent_name": specialist.get("name", "Serverless Agent"),
+            "specialist_domain": specialist.get("domain", "Cloud Run & Cloud Functions"),
+            "occurred_at": incident.get("occurred_at") or incident.get("created_at"),
+            "detected_at": incident.get("detected_at") or incident.get("created_at"),
+            "status": incident.get("status", "AWAITING_HITL_APPROVAL"),
+            "approved_by": incident.get("approved_by"),
+            "approved_at": incident.get("approved_at"),
+            "resolved_at": incident.get("resolved_at"),
+            "jit_token_id": jit.get("token_id"),
+            "command": exec_res.get("command") or impact.get("recommended_kubectl"),
+            "reconciliation_pr": exec_res.get("reconciliation_pr"),
+            "last_event_type": event_type,
+            "updated_at": incident.get("updated_at"),
+        }
+        self.audit_events[incident_id] = audit_entry
+        if self.logging_service is not None and hasattr(self.logging_service, "record_audit_event"):
+            try:
+                self.logging_service.record_audit_event(
+                    incident_id=incident_id,
+                    event_type=event_type,
+                    service=audit_entry["service_label"],
+                    issue_title=audit_entry["title"],
+                    occurred_at=str(audit_entry["occurred_at"]),
+                    action_status=audit_entry["status"],
+                    approved_by=audit_entry["approved_by"],
+                    approved_at=audit_entry["approved_at"],
+                    command=audit_entry["command"],
+                    jit_token_id=audit_entry["jit_token_id"],
+                )
+            except Exception:
+                pass
+        return audit_entry
 
     def _build_initial_chat_greeting(
-        self, log_entry: Dict[str, Any], impact: Dict[str, Any], now_iso: str
+        self, log_entry: Dict[str, Any], impact: Dict[str, Any], specialist: Dict[str, str], now_iso: str
     ) -> List[Dict[str, Any]]:
         service_label = self._friendly_service_name(log_entry)
         severity = log_entry.get("severity", "ERROR")
         what_happened = impact.get("customer_what_happened") or log_entry.get("message", "")
         next_step = impact.get("customer_why_approve") or impact.get("remedy_summary", "")
         blast = impact.get("blast_radius_tier", "HIGH")
+        spec_name = specialist.get("name", "Serverless Agent")
+        spec_domain = specialist.get("domain", "Cloud Run & Cloud Functions")
 
         opening_text = (
             f"Hey Hari 👋 There's an issue I just found with **{service_label}**.\n\n"
             f"• **Severity**: `{severity}` — {blast}\n"
             f"• **What happened**: {what_happened}\n"
+            f"• **Assigned Specialist**: **{spec_name}** ({spec_domain})\n"
             f"• **Next Steps**: {next_step}\n\n"
             "Ask me anything about why this happened, whether there's any downtime, the rollback plan, "
             "or the exact command. Once you're convinced, tell me to **proceed with the fix** (or click Approve below)!"
@@ -476,18 +492,28 @@ class LeadOrchestratorAgent:
             log_entry = data.get("log_entry", {})
             incident_id = log_entry.get("log_id", f"inc-{len(self.incidents) + 1}")
             impact_and_remedy = self._analyze_impact_and_remedy(log_entry)
+            specialist = self._select_specialist_worker(log_entry)
 
             now_iso = datetime.datetime.now(datetime.timezone.utc).isoformat()
-            chat_messages = self._build_initial_chat_greeting(log_entry, impact_and_remedy, now_iso)
+            occurred_at = log_entry.get("timestamp") or data.get("detected_at") or now_iso
+            detected_at = data.get("detected_at") or now_iso
+            chat_messages = self._build_initial_chat_greeting(log_entry, impact_and_remedy, specialist, now_iso)
 
             incident_record: Dict[str, Any] = {
                 "incident_id": incident_id,
+                "occurred_at": occurred_at,
+                "detected_at": detected_at,
                 "created_at": now_iso,
                 "updated_at": now_iso,
+                "approved_by": None,
+                "approved_at": None,
+                "resolved_at": None,
+                "service_label": self._friendly_service_name(log_entry),
                 "status": "AWAITING_HITL_APPROVAL",
                 "reported_by_agent": data.get("detector_agent", "log-watcher-agent"),
                 "assigned_orchestrator": self.AGENT_ID,
                 "delegated_specialist_agent": "gke-assist-agent",
+                "specialist_worker": specialist,
                 "severity": log_entry.get("severity", "CRITICAL"),
                 "title": log_entry.get("title", "Cloud Service Anomaly"),
                 "cluster": log_entry.get("cluster", "us-central1"),
@@ -503,24 +529,25 @@ class LeadOrchestratorAgent:
                 "verification_result": None,
                 "timeline": [
                     {
-                        "timestamp": data.get("detected_at", now_iso),
+                        "timestamp": detected_at,
                         "agent": "Log Watcher",
                         "event": (
                             f"Detected [{log_entry.get('severity')}] {log_entry.get('error_code')} in "
-                            f"Cloud Logging and alerted Lead Orchestrator via A2A."
+                            f"Cloud Logging (occurred at {occurred_at}) and alerted Atlas via A2A."
                         ),
                     },
                     {
                         "timestamp": now_iso,
-                        "agent": "Lead Orchestrator",
+                        "agent": "Atlas • Lead Orchestrator",
                         "event": (
-                            f"Evaluated blast radius ({impact_and_remedy['blast_radius_tier']}) and "
-                            f"matched Playbook {impact_and_remedy['playbook_id']}. Initiated interactive chat with Hari."
+                            f"Evaluated blast radius ({impact_and_remedy['blast_radius_tier']}), "
+                            f"routed to {specialist['name']}, and initiated interactive chat with Hari."
                         ),
                     },
                 ],
             }
             self.incidents[incident_id] = incident_record
+            self._upsert_audit_event(incident_record, event_type="ISSUE_DETECTED")
 
             return A2ATaskResponse(
                 id=request.id,
@@ -528,6 +555,7 @@ class LeadOrchestratorAgent:
                     "status": "AWAITING_HITL_APPROVAL",
                     "incident_id": incident_id,
                     "orchestrator": self.AGENT_ID,
+                    "specialist_worker": specialist,
                     "impact_analysis": impact_and_remedy,
                 },
             )
@@ -580,7 +608,7 @@ class LeadOrchestratorAgent:
             updated = await self.approve_and_delegate_to_gke_assist(
                 incident_id=incident_id,
                 approved_by="Hari (via Chat)",
-                execution_mode="dry_run",
+                execution_mode="live",
             )
             return {
                 "action_taken": "APPROVED_AND_EXECUTED",
@@ -695,13 +723,13 @@ class LeadOrchestratorAgent:
         self,
         incident_id: str,
         approved_by: str = "Hari",
-        execution_mode: str = "dry_run",
+        execution_mode: str = "live",
         custom_kubectl: Optional[str] = None,
     ) -> Dict[str, Any]:
         """
         Called when Hari approves the fix (via button or chat):
           1. Mints a 15-minute WIF JIT token scoped to the incident.
-          2. Delegates the remediation task over A2A to `gke-assist-agent` (Worker Agent).
+          2. Delegates the remediation task over A2A to the selected specialist in the Worker Agent Boutique.
           3. Requests post-remediation telemetry verification over A2A from `log-watcher-agent`.
         """
         incident = self.incidents.get(incident_id)
@@ -713,29 +741,33 @@ class LeadOrchestratorAgent:
             if custom_kubectl and custom_kubectl.strip()
             else incident["impact_analysis"]["recommended_kubectl"]
         )
+        specialist = incident.get("specialist_worker") or self._select_specialist_worker(incident.get("log_entry", {}))
+        spec_name = specialist.get("name", "Serverless Agent")
 
         # 1. Mint 15-minute JIT token
+        approved_at = datetime.datetime.now(datetime.timezone.utc).isoformat()
         jit_token = self.a2a_hub.jit_broker.mint_token(
             incident_id=incident_id,
             approved_by=approved_by,
-            scope=f"gke:{incident['cluster']}:{incident['namespace']}:{incident['workload']}",
+            scope=f"gcp:{incident['cluster']}:{incident['namespace']}:{incident['workload']}",
             ttl_seconds=900,
         )
         incident["jit_token"] = jit_token
+        incident["approved_by"] = approved_by
+        incident["approved_at"] = approved_at
         incident["status"] = "DELEGATED_TO_WORKER_AGENT"
-        now_iso = datetime.datetime.now(datetime.timezone.utc).isoformat()
         incident["timeline"].append(
             {
-                "timestamp": now_iso,
-                "agent": "Lead Orchestrator",
+                "timestamp": approved_at,
+                "agent": "Atlas • Lead Orchestrator",
                 "event": (
-                    f"User ({approved_by}) accepted remedy. Minted 15-min JIT token "
-                    f"`{jit_token['token_id'][:20]}...` and delegating task to Worker Agent via A2A."
+                    f"User ({approved_by}) approved remedy at {approved_at}. Minted 15-min JIT token "
+                    f"`{jit_token['token_id'][:20]}...` and delegating task to {spec_name} via A2A."
                 ),
             }
         )
 
-        # 2. Delegate execution to Worker Agent via A2A protocol
+        # 2. Delegate execution to Worker Agent Boutique via A2A protocol
         delegation_payload = {
             "incident_id": incident_id,
             "jit_token_id": jit_token["token_id"],
@@ -744,6 +776,7 @@ class LeadOrchestratorAgent:
             "cluster": incident["cluster"],
             "namespace": incident["namespace"],
             "workload": incident["workload"],
+            "specialist_worker": specialist,
             "log_entry": incident["log_entry"],
         }
 
@@ -753,8 +786,8 @@ class LeadOrchestratorAgent:
             skill_id="execute_gke_remediation",
             payload=delegation_payload,
             summary=(
-                f"Delegate approved fix (`{execution_mode}`) for {incident['namespace']}/{incident['workload']} "
-                f"with JIT token {jit_token['token_id'][:16]}..."
+                f"Route to {spec_name}: execute approved fix (`{execution_mode}`) for "
+                f"{incident['namespace']}/{incident['workload']} with JIT token {jit_token['token_id'][:16]}..."
             ),
         )
 
@@ -763,7 +796,7 @@ class LeadOrchestratorAgent:
         incident["timeline"].append(
             {
                 "timestamp": exec_time,
-                "agent": "Worker Agent",
+                "agent": spec_name,
                 "event": (
                     f"Executed `{kubectl_cmd}` ({execution_mode}). "
                     f"{incident['execution_result'].get('sre_specialist_notes', '')}"
@@ -787,7 +820,8 @@ class LeadOrchestratorAgent:
 
         incident["verification_result"] = verify_resp.result
         incident["status"] = "RESOLVED"
-        incident["updated_at"] = datetime.datetime.now(datetime.timezone.utc).isoformat()
+        incident["resolved_at"] = datetime.datetime.now(datetime.timezone.utc).isoformat()
+        incident["updated_at"] = incident["resolved_at"]
         incident["timeline"].append(
             {
                 "timestamp": incident["updated_at"],
@@ -801,13 +835,16 @@ class LeadOrchestratorAgent:
                 "role": "assistant",
                 "sender": "Atlas • AaaS Lead",
                 "text": (
-                    f"✅ All done, Hari! I minted a single-use JIT token and delegated the fix to the **Worker Agent** over A2A.\n"
+                    f"✅ All done, Hari! I minted a single-use JIT token (`{jit_token['token_id'][:18]}...`), "
+                    f"logged your approval (`{approved_by}` at `{approved_at}`) in the **Audit Event Tracker**, "
+                    f"and dispatched the **{spec_name}** from our Worker Boutique over A2A.\n"
                     f"• **Executed**: `{kubectl_cmd}`\n"
                     f"• **Watchdog Check**: **Log Watcher** verified `{incident['workload']}` is back to 100% health with 0 error logs."
                 ),
                 "timestamp": incident["updated_at"],
             }
         )
+        self._upsert_audit_event(incident, event_type="APPROVED_AND_REMEDIATED")
         return incident
 
     def skip_incident_manual(
@@ -822,13 +859,15 @@ class LeadOrchestratorAgent:
 
         now_iso = datetime.datetime.now(datetime.timezone.utc).isoformat()
         incident["status"] = "SKIPPED_MANUAL"
+        incident["approved_by"] = f"{skipped_by} (Manual Skip)"
+        incident["approved_at"] = now_iso
         incident["updated_at"] = now_iso
         incident["timeline"].append(
             {
                 "timestamp": now_iso,
-                "agent": "Lead Orchestrator",
+                "agent": "Atlas • Lead Orchestrator",
                 "event": (
-                    f"User ({skipped_by}) chose 'Skip / Handle Manually'. "
+                    f"User ({skipped_by}) chose 'Skip / Handle Manually' at {now_iso}. "
                     "Worker Agent stood down; no automated changes made."
                 ),
             }
@@ -844,6 +883,7 @@ class LeadOrchestratorAgent:
                 "timestamp": now_iso,
             }
         )
+        self._upsert_audit_event(incident, event_type="SKIPPED_MANUAL")
         return incident
 
     def reopen_incident(self, incident_id: str) -> Dict[str, Any]:
@@ -854,11 +894,13 @@ class LeadOrchestratorAgent:
 
         now_iso = datetime.datetime.now(datetime.timezone.utc).isoformat()
         incident["status"] = "AWAITING_HITL_APPROVAL"
+        incident["approved_by"] = None
+        incident["approved_at"] = None
         incident["updated_at"] = now_iso
         incident["timeline"].append(
             {
                 "timestamp": now_iso,
-                "agent": "Lead Orchestrator",
+                "agent": "Atlas • Lead Orchestrator",
                 "event": "User re-opened incident for automated Worker Agent remediation.",
             }
         )
@@ -873,12 +915,20 @@ class LeadOrchestratorAgent:
                 "timestamp": now_iso,
             }
         )
+        self._upsert_audit_event(incident, event_type="REOPENED_FOR_APPROVAL")
         return incident
 
     def list_incidents(self) -> List[Dict[str, Any]]:
         return sorted(
             self.incidents.values(),
             key=lambda item: item.get("created_at", ""),
+            reverse=True,
+        )
+
+    def list_audit_events(self) -> List[Dict[str, Any]]:
+        return sorted(
+            self.audit_events.values(),
+            key=lambda item: item.get("detected_at", ""),
             reverse=True,
         )
 

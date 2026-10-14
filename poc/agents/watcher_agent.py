@@ -135,22 +135,6 @@ class CloudLoggingWatcherAgent:
                 },
             )
 
-        if skill_id == "scan_and_inject_incident":
-            scenario_id = data.get("scenario_id", "oom_killed")
-            custom_message = data.get("custom_message")
-            log_entry = self.logging_service.inject_simulated_gke_error(
-                scenario_id=scenario_id,
-                custom_message=custom_message,
-            )
-            return A2ATaskResponse(
-                id=request.id,
-                result={
-                    "status": "ANOMALY_DETECTED_BY_WATCHER",
-                    "agent": self.AGENT_ID,
-                    "log_entry": log_entry,
-                },
-            )
-
         if skill_id == "verify_post_remediation":
             incident_id = data.get("incident_id", "unknown")
             workload = data.get("workload", "deployment/unknown")

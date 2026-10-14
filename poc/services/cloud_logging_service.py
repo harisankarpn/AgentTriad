@@ -24,92 +24,6 @@ from services.gcp_auth import get_gcp_credentials
 PROJECT_ID = os.getenv("GCP_PROJECT_ID", "agent-triad")
 LOG_NAME = os.getenv("AAAS_LOG_NAME", "aaas_gke_incidents")
 
-# Pre-configured realistic GKE failure scenarios for 1-click simulation
-GKE_SCENARIOS: Dict[str, Dict[str, Any]] = {
-    "oom_killed": {
-        "scenario_id": "oom_killed",
-        "title": "GKE Pod OOMKilled (CrashLoopBackOff)",
-        "severity": "CRITICAL",
-        "cluster": "gke-prod-us-central1",
-        "namespace": "prod-payments",
-        "workload": "deployment/payment-checkout-service",
-        "pod": "payment-checkout-service-6b8f9d4c-x92lq",
-        "container": "checkout-worker",
-        "error_code": "EXIT_CODE_137_OOMKILLED",
-        "message": (
-            "Container checkout-worker in pod payment-checkout-service-6b8f9d4c-x92lq "
-            "terminated with exit code 137 (OOMKilled). Memory usage spiked to 512Mi/512Mi "
-            "limit during flash checkout surge. Back-off restarting failed container."
-        ),
-        "metrics_snapshot": {
-            "memory_utilization_pct": 100.0,
-            "memory_limit": "512Mi",
-            "restart_count_5m": 7,
-            "p99_latency_ms": 3850,
-            "error_rate_pct": 18.4,
-        },
-        "recommended_kubectl": (
-            "kubectl set resources deployment/payment-checkout-service "
-            "-n prod-payments -c checkout-worker --limits=memory=1Gi,cpu=1000m --requests=memory=768Mi"
-        ),
-        "recommended_action_type": "vertical_scale_memory",
-    },
-    "cpu_throttling": {
-        "scenario_id": "cpu_throttling",
-        "title": "GKE Pod CPU Throttling & JVM Thread Contention",
-        "severity": "ERROR",
-        "cluster": "gke-prod-us-central1",
-        "namespace": "prod-storefront",
-        "workload": "deployment/gke-web-v2",
-        "pod": "gke-web-v2-7d9f8b55-k4m2p",
-        "container": "web-api",
-        "error_code": "CFS_QUOTA_CPU_THROTTLED",
-        "message": (
-            "Heuristic breach: Pod gke-web-v2-7d9f8b55-k4m2p CPU threshold > 95% for 45s. "
-            "High thread contention in worker pool (PID 40); CFS quota throttled 84% of scheduling periods."
-        ),
-        "metrics_snapshot": {
-            "cpu_utilization_pct": 97.2,
-            "cfs_throttled_periods_pct": 84.0,
-            "current_replicas": 2,
-            "target_replicas": 6,
-            "p99_latency_ms": 4210,
-            "error_rate_pct": 9.6,
-        },
-        "recommended_kubectl": (
-            "kubectl scale deployment/gke-web-v2 -n prod-storefront --replicas=6"
-        ),
-        "recommended_action_type": "horizontal_scale_replicas",
-    },
-    "image_pull_backoff": {
-        "scenario_id": "image_pull_backoff",
-        "title": "Canary Rollout ImagePullBackOff",
-        "severity": "ERROR",
-        "cluster": "gke-prod-us-central1",
-        "namespace": "prod-orders",
-        "workload": "deployment/order-processor",
-        "pod": "order-processor-canary-5c4d77b-v8n1z",
-        "container": "order-engine",
-        "error_code": "ERR_IMAGE_PULL_MANIFEST_UNKNOWN",
-        "message": (
-            "Failed to pull image 'us-central1-docker.pkg.dev/stack-cognizant/prod/order-processor:v2.4.9-rc': "
-            "rpc error: code = NotFound desc = failed to pull and unpack image: manifest unknown. "
-            "Canary pods stuck in ImagePullBackOff."
-        ),
-        "metrics_snapshot": {
-            "ready_replicas": "2/4",
-            "canary_failure_rate_pct": 100.0,
-            "last_good_revision": "revision=14 (v2.4.8-stable)",
-            "p99_latency_ms": 1450,
-            "error_rate_pct": 12.1,
-        },
-        "recommended_kubectl": (
-            "kubectl rollout undo deployment/order-processor -n prod-orders --to-revision=14"
-        ),
-        "recommended_action_type": "canary_rollout_undo",
-    },
-}
-
 
 class CloudLoggingService:
     """Manages live GCP Cloud Logging I/O and real project-wide log monitoring in `agent-triad`."""
@@ -204,46 +118,10 @@ class CloudLoggingService:
             self.suppressed_routine_logs_count += 1
             return None
 
-        # Structured AaaS incident logs written to `aaas_gke_incidents`
-        if isinstance(payload, dict) and (
-            payload.get("event") == "AAAS_GKE_ANOMALY" or payload.get("log_id")
-        ):
-            lid = payload.get("log_id") or f"gcp-{entry.insert_id}"
-            scen_id = payload.get("scenario_id")
-            if not scen_id:
-                err_code = payload.get("error_code", "")
-                if "OOM" in err_code or "137" in err_code:
-                    scen_id = "oom_killed"
-                elif "CPU" in err_code or "CFS" in err_code:
-                    scen_id = "cpu_throttling"
-                elif "IMAGE" in err_code:
-                    scen_id = "image_pull_backoff"
-                else:
-                    scen_id = "oom_killed"
-            scen_defaults = GKE_SCENARIOS.get(scen_id, GKE_SCENARIOS["oom_killed"])
-            is_anom = bool(payload.get("is_anomaly", severity in ("ERROR", "CRITICAL")))
-            return {
-                "log_id": lid,
-                "signature_key": f"{payload.get('workload', 'gke')}:{payload.get('error_code', scen_id)}",
-                "timestamp": ts_iso,
-                "severity": severity,
-                "scenario_id": scen_id,
-                "title": payload.get("title") or scen_defaults["title"],
-                "source": payload.get("source") or f"gcp:{res_type}",
-                "project_id": self.project_id,
-                "cluster": payload.get("cluster") or labels.get("location") or "us-central1",
-                "namespace": payload.get("namespace") or labels.get("service_name") or "default",
-                "workload": payload.get("workload") or labels.get("revision_name") or "k8s_container",
-                "pod": payload.get("pod") or labels.get("revision_name") or "pod-0",
-                "container": payload.get("container") or "app",
-                "error_code": payload.get("error_code") or scen_defaults["error_code"],
-                "message": raw_msg,
-                "metrics_snapshot": payload.get("metrics_snapshot") or scen_defaults["metrics_snapshot"],
-                "recommended_kubectl": payload.get("recommended_kubectl") or scen_defaults["recommended_kubectl"],
-                "recommended_action_type": payload.get("recommended_action_type") or scen_defaults["recommended_action_type"],
-                "is_anomaly": is_anom,
-                "persisted_to_gcp": True,
-            }
+        # Skip internal AaaS audit/simulated entries when scanning project-wide logs
+        if isinstance(payload, dict) and payload.get("event") in ("AAAS_GKE_ANOMALY", "AAAS_AUDIT_EVENT"):
+            self.suppressed_routine_logs_count += 1
+            return None
 
         # Real Cloud Run revision logs (`cloud_run_revision`)
         if res_type == "cloud_run_revision":
@@ -462,69 +340,44 @@ class CloudLoggingService:
             "persisted_to_gcp": True,
         }
 
-    def inject_simulated_gke_error(
-        self, scenario_id: str = "oom_killed", custom_message: Optional[str] = None
+    def record_audit_event(
+        self,
+        incident_id: str,
+        event_type: str,
+        service: str,
+        issue_title: str,
+        occurred_at: str,
+        action_status: str,
+        approved_by: Optional[str] = None,
+        approved_at: Optional[str] = None,
+        command: Optional[str] = None,
+        jit_token_id: Optional[str] = None,
     ) -> Dict[str, Any]:
-        """Writes a structured GKE anomaly log to live GCP Cloud Logging + local stream."""
-        scenario = GKE_SCENARIOS.get(scenario_id, GKE_SCENARIOS["oom_killed"]).copy()
-        if custom_message:
-            scenario["message"] = custom_message
-
+        """Writes an immutable audit trail entry to Google Cloud Logging (`AAAS_AUDIT_EVENT`)."""
         now_iso = datetime.datetime.now(datetime.timezone.utc).isoformat()
-        log_id = f"gke-inc-{uuid.uuid4().hex[:8]}"
-
-        log_payload: Dict[str, Any] = {
-            "log_id": log_id,
-            "signature_key": f"{scenario['workload']}:{scenario['error_code']}:{log_id}",
-            "timestamp": now_iso,
-            "severity": scenario["severity"],
-            "scenario_id": scenario["scenario_id"],
-            "title": scenario["title"],
-            "source": "gcp-cloud-logging",
-            "project_id": self.project_id,
-            "cluster": scenario["cluster"],
-            "namespace": scenario["namespace"],
-            "workload": scenario["workload"],
-            "pod": scenario["pod"],
-            "container": scenario["container"],
-            "error_code": scenario["error_code"],
-            "message": scenario["message"],
-            "metrics_snapshot": scenario["metrics_snapshot"],
-            "recommended_kubectl": scenario["recommended_kubectl"],
-            "recommended_action_type": scenario["recommended_action_type"],
-            "is_anomaly": True,
+        audit_payload: Dict[str, Any] = {
+            "event": "AAAS_AUDIT_EVENT",
+            "audit_id": f"audit-{uuid.uuid4().hex[:8]}",
+            "incident_id": incident_id,
+            "event_type": event_type,
+            "service": service,
+            "issue_title": issue_title,
+            "occurred_at": occurred_at,
+            "action_status": action_status,
+            "approved_by": approved_by,
+            "approved_at": approved_at,
+            "command": command,
+            "jit_token_id": jit_token_id,
+            "recorded_at": now_iso,
             "persisted_to_gcp": False,
         }
-
         if self._logger is not None:
             try:
-                self._logger.log_struct(
-                    {
-                        "event": "AAAS_GKE_ANOMALY",
-                        "log_id": log_id,
-                        "scenario_id": scenario["scenario_id"],
-                        "title": scenario["title"],
-                        "cluster": scenario["cluster"],
-                        "namespace": scenario["namespace"],
-                        "workload": scenario["workload"],
-                        "pod": scenario["pod"],
-                        "container": scenario["container"],
-                        "error_code": scenario["error_code"],
-                        "message": scenario["message"],
-                        "metrics_snapshot": scenario["metrics_snapshot"],
-                        "recommended_kubectl": scenario["recommended_kubectl"],
-                        "recommended_action_type": scenario["recommended_action_type"],
-                        "is_anomaly": True,
-                        "timestamp": now_iso,
-                    },
-                    severity=scenario["severity"],
-                )
-                log_payload["persisted_to_gcp"] = True
+                self._logger.log_struct(audit_payload, severity="NOTICE")
+                audit_payload["persisted_to_gcp"] = True
             except Exception as exc:
-                log_payload["gcp_write_warning"] = str(exc)
-
-        self._local_logs.insert(0, log_payload)
-        return log_payload
+                audit_payload["gcp_write_warning"] = str(exc)
+        return audit_payload
 
     def record_system_log(
         self,

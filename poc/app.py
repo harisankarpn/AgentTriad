@@ -24,9 +24,9 @@ from pydantic import BaseModel
 
 from agents.a2a_protocol import A2AProtocolHub, A2ATaskRequest
 from agents.gke_assist_agent import GKEAssistAgent
-from agents.lead_orchestrator import LeadOrchestratorAgent
+from agents.lead_orchestrator import LeadOrchestratorAgent, WORKER_AGENT_BOUTIQUE
 from agents.watcher_agent import CloudLoggingWatcherAgent
-from services.cloud_logging_service import GKE_SCENARIOS, CloudLoggingService
+from services.cloud_logging_service import CloudLoggingService
 from services.gke_remediator import GKERemediator
 
 
@@ -34,11 +34,11 @@ BASE_DIR = Path(__file__).resolve().parent
 STATIC_DIR = BASE_DIR / "static"
 
 app = FastAPI(
-    title="AgentTriad (AaaS) Control Plane — ADK & A2A Multi-Agent PoC",
+    title="AaaS Control Plane — Atlas (Lead Orchestrator), Log Watcher & Worker Agent Boutique",
     version="1.0.0",
     description=(
         "Autonomous Cloud Operations Triad: Cloud Logging Watcher Agent, "
-        "Lead Orchestrator Agent, and GKE Assist Bot connected via A2A Protocol."
+        "Atlas (Lead Orchestrator Agent), and Boutique of Worker Agents connected via A2A Protocol."
     ),
 )
 
@@ -51,18 +51,13 @@ logging_service = CloudLoggingService()
 remediator = GKERemediator(logging_service=logging_service)
 
 watcher_agent = CloudLoggingWatcherAgent(a2a_hub=a2a_hub, logging_service=logging_service)
-lead_orchestrator = LeadOrchestratorAgent(a2a_hub=a2a_hub)
+lead_orchestrator = LeadOrchestratorAgent(a2a_hub=a2a_hub, logging_service=logging_service)
 gke_assist_bot = GKEAssistAgent(a2a_hub=a2a_hub, remediator=remediator)
-
-
-class SimulateIncidentRequest(BaseModel):
-    scenario_id: str = "oom_killed"
-    custom_message: Optional[str] = None
 
 
 class ApproveRemedyRequest(BaseModel):
     approved_by: str = "Hari"
-    execution_mode: str = "dry_run"
+    execution_mode: str = "live"
     custom_kubectl: Optional[str] = None
 
 
@@ -147,7 +142,7 @@ async def sync_real_logs_from_watcher(
 
 @app.get("/api/state")
 async def get_system_state() -> Dict[str, Any]:
-    """Returns real-time state of all 3 agents, live GCP Cloud Logging stream, incidents, and A2A traces."""
+    """Returns real-time state of all 3 agents, live GCP Cloud Logging stream, incidents, audit tracker, and A2A traces."""
     logs = await sync_real_logs_from_watcher(force=False, auto_escalate=False)
     return {
         "gcp_status": {
@@ -159,57 +154,22 @@ async def get_system_state() -> Dict[str, Any]:
             "heartbeat_metric": "custom.googleapis.com/aaas/heartbeat_tick (15s PASS)",
         },
         "agents": [card.model_dump() for card in a2a_hub.agents.values()],
-        "scenarios": list(GKE_SCENARIOS.values()),
+        "worker_boutique": WORKER_AGENT_BOUTIQUE,
         "logs": logs,
         "incidents": lead_orchestrator.list_incidents(),
+        "audit_events": lead_orchestrator.list_audit_events(),
         "a2a_ledger": a2a_hub.message_ledger[:30],
     }
 
 
-@app.post("/api/simulate-incident")
-async def simulate_incident(req: SimulateIncidentRequest) -> Dict[str, Any]:
-    """
-    Triggers `log-watcher-agent` (on `agent-triad-watcher` Cloud Run service via A2A)
-    to inject & detect the structured demo GKE error log in GCP Cloud Logging (`agent-triad`),
-    or if `real_gcp_scan` is passed, delegates to `poll_cloud_logging()`.
-    """
-    if req.scenario_id == "real_gcp_scan":
-        return await poll_cloud_logging()
-
-    if os.getenv("WATCHER_AGENT_URL"):
-        watcher_scan_resp = await a2a_hub.send_a2a_task(
-            sender_id="lead-orchestrator-agent",
-            recipient_id="log-watcher-agent",
-            skill_id="scan_and_inject_incident",
-            payload={
-                "scenario_id": req.scenario_id,
-                "custom_message": req.custom_message,
-            },
-            summary=f"Trigger Log Watcher service to ingest & scan scenario `{req.scenario_id}`",
-        )
-        log_entry = watcher_scan_resp.result.get("log_entry")
-        if log_entry:
-            logging_service._local_logs.insert(0, log_entry)
-        else:
-            log_entry = logging_service.inject_simulated_gke_error(
-                scenario_id=req.scenario_id,
-                custom_message=req.custom_message,
-            )
-    else:
-        log_entry = logging_service.inject_simulated_gke_error(
-            scenario_id=req.scenario_id,
-            custom_message=req.custom_message,
-        )
-
-    _seen_anomaly_ids.add(log_entry["log_id"])
-    orchestrator_result = await watcher_agent.detect_and_report_anomaly(log_entry)
-    incident_id = orchestrator_result.get("incident_id", log_entry["log_id"])
+@app.get("/api/audit-events")
+async def get_audit_events() -> Dict[str, Any]:
+    """Returns the chronological Audit & Event Tracker log of all detected issues, approvers, and timestamps."""
+    events = lead_orchestrator.list_audit_events()
     return {
-        "status": "INCIDENT_REPORTED_TO_ORCHESTRATOR",
-        "incident_id": incident_id,
-        "log_entry": log_entry,
-        "orchestrator_result": orchestrator_result,
-        "incident": lead_orchestrator.incidents.get(incident_id),
+        "project_id": logging_service.project_id,
+        "total_events": len(events),
+        "audit_events": events,
     }
 
 

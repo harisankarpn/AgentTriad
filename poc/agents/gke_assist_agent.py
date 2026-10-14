@@ -39,7 +39,7 @@ MODEL_NAME = os.getenv("AAAS_GEMINI_MODEL", "gemini-2.5-flash")
 
 
 class GKEAssistAgent:
-    """ADK Specialist Agent for GKE Troubleshooting and Sandboxed Remediation Execution."""
+    """ADK Specialist Hub for the Boutique of Worker Agents (Serverless, Database, Infra, Networking, Data Analytics)."""
 
     AGENT_ID = "gke-assist-agent"
 
@@ -50,23 +50,23 @@ class GKEAssistAgent:
         self._genai_client = self._build_genai_client()
         self.card = AgentCard(
             id=self.AGENT_ID,
-            name="Worker Agent",
-            role="Remediation Specialist & Harness Executor",
+            name="Worker Agent Boutique",
+            role="Domain Remediation Specialists (Serverless, Database, Infra, Networking, Data Analytics)",
             description=(
-                "Executes Lead Orchestrator-delegated remediations inside the Agent Harness "
-                "sandbox after verifying Stage 2 HITL JIT tokens, OPA/Rego blast-radius rules, "
-                "and Terraform GCS state locks."
+                "Boutique of specialized domain Worker Agents (Serverless Agent, Database Agent, "
+                "Infra Agent, Networking Agent, Data Analytics Agent) that execute Atlas-delegated "
+                "remediations after verifying Stage 2 HITL JIT tokens and blast-radius guardrails."
             ),
             url="/a2a/gke-assist-agent",
             skills=[
                 AgentSkill(
                     id="execute_gke_remediation",
-                    name="Execute Approved Remediation",
+                    name="Execute Domain Specialist Remediation",
                     description=(
-                        "Verifies the 15-minute WIF JIT token, locks Terraform state, pauses GitOps "
-                        "auto-sync, and runs the approved remediation (Dry-Run or Live)."
+                        "Dispatches the approved JIT token and remediation payload to the selected "
+                        "domain specialist (Serverless, Database, Infra, Networking, or Data Analytics Agent)."
                     ),
-                    tags=["worker", "kubernetes", "remediation", "hitl", "jit"],
+                    tags=["serverless", "database", "infra", "networking", "data-analytics", "jit"],
                 ),
             ],
         )
@@ -77,14 +77,14 @@ class GKEAssistAgent:
             return None
         try:
             return AdkAgent(
-                name="worker_agent",
+                name="worker_agent_boutique",
                 model=MODEL_NAME,
-                description="Specialist Worker Agent that executes approved remediations safely.",
+                description="Boutique of specialist Worker Agents (Serverless, Database, Infra, Networking, Data Analytics).",
                 instruction=(
-                    "You are the Worker Agent in the AaaS Control Plane. "
-                    "When the Lead Orchestrator delegates an approved incident task to you over A2A, "
+                    "You are the Domain Specialist Worker Agent in the AaaS Control Plane. "
+                    "When Atlas (Lead Orchestrator) delegates an approved incident task to you over A2A, "
                     "verify the JIT token, validate the command against blast-radius guardrails, "
-                    "execute the remediation, and return a clear SRE execution summary."
+                    "execute the remediation for your domain, and return a clear SRE execution summary."
                 ),
             )
         except Exception:
@@ -100,12 +100,14 @@ class GKEAssistAgent:
         except Exception:
             return None
 
-    def _generate_sre_execution_notes(self, incident: Dict[str, Any], exec_result: Dict[str, Any]) -> str:
+    def _generate_sre_execution_notes(
+        self, incident: Dict[str, Any], exec_result: Dict[str, Any], specialist_name: str
+    ) -> str:
         """Uses Vertex AI Gemini to synthesize a concise post-execution SRE note (with deterministic fallback)."""
         if self._genai_client is not None:
             try:
                 prompt = (
-                    "You are the Worker Agent (Google Cloud ADK SRE specialist). "
+                    f"You are the {specialist_name} in the Google Cloud AaaS Worker Agent Boutique. "
                     "Summarize in 2 concise sentences what remediation you just executed for this incident "
                     "and why it resolves the root cause.\n"
                     f"Incident: {json.dumps(incident.get('log_entry', {}), default=str)}\n"
@@ -122,13 +124,13 @@ class GKEAssistAgent:
                 pass
 
         return (
-            f"Worker Agent validated JIT token and executed `{exec_result.get('command')}` "
+            f"{specialist_name} validated JIT token and executed `{exec_result.get('command')}` "
             f"in `{exec_result.get('execution_mode')}` mode for `{incident.get('workload')}`. "
             f"Reconciliation PR {exec_result.get('reconciliation_pr')} opened to keep GitOps state synchronized."
         )
 
     async def handle_a2a_task(self, request: A2ATaskRequest) -> A2ATaskResponse:
-        """Handles incoming A2A `execute_gke_remediation` tasks from the Lead Orchestrator."""
+        """Handles incoming A2A `execute_gke_remediation` tasks from Atlas (Lead Orchestrator)."""
         skill_id = request.params.get("skill_id", "")
         parts = request.params.get("message", {}).get("parts", [])
         data = parts[0].get("data", {}) if parts else {}
@@ -136,11 +138,17 @@ class GKEAssistAgent:
         if skill_id == "execute_gke_remediation":
             incident_id = data.get("incident_id", "")
             jit_token_id = data.get("jit_token_id", "")
-            execution_mode = data.get("execution_mode", "dry_run")
+            execution_mode = data.get("execution_mode", "live")
             kubectl_command = data.get("kubectl_command", "")
-            cluster = data.get("cluster", "gke-prod-us-central1")
+            cluster = data.get("cluster", "us-central1")
             namespace = data.get("namespace", "default")
             workload = data.get("workload", "deployment/app")
+            specialist = data.get("specialist_worker") or {
+                "id": "serverless-agent",
+                "name": "Serverless Agent",
+                "domain": "Cloud Run & Cloud Functions",
+            }
+            specialist_name = specialist.get("name", "Serverless Agent")
 
             # Enforce Zero-Standing Privilege: verify JIT token minted by Lead Orchestrator
             if not self.a2a_hub.jit_broker.validate_token(jit_token_id, incident_id):
@@ -149,7 +157,7 @@ class GKEAssistAgent:
                     result={
                         "status": "REJECTED_INVALID_JIT_TOKEN",
                         "incident_id": incident_id,
-                        "error": "Worker Agent refused execution: missing or expired Stage 2 HITL JIT token.",
+                        "error": f"{specialist_name} refused execution: missing or expired Stage 2 HITL JIT token.",
                     },
                 )
 
@@ -161,19 +169,22 @@ class GKEAssistAgent:
                 kubectl_command=kubectl_command,
                 execution_mode=execution_mode,
                 jit_token_id=jit_token_id,
+                specialist_worker=specialist,
             )
 
             # Single-action envelope: revoke JIT token immediately after execution
             self.a2a_hub.jit_broker.revoke_token(jit_token_id)
 
-            sre_notes = self._generate_sre_execution_notes(data, exec_result)
+            sre_notes = self._generate_sre_execution_notes(data, exec_result, specialist_name)
             exec_result["sre_specialist_notes"] = sre_notes
+            exec_result["specialist_worker"] = specialist
 
             return A2ATaskResponse(
                 id=request.id,
                 result={
                     "status": "REMEDIATION_APPLIED",
                     "agent": self.AGENT_ID,
+                    "specialist_worker": specialist,
                     "incident_id": incident_id,
                     "execution": exec_result,
                 },

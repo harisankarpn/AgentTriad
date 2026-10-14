@@ -46,28 +46,15 @@
       </div>
       <h1 class="text-xl font-extrabold text-white tracking-tight">
         AaaS Control Plane
-        <span class="text-slate-400 font-normal text-sm block sm:inline sm:ml-1">| Atlas (Lead Orchestrator) + Log Watcher + Worker Agent</span>
+        <span class="text-slate-400 font-normal text-sm block sm:inline sm:ml-1">| Log Watcher + Atlas (Lead) + Worker Agent Boutique</span>
       </h1>
     </div>
 
-    <!-- Live GCP Log Poll Icon + Separate Demo Trigger -->
+    <!-- Live GCP Log Poll Icon -->
     <div class="flex items-center gap-2.5">
-      <button id="btnPollLiveLogs" onclick="pollLiveCloudLogging()" title="Poll Real GCP Cloud Logging via Log Watcher" class="inline-flex items-center gap-2 bg-sky-500/15 hover:bg-sky-500/25 text-sky-300 border border-sky-500/30 text-xs font-semibold px-3.5 py-2.5 rounded-xl transition cursor-pointer">
+      <button id="btnPollLiveLogs" onclick="pollLiveCloudLogging()" title="Poll Real GCP Cloud Logging via Log Watcher" class="inline-flex items-center gap-2 bg-sky-500/15 hover:bg-sky-500/25 text-sky-300 border border-sky-500/30 text-xs font-semibold px-4 py-2.5 rounded-xl transition cursor-pointer">
         <i class="fa-solid fa-satellite-dish text-sky-400" id="livePollIcon"></i>
         <span id="livePollText">Poll Live Logs</span>
-      </button>
-
-      <div class="h-5 w-px bg-slate-800 hidden sm:block"></div>
-
-      <select id="scenarioSelect" class="bg-slate-900 border border-slate-700 text-slate-200 text-xs rounded-xl px-3 py-2.5 focus:outline-none focus:border-indigo-500">
-        <option value="oom_killed">Demo: Checkout Memory Spike</option>
-        <option value="cpu_throttling">Demo: Website Traffic Overload</option>
-        <option value="image_pull_backoff">Demo: Broken App Update</option>
-      </select>
-
-      <button id="btnSimulate" onclick="triggerSimulatedIncident()" class="inline-flex items-center gap-2 bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold px-4 py-2.5 rounded-xl shadow-lg shadow-indigo-600/20 transition cursor-pointer">
-        <i class="fa-solid fa-play text-[10px]" id="simIcon"></i>
-        <span id="simBtnText">Simulate Issue</span>
       </button>
     </div>
   </header>
@@ -92,7 +79,7 @@
           <span id="badge-watcher" class="text-[10px] font-semibold px-2.5 py-1 rounded-full bg-emerald-500/15 text-emerald-400">Watching 24/7</span>
         </div>
         <p class="text-xs text-slate-400 leading-relaxed">
-          Monitors cloud health and immediately spots unusual errors.
+          Monitors live GCP Cloud Logging and immediately spots unusual errors.
         </p>
       </div>
 
@@ -111,11 +98,11 @@
           <span id="badge-orchestrator" class="text-[10px] font-semibold px-2.5 py-1 rounded-full bg-amber-500/15 text-amber-300">AI Co-Pilot</span>
         </div>
         <p class="text-xs text-slate-400 leading-relaxed">
-          Chats with you to explain the issue, answers your questions, and coordinates the fix.
+          Diagnoses the issue, chats with you, and routes approved fixes to the right domain specialist.
         </p>
       </div>
 
-      <!-- Agent 3: Worker Agent -->
+      <!-- Agent 3: Boutique of Worker Agents -->
       <div id="card-gke-assist-agent" class="glass border border-slate-800 rounded-2xl p-4 transition duration-300">
         <div class="flex items-center justify-between mb-2">
           <div class="flex items-center justify-between w-full">
@@ -124,24 +111,79 @@
                 <i class="fa-solid fa-wand-magic-sparkles"></i>
               </div>
               <div>
-                <div class="text-xs font-bold text-slate-400 uppercase tracking-wider">Step 3</div>
-                <div class="text-sm font-bold text-white">Worker Agent</div>
+                <div class="text-xs font-bold text-slate-400 uppercase tracking-wider">Step 3 • Boutique</div>
+                <div class="text-sm font-bold text-white">Worker Agents</div>
               </div>
             </div>
-            <span id="badge-worker" class="text-[10px] font-semibold px-2.5 py-1 rounded-full bg-slate-800 text-slate-300">Standby</span>
+            <span id="badge-worker" class="text-[10px] font-semibold px-2.5 py-1 rounded-full bg-slate-800 text-slate-300">5 Specialists</span>
           </div>
         </div>
-        <p class="text-xs text-slate-400 leading-relaxed">
-          Applies the fix only after you approve, then verifies everything is healthy.
-        </p>
+        <div id="workerBoutiquePills" class="flex flex-wrap gap-1.5 mt-2">
+          <span data-agent-id="serverless-agent" class="worker-pill inline-flex items-center gap-1 px-2 py-0.5 rounded-lg bg-slate-900/90 border border-slate-700/80 text-[10px] text-slate-300">
+            <i class="fa-solid fa-bolt text-emerald-400"></i> Serverless Agent
+          </span>
+          <span data-agent-id="database-agent" class="worker-pill inline-flex items-center gap-1 px-2 py-0.5 rounded-lg bg-slate-900/90 border border-slate-700/80 text-[10px] text-slate-300">
+            <i class="fa-solid fa-database text-sky-400"></i> Database Agent
+          </span>
+          <span data-agent-id="infra-agent" class="worker-pill inline-flex items-center gap-1 px-2 py-0.5 rounded-lg bg-slate-900/90 border border-slate-700/80 text-[10px] text-slate-300">
+            <i class="fa-solid fa-server text-indigo-400"></i> Infra Agent
+          </span>
+          <span data-agent-id="networking-agent" class="worker-pill inline-flex items-center gap-1 px-2 py-0.5 rounded-lg bg-slate-900/90 border border-slate-700/80 text-[10px] text-slate-300">
+            <i class="fa-solid fa-network-wired text-amber-400"></i> Networking Agent
+          </span>
+          <span data-agent-id="data-analytics-agent" class="worker-pill inline-flex items-center gap-1 px-2 py-0.5 rounded-lg bg-slate-900/90 border border-slate-700/80 text-[10px] text-slate-300">
+            <i class="fa-solid fa-chart-line text-purple-400"></i> Data Analytics Agent
+          </span>
+        </div>
       </div>
     </section>
 
     <!-- 2. CENTER HERO STAGE: Customer Feedback & System Status -->
     <section id="centerStage" class="max-w-2xl w-full mx-auto">
       <!-- Dynamically renders either:
-           A) Pending User Approval Card (Clean, non-tech friendly)
+           A) Pending User Approval Card (Interactive Atlas Chatbot)
            B) Resolved / All-Clear Card -->
+    </section>
+
+    <!-- 3. AUDIT & EVENT TRACKER (When Issues Occurred, Who Approved & Timestamp) -->
+    <section class="max-w-5xl w-full mx-auto pt-2">
+      <div class="glass border border-slate-800 rounded-2xl p-4 sm:p-5 space-y-3">
+        <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-2.5 border-b border-slate-800/80">
+          <div class="flex items-center gap-2.5">
+            <div class="w-8 h-8 rounded-xl bg-indigo-500/15 border border-indigo-500/30 flex items-center justify-center text-indigo-400">
+              <i class="fa-solid fa-clipboard-check text-xs"></i>
+            </div>
+            <div>
+              <h3 class="text-xs sm:text-sm font-bold text-white flex items-center gap-2">
+                <span>Audit &amp; Event Tracker</span>
+                <span id="auditCountBadge" class="px-2 py-0.5 text-[10px] mono rounded-full bg-indigo-500/20 text-indigo-300 border border-indigo-500/30">0 events</span>
+              </h3>
+              <p class="text-[11px] text-slate-400">Tracks when each live GCP issue occurred, who approved/actioned it, and exact timestamps for auditing.</p>
+            </div>
+          </div>
+          <a href="/api/audit-events" target="_blank" class="text-[11px] text-indigo-400 hover:text-indigo-300 mono flex items-center gap-1">
+            <i class="fa-solid fa-file-shield"></i>
+            <span>Export Audit JSON</span>
+          </a>
+        </div>
+
+        <div class="overflow-x-auto">
+          <table class="w-full text-left border-collapse">
+            <thead>
+              <tr class="text-[10px] font-bold uppercase tracking-wider text-slate-400 border-b border-slate-800">
+                <th class="py-2 pr-3">Issue &amp; Cloud Service</th>
+                <th class="py-2 px-3">Occurred At</th>
+                <th class="py-2 px-3">Status</th>
+                <th class="py-2 px-3">Approved / Actioned By</th>
+                <th class="py-2 pl-3">Approval Timestamp</th>
+              </tr>
+            </thead>
+            <tbody id="auditTrackerBody" class="divide-y divide-slate-800/70 text-xs">
+              <!-- Populated dynamically -->
+            </tbody>
+          </table>
+        </div>
+      </div>
     </section>
 
   </main>
@@ -187,32 +229,8 @@
   <script>
     let latestState = null;
 
-    // Friendly non-technical translations for each scenario + real GCP anomalies
+    // Friendly non-technical translations for real GCP anomalies
     const FRIENDLY_COPY = {
-      oom_killed: {
-        headline: "Checkout Service Needs More Memory",
-        what_happened: "A surge in customer orders caused the Checkout service to run out of memory and restart.",
-        why_approve: "Safely increases memory from 512 MB to 1 GB so customer checkouts stop failing.",
-        risk_badge: "Low Risk • Safe Memory Upgrade",
-        downtime_badge: "Zero Downtime",
-        safety_badge: "Auto-Rollback Protected"
-      },
-      cpu_throttling: {
-        headline: "Website Storefront is Overloaded",
-        what_happened: "High visitor traffic is overloading the 2 active web servers, causing slow page loads.",
-        why_approve: "Adds 4 extra servers (2 → 6) so pages load fast again for all visitors.",
-        risk_badge: "Low Risk • Auto-Scaling",
-        downtime_badge: "Zero Downtime",
-        safety_badge: "Auto-Rollback Protected"
-      },
-      image_pull_backoff: {
-        headline: "Recent Order Update Needs Rollback",
-        what_happened: "A new software update for the Order service couldn't start properly.",
-        why_approve: "Instantly switches back to the previous stable version so orders keep processing.",
-        risk_badge: "Safe Version Restore",
-        downtime_badge: "Zero Downtime",
-        safety_badge: "Verified Stable Version"
-      },
       cloud_run_port_error: {
         headline: "Database Connection Service Failed to Start",
         what_happened: "Real GCP Log Detected: Your 'testdbconnect' Cloud Run service in us-west1 failed to start listening on port 8080.",
@@ -244,12 +262,20 @@
         risk_badge: "Low Risk • Worker Restart",
         downtime_badge: "Zero Downtime",
         safety_badge: "State Preserved"
+      },
+      real_gcp_anomaly: {
+        headline: "Cloud Service Issue Detected in Live Logs",
+        what_happened: "Log Watcher spotted a live error in your Google Cloud project logs.",
+        why_approve: "Safely repairs and restarts the affected cloud service.",
+        risk_badge: "Low Risk • Automated Fix",
+        downtime_badge: "Zero Downtime",
+        safety_badge: "Auto-Rollback Protected"
       }
     };
 
     function getCustomerCopy(inc) {
-      const scenarioId = (inc.log_entry && inc.log_entry.scenario_id) || 'oom_killed';
-      const base = FRIENDLY_COPY[scenarioId] || FRIENDLY_COPY.oom_killed;
+      const scenarioId = (inc.log_entry && inc.log_entry.scenario_id) || 'real_gcp_anomaly';
+      const base = FRIENDLY_COPY[scenarioId] || FRIENDLY_COPY.real_gcp_anomaly;
       const impact = inc.impact_analysis || {};
       return {
         headline: impact.customer_headline || base.headline,
@@ -305,23 +331,38 @@
       orchCard.classList.remove('agent-active');
       workerCard.classList.remove('agent-active');
 
+      const activeInc = pending || latestIncident;
+      const activeSpecialist = (activeInc && activeInc.specialist_worker) ? activeInc.specialist_worker : null;
+
+      // Highlight the matching specialist pill in Step 3 Boutique
+      document.querySelectorAll('#workerBoutiquePills .worker-pill').forEach(pill => {
+        const pillId = pill.getAttribute('data-agent-id');
+        if (activeSpecialist && pillId === activeSpecialist.id) {
+          pill.className = 'worker-pill inline-flex items-center gap-1 px-2 py-0.5 rounded-lg bg-emerald-500/20 border border-emerald-400 text-[10px] font-bold text-emerald-300 shadow';
+        } else {
+          pill.className = 'worker-pill inline-flex items-center gap-1 px-2 py-0.5 rounded-lg bg-slate-900/90 border border-slate-700/80 text-[10px] text-slate-400';
+        }
+      });
+
       if (pending) {
         orchCard.classList.add('agent-active');
         document.getElementById('badge-orchestrator').textContent = 'Chatting with Hari';
         document.getElementById('badge-orchestrator').className = 'text-[10px] font-semibold px-2.5 py-1 rounded-full bg-amber-500/20 text-amber-300 animate-pulse';
-        document.getElementById('badge-worker').textContent = 'Ready to Fix';
+        document.getElementById('badge-worker').textContent = activeSpecialist ? `${activeSpecialist.name} Ready` : 'Specialist Ready';
+        document.getElementById('badge-worker').className = 'text-[10px] font-semibold px-2.5 py-1 rounded-full bg-emerald-500/20 text-emerald-300';
       } else if (latestIncident && latestIncident.status === 'SKIPPED_MANUAL') {
         document.getElementById('badge-orchestrator').textContent = 'Manual Mode';
         document.getElementById('badge-orchestrator').className = 'text-[10px] font-semibold px-2.5 py-1 rounded-full bg-slate-800 text-slate-300';
         document.getElementById('badge-worker').textContent = 'Stood Down';
+        document.getElementById('badge-worker').className = 'text-[10px] font-semibold px-2.5 py-1 rounded-full bg-slate-800 text-slate-300';
       } else {
         document.getElementById('badge-orchestrator').textContent = 'All Clear';
         document.getElementById('badge-orchestrator').className = 'text-[10px] font-semibold px-2.5 py-1 rounded-full bg-emerald-500/15 text-emerald-400';
-        document.getElementById('badge-worker').textContent = 'Standby';
+        document.getElementById('badge-worker').textContent = activeSpecialist ? `${activeSpecialist.name} • Done` : '5 Specialists';
+        document.getElementById('badge-worker').className = 'text-[10px] font-semibold px-2.5 py-1 rounded-full bg-slate-800 text-slate-300';
       }
 
       // Render Center Stage only when state signature changes so typing in chat is never interrupted
-      const activeInc = pending || latestIncident;
       const stageSig = activeInc
         ? `${activeInc.incident_id}:${activeInc.status}:${(activeInc.chat_messages || []).length}`
         : 'healthy';
@@ -378,6 +419,91 @@
           <span class="mono text-[10px] text-slate-500 shrink-0">${new Date(item.timestamp).toLocaleTimeString()}</span>
         </div>
       `).join('');
+
+      // Render Audit & Event Tracker
+      renderAuditTracker(data.audit_events || []);
+    }
+
+    function formatAuditTime(isoStr) {
+      if (!isoStr) return '—';
+      try {
+        const d = new Date(isoStr);
+        if (isNaN(d.getTime())) return escapeHtml(isoStr);
+        return d.toLocaleString(undefined, {
+          month: 'short',
+          day: '2-digit',
+          hour: '2-digit',
+          minute: '2-digit',
+          second: '2-digit'
+        });
+      } catch (e) {
+        return escapeHtml(isoStr);
+      }
+    }
+
+    function renderAuditTracker(auditEvents) {
+      const badgeEl = document.getElementById('auditCountBadge');
+      const tbodyEl = document.getElementById('auditTrackerBody');
+      if (!tbodyEl) return;
+
+      if (badgeEl) {
+        badgeEl.textContent = `${auditEvents.length} ${auditEvents.length === 1 ? 'Event' : 'Events'} Logged`;
+      }
+
+      if (!auditEvents.length) {
+        tbodyEl.innerHTML = `
+          <tr>
+            <td colspan="5" class="px-4 py-5 text-center text-slate-500 text-xs">
+              No incidents recorded yet. Click <strong>"Poll Live Logs"</strong> to scan real GCP logs in <code>agent-triad</code>.
+            </td>
+          </tr>
+        `;
+        return;
+      }
+
+      tbodyEl.innerHTML = auditEvents.map(ev => {
+        const status = ev.status || 'AWAITING_HITL_APPROVAL';
+        let statusBadge = '';
+        if (status === 'RESOLVED') {
+          statusBadge = `<span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-500/15 text-emerald-400 border border-emerald-500/30"><i class="fa-solid fa-check"></i> Resolved</span>`;
+        } else if (status === 'SKIPPED_MANUAL') {
+          statusBadge = `<span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-slate-800 text-amber-300 border border-slate-700"><i class="fa-regular fa-clock"></i> Skipped (Manual)</span>`;
+        } else {
+          statusBadge = `<span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-500/15 text-amber-300 border border-amber-500/30"><i class="fa-solid fa-hourglass-half"></i> Awaiting Approval</span>`;
+        }
+
+        const approvedByHtml = ev.approved_by
+          ? `<span class="inline-flex items-center gap-1.5 font-semibold text-white"><i class="fa-solid fa-user-check text-emerald-400 text-[10px]"></i> ${escapeHtml(ev.approved_by)}</span>`
+          : `<span class="text-slate-500 italic">Pending Hari's review</span>`;
+
+        const approvedAtHtml = ev.approved_at
+          ? `<div class="mono text-[11px] text-emerald-300">${formatAuditTime(ev.approved_at)}</div>
+             ${ev.jit_token_id ? `<div class="mono text-[10px] text-slate-500">JIT: ${escapeHtml(ev.jit_token_id)}</div>` : ''}`
+          : `<span class="text-slate-500">—</span>`;
+
+        const specName = ev.specialist_agent_name || 'Serverless Agent';
+
+        return `
+          <tr class="hover:bg-slate-900/50 transition">
+            <td class="px-4 py-3">
+              <div class="font-semibold text-white text-xs">${escapeHtml(ev.title || 'GCP Service Issue')}</div>
+              <div class="text-[10px] text-slate-400 mono mt-0.5 flex flex-wrap items-center gap-1.5">
+                <span class="text-indigo-400">${escapeHtml(ev.incident_id)}</span>
+                <span>•</span>
+                <span>${escapeHtml(ev.service_label || ev.workload || 'gcp')}</span>
+                <span class="px-1.5 py-0.2 rounded bg-emerald-500/15 text-emerald-300 border border-emerald-500/30 font-sans font-semibold">${escapeHtml(specName)}</span>
+              </div>
+            </td>
+            <td class="px-4 py-3">
+              <div class="mono text-[11px] text-slate-200">${formatAuditTime(ev.occurred_at)}</div>
+              <div class="text-[10px] text-slate-500">Detected: ${formatAuditTime(ev.detected_at)}</div>
+            </td>
+            <td class="px-4 py-3">${statusBadge}</td>
+            <td class="px-4 py-3">${approvedByHtml}</td>
+            <td class="px-4 py-3">${approvedAtHtml}</td>
+          </tr>
+        `;
+      }).join('');
     }
 
     function renderChatBubbles(messages) {
@@ -414,6 +540,7 @@
       const copy = getCustomerCopy(inc);
       const impact = inc.impact_analysis || {};
       const messages = inc.chat_messages || [];
+      const spec = inc.specialist_worker || { name: 'Serverless Agent', icon: 'fa-bolt' };
 
       return `
         <div class="glass border-2 border-amber-500/50 rounded-3xl p-5 sm:p-6 shadow-2xl space-y-4">
@@ -424,17 +551,20 @@
                 <i class="fa-solid fa-comments"></i>
               </div>
               <div>
-                <div class="flex items-center gap-2">
+                <div class="flex items-center gap-2 flex-wrap">
                   <span class="text-sm font-extrabold text-white">Atlas • AaaS Lead</span>
                   <span class="px-2 py-0.5 rounded-full text-[10px] font-bold bg-rose-500/20 text-rose-300 border border-rose-500/30">
                     ${escapeHtml(inc.severity || 'ERROR')}
+                  </span>
+                  <span class="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-500/15 text-emerald-300 border border-emerald-500/30">
+                    <i class="fa-solid ${escapeHtml(spec.icon || 'fa-bolt')} mr-1"></i>Routed to ${escapeHtml(spec.name)}
                   </span>
                 </div>
                 <div class="text-[11px] text-slate-400">${escapeHtml(copy.headline)}</div>
               </div>
             </div>
 
-            <!-- 3 Compact Reassurance Badges -->
+            <!-- Compact Reassurance Badges -->
             <div class="hidden sm:flex items-center gap-1.5">
               <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg bg-slate-900 border border-slate-700 text-[10px] text-emerald-300">
                 <i class="fa-solid fa-bolt"></i> ${escapeHtml(copy.downtime_badge)}
@@ -484,7 +614,7 @@
             <button id="btnApproveMain" onclick="approveIncident('${escapeHtml(inc.incident_id)}')"
               class="flex-1 py-3 px-5 rounded-2xl bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-400 hover:to-teal-400 text-slate-950 font-extrabold text-xs sm:text-sm shadow-xl shadow-emerald-500/20 transition transform hover:scale-[1.01] cursor-pointer flex items-center justify-center gap-2">
               <i class="fa-solid fa-check-circle text-base"></i>
-              <span>I'm Convinced — Proceed with Fix</span>
+              <span>I'm Convinced — Dispatch ${escapeHtml(spec.name)}</span>
             </button>
 
             <button id="btnSkipMain" onclick="skipIncident('${escapeHtml(inc.incident_id)}')"
@@ -512,6 +642,7 @@
     function renderSkippedCard(inc) {
       const copy = getCustomerCopy(inc);
       const impact = inc.impact_analysis || {};
+      const spec = inc.specialist_worker || { name: 'Worker Agent' };
 
       return `
         <div class="glass border border-slate-700 rounded-3xl p-6 sm:p-7 text-center shadow-2xl space-y-4">
@@ -522,7 +653,7 @@
             <span class="text-xs font-bold uppercase tracking-wider text-amber-300">Skipped — Manual Mode</span>
             <h2 class="text-xl font-extrabold text-white">${escapeHtml(copy.headline)}</h2>
             <p class="text-xs text-slate-300 max-w-md mx-auto leading-relaxed">
-              Got it, Hari — Atlas stood down the <strong>Worker Agent</strong> and made <strong>no changes</strong> so you can handle this manually.
+              Got it, Hari — Atlas stood down the <strong>${escapeHtml(spec.name)}</strong> and made <strong>no changes</strong> so you can handle this manually.
             </p>
           </div>
 
@@ -551,6 +682,7 @@
     function renderResolvedCard(inc) {
       const copy = getCustomerCopy(inc);
       const impact = inc.impact_analysis || {};
+      const spec = inc.specialist_worker || { name: 'Serverless Agent' };
 
       return `
         <div class="glass border border-emerald-500/40 rounded-3xl p-6 sm:p-7 text-center shadow-2xl space-y-4">
@@ -561,13 +693,13 @@
             <span class="text-xs font-bold uppercase tracking-wider text-emerald-400">Issue Resolved Automatically</span>
             <h2 class="text-xl font-extrabold text-white">${escapeHtml(copy.headline)} — Fixed!</h2>
             <p class="text-xs text-slate-300 max-w-md mx-auto leading-relaxed">
-              Thanks, Hari! Following your approval, <strong>Atlas (AaaS Lead)</strong> delegated the fix to the <strong>Worker Agent</strong> and <strong>Log Watcher</strong> confirmed 100% service health.
+              Thanks, Hari! Following your approval, <strong>Atlas (AaaS Lead)</strong> dispatched the <strong>${escapeHtml(spec.name)}</strong> from our Worker Boutique and <strong>Log Watcher</strong> confirmed 100% service health.
             </p>
           </div>
 
           <details class="text-left pt-2 border-t border-slate-800/80">
             <summary class="text-xs text-slate-400 hover:text-slate-200 cursor-pointer flex items-center justify-center gap-1.5">
-              <span>View more (Conversation &amp; What Worker Agent did)</span>
+              <span>View more (Execution Steps &amp; What ${escapeHtml(spec.name)} did)</span>
               <i class="fa-solid fa-chevron-down text-[10px]"></i>
             </summary>
             <div class="mt-3 p-3.5 rounded-xl bg-slate-950/90 border border-slate-800 space-y-1.5 text-xs text-slate-300">
@@ -587,7 +719,7 @@
           </div>
           <h2 class="text-lg font-bold text-white">Hey Hari 👋 — Atlas (AaaS Lead) is Monitoring Your Cloud</h2>
           <p class="text-xs text-slate-400 max-w-md mx-auto leading-relaxed">
-            Right now your environment is calm. Click <strong>"Poll Live Logs"</strong> at the top right to scan real GCP logs in <code>agent-triad</code> (or <strong>"Simulate Issue"</strong>), and I'll walk you through any issue I find before we fix it.
+            Right now your environment is calm. Click <strong>"Poll Live Logs"</strong> at the top right to scan real GCP logs in <code>agent-triad</code>, and I'll route any issue to the right specialist in our <strong>Worker Agent Boutique</strong>.
           </p>
         </div>
       `;
@@ -634,7 +766,7 @@
       const kubectlInput = document.getElementById(`kubectl-${incidentId}`);
       if (btn) {
         btn.disabled = true;
-        btn.innerHTML = `<i class="fa-solid fa-spinner fa-spin"></i><span>Worker Agent is fixing the issue...</span>`;
+        btn.innerHTML = `<i class="fa-solid fa-spinner fa-spin"></i><span>Specialist Agent is fixing the issue...</span>`;
       }
 
       document.getElementById('card-gke-assist-agent').classList.add('agent-active');
@@ -645,7 +777,7 @@
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             approved_by: 'Hari',
-            execution_mode: 'dry_run',
+            execution_mode: 'live',
             custom_kubectl: kubectlInput ? kubectlInput.value : null
           })
         });
@@ -679,32 +811,6 @@
         await fetchState(true);
       } catch (err) {
         console.error('Reopen failed:', err);
-      }
-    }
-
-    async function triggerSimulatedIncident() {
-      const btn = document.getElementById('btnSimulate');
-      const icon = document.getElementById('simIcon');
-      const text = document.getElementById('simBtnText');
-      const scenarioId = document.getElementById('scenarioSelect').value;
-
-      btn.disabled = true;
-      icon.className = 'fa-solid fa-spinner fa-spin';
-      text.textContent = 'Detecting Issue...';
-
-      document.getElementById('card-log-watcher-agent').classList.add('agent-active');
-
-      try {
-        await fetch('/api/simulate-incident', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ scenario_id: scenarioId })
-        });
-        await fetchState();
-      } finally {
-        btn.disabled = false;
-        icon.className = 'fa-solid fa-play text-[10px]';
-        text.textContent = 'Simulate Issue';
       }
     }
 
