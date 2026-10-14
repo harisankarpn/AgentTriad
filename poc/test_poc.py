@@ -17,7 +17,7 @@ from app import app
 def run_e2e_tests() -> None:
     client = TestClient(app)
 
-    # 1. Verify Dashboard UI loads with Heartbeat & Telemetry, Specialist Agent Roster (7 specialists), Atlas Holding GCP Cloud icon, 'I accept', Audit Tracker, and without Simulate/Demo controls
+    # 1. Verify Dashboard UI loads with Left Sidebar Navigation Rail, Heartbeat & Telemetry, Specialist Agent Roster (7 specialists), Atlas Holding GCP Cloud icon, 'I accept', Audit Tracker, and without Simulate/Demo controls
     res_ui = client.get("/")
     assert res_ui.status_code == 200, f"Dashboard failed: {res_ui.status_code}"
     assert "AaaS Control Plane" in res_ui.text
@@ -27,6 +27,8 @@ def run_e2e_tests() -> None:
     assert "I accept — Dispatch" in res_ui.text
     assert "I'm Convinced" not in res_ui.text
     assert "Audit &amp; Event Tracker" in res_ui.text
+    for nav_id in ("nav-command", "nav-roster", "nav-audit", "nav-logs", "view-command", "view-roster", "view-audit", "view-logs"):
+        assert nav_id in res_ui.text, f"Missing sidebar/view element {nav_id} in Dashboard UI"
     for specialist_label in (
         "Serverless Agent",
         "Database Agent",
@@ -39,7 +41,7 @@ def run_e2e_tests() -> None:
         assert specialist_label in res_ui.text, f"Missing {specialist_label} in Dashboard UI"
     assert "Simulate Issue" not in res_ui.text
     assert "scenarioSelect" not in res_ui.text
-    print("[PASS] Dashboard UI verified: Atlas Holding GCP Cloud icon, 'I accept' button, Heartbeat & Telemetry, Specialist Agent Roster (7 specialists) & Audit Tracker present")
+    print("[PASS] Dashboard UI verified: Left Sidebar Navigation Rail (Command, Roster, Audit, Logs), Atlas Holding GCP Cloud icon, 'I accept' button & 7 Specialists present")
 
     # 2. Verify all 3 A2A AgentCards (/.well-known/agent.json)
     for agent_id in ("log-watcher-agent", "lead-orchestrator-agent", "gke-assist-agent"):
