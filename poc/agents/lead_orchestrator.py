@@ -183,14 +183,14 @@ WORKER_AGENT_BOUTIQUE: List[Dict[str, str]] = [
     {
         "id": "infra-agent",
         "name": "Infra Agent",
-        "domain": "GKE, Compute Engine & IAM",
+        "domain": "GKE, Compute Engine & Containers",
         "icon": "fa-server",
-        "description": "Handles GKE pods/nodes, Compute Engine VMs, persistent disks, and IAM bindings.",
+        "description": "Handles GKE pods/nodes, Compute Engine VMs, persistent disks, and infrastructure health.",
     },
     {
         "id": "networking-agent",
         "name": "Networking Agent",
-        "domain": "VPC, Load Balancing & Cloud Armor",
+        "domain": "VPC, Load Balancing & DNS",
         "icon": "fa-network-wired",
         "description": "Resolves VPC routing, Serverless VPC Access connectors, Load Balancers, and DNS/Ingress rules.",
     },
@@ -201,6 +201,20 @@ WORKER_AGENT_BOUTIQUE: List[Dict[str, str]] = [
         "icon": "fa-chart-line",
         "description": "Recovers Vertex AI Reasoning Engines, BigQuery slots, Dataflow pipelines, and Pub/Sub backlog.",
     },
+    {
+        "id": "security-agent",
+        "name": "Security Agent",
+        "domain": "IAM, Cloud Armor & Secret Manager",
+        "icon": "fa-shield-halved",
+        "description": "Audits and remediates IAM permissions, WIF policies, Cloud Armor WAF rules, and Security Command Center alerts.",
+    },
+    {
+        "id": "billing-agent",
+        "name": "Billing Agent",
+        "domain": "Cloud Billing, Quotas & FinOps",
+        "icon": "fa-credit-card",
+        "description": "Monitors Cloud Billing budgets, cost anomalies, API quota exhaustion, and resource right-sizing guardrails.",
+    },
 ]
 
 
@@ -208,7 +222,7 @@ class LeadOrchestratorAgent:
     """
     Central ADK Lead/Orchestrator Agent (Atlas) that supervises all agents, computes
     incident impact & remedies, gates on user HITL approval, tracks auditable events,
-    and delegates execution to the Boutique of Domain Worker Agents over A2A.
+    and delegates execution to the Specialist Agent Roster over A2A.
     """
 
     AGENT_ID = "lead-orchestrator-agent"
@@ -226,9 +240,9 @@ class LeadOrchestratorAgent:
             role="Central Operations Supervisor, Impact Analyzer & HITL Gatekeeper",
             description=(
                 "Continuously monitors all specialist agents, ingests anomaly alerts from the "
-                "Log Watcher Agent via A2A, performs Gemini root-cause & business impact "
+                "Heartbeat & Telemetry Agent via A2A, performs Gemini root-cause & business impact "
                 "analysis, alerts the user with the recommended remedy, and delegates user-accepted "
-                "remediations to the Worker Agent over A2A."
+                "remediations to the Specialist Agent Roster over A2A."
             ),
             url="/a2a/lead-orchestrator-agent",
             skills=[
@@ -236,19 +250,19 @@ class LeadOrchestratorAgent:
                     id="ingest_anomaly_alert",
                     name="Ingest Anomaly & Compute Impact/Remedy",
                     description=(
-                        "Receives anomaly alerts from Log Watcher, correlates with Golden Playbooks "
+                        "Receives anomaly alerts from Heartbeat & Telemetry, correlates with Golden Playbooks "
                         "and Vertex AI Gemini, and alerts the user with Impact Analysis + Remedy."
                     ),
                     tags=["orchestrator", "rca", "impact-analysis", "hitl"],
                 ),
                 AgentSkill(
                     id="delegate_approved_remediation",
-                    name="Mint JIT Token & Delegate Fix to Worker Agent",
+                    name="Mint JIT Token & Delegate Fix to Specialist Agent",
                     description=(
                         "Mints a 15-minute WIF JIT token upon user acceptance and delegates the "
-                        "remediation task to Worker Agent via A2A."
+                        "remediation task to the matched domain specialist via A2A."
                     ),
-                    tags=["delegation", "a2a", "jit", "worker-agent"],
+                    tags=["delegation", "a2a", "jit", "specialist-roster"],
                 ),
             ],
         )
@@ -388,12 +402,16 @@ class LeadOrchestratorAgent:
         return f"GCP ({workload})"
 
     def _select_specialist_worker(self, log_entry: Dict[str, Any]) -> Dict[str, str]:
-        """Selects the appropriate domain specialist from the Worker Agent Boutique based on telemetry."""
+        """Selects the appropriate domain specialist from the Specialist Agent Roster based on telemetry."""
         source = str(log_entry.get("source", "")).lower()
         scen = str(log_entry.get("scenario_id", "")).lower()
         workload = str(log_entry.get("workload", "")).lower()
         msg = str(log_entry.get("message", "")).lower()
 
+        if any(k in msg or k in source or k in workload for k in ("billing", "budget", "cost", "finops")):
+            return WORKER_AGENT_BOUTIQUE[6]  # Billing Agent
+        if any(k in msg or k in source or k in workload for k in ("iam", "permission", "unauthorized", "forbidden", "secret", "armor")):
+            return WORKER_AGENT_BOUTIQUE[5]  # Security Agent
         if "testdbconnect" in workload or "cloudsql" in source or "sql" in workload or "database" in msg:
             return WORKER_AGENT_BOUTIQUE[1]  # Database Agent
         if "reasoningengine" in source or "reasoning_engine" in scen or "bigquery" in source or "dataflow" in source:
@@ -483,7 +501,7 @@ class LeadOrchestratorAgent:
         ]
 
     async def handle_a2a_task(self, request: A2ATaskRequest) -> A2ATaskResponse:
-        """Handles incoming A2A `ingest_anomaly_alert` tasks from the Cloud Logging Watcher Agent."""
+        """Handles incoming A2A `ingest_anomaly_alert` tasks from the Heartbeat & Telemetry Agent."""
         skill_id = request.params.get("skill_id", "")
         parts = request.params.get("message", {}).get("parts", [])
         data = parts[0].get("data", {}) if parts else {}
@@ -530,7 +548,7 @@ class LeadOrchestratorAgent:
                 "timeline": [
                     {
                         "timestamp": detected_at,
-                        "agent": "Log Watcher",
+                        "agent": "Heartbeat & Telemetry",
                         "event": (
                             f"Detected [{log_entry.get('severity')}] {log_entry.get('error_code')} in "
                             f"Cloud Logging (occurred at {occurred_at}) and alerted Atlas via A2A."
@@ -804,7 +822,7 @@ class LeadOrchestratorAgent:
             }
         )
 
-        # 3. Trigger Closed-Loop Post-Verification with Log Watcher via A2A
+        # 3. Trigger Closed-Loop Post-Verification with Heartbeat & Telemetry via A2A
         verify_resp = await self.a2a_hub.send_a2a_task(
             sender_id=self.AGENT_ID,
             recipient_id="log-watcher-agent",
@@ -825,7 +843,7 @@ class LeadOrchestratorAgent:
         incident["timeline"].append(
             {
                 "timestamp": incident["updated_at"],
-                "agent": "Log Watcher",
+                "agent": "Heartbeat & Telemetry",
                 "event": verify_resp.result.get("summary", "Telemetry verified healthy. Incident closed."),
             }
         )
@@ -837,9 +855,9 @@ class LeadOrchestratorAgent:
                 "text": (
                     f"✅ All done, Hari! I minted a single-use JIT token (`{jit_token['token_id'][:18]}...`), "
                     f"logged your approval (`{approved_by}` at `{approved_at}`) in the **Audit Event Tracker**, "
-                    f"and dispatched the **{spec_name}** from our Worker Boutique over A2A.\n"
+                    f"and dispatched the **{spec_name}** from our **Specialist Agent Roster** over A2A.\n"
                     f"• **Executed**: `{kubectl_cmd}`\n"
-                    f"• **Watchdog Check**: **Log Watcher** verified `{incident['workload']}` is back to 100% health with 0 error logs."
+                    f"• **Watchdog Check**: **Heartbeat & Telemetry** verified `{incident['workload']}` is back to 100% health with 0 error logs."
                 ),
                 "timestamp": incident["updated_at"],
             }

@@ -41,25 +41,25 @@ class CloudLoggingWatcherAgent:
         self.adk_agent = self._build_adk_agent()
         self.card = AgentCard(
             id=self.AGENT_ID,
-            name="Log Watcher",
-            role="Perception & Edge Noise Filtering (Frontline Watcher)",
+            name="Heartbeat & Telemetry",
+            role="Frontline Telemetry & Heartbeat Monitor",
             description=(
-                "Streams GCP Cloud Logging telemetry, suppresses >90% routine noise at the edge, "
-                "and dispatches structured anomaly alerts to the Lead Orchestrator via A2A."
+                "Streams GCP Cloud Logging & Heartbeat telemetry, suppresses >90% routine noise at the edge, "
+                "and dispatches structured anomaly alerts to Atlas (Lead Orchestrator) via A2A."
             ),
             url="/a2a/log-watcher-agent",
             skills=[
                 AgentSkill(
                     id="scan_cloud_logging",
-                    name="Scan & Filter Cloud Logging",
-                    description="Polls GCP Cloud Logging for GKE container/node anomalies and suppresses routine logs.",
-                    tags=["cloud-logging", "perception", "otel", "watcher"],
+                    name="Scan & Filter Cloud Telemetry",
+                    description="Polls GCP Cloud Logging & Heartbeat streams for anomalies and suppresses routine logs.",
+                    tags=["telemetry", "heartbeat", "perception", "otel"],
                 ),
                 AgentSkill(
                     id="verify_post_remediation",
                     name="Post-Remediation Telemetry Watchdog",
-                    description="Verifies that GKE pod metrics and error logs have stabilized after a remediation.",
-                    tags=["watchdog", "verification", "slo"],
+                    description="Verifies that service metrics, heartbeat ticks, and error logs have stabilized after a fix.",
+                    tags=["watchdog", "verification", "slo", "heartbeat"],
                 ),
             ],
         )

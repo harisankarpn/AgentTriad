@@ -17,10 +17,12 @@ from app import app
 def run_e2e_tests() -> None:
     client = TestClient(app)
 
-    # 1. Verify Dashboard UI loads with Audit Tracker, Worker Agent Boutique, and without Simulate/Demo controls
+    # 1. Verify Dashboard UI loads with Heartbeat & Telemetry, Specialist Agent Roster (7 specialists), Audit Tracker, and without Simulate/Demo controls
     res_ui = client.get("/")
     assert res_ui.status_code == 200, f"Dashboard failed: {res_ui.status_code}"
     assert "AaaS Control Plane" in res_ui.text
+    assert "Heartbeat &amp; Telemetry" in res_ui.text
+    assert "Specialist Agent Roster" in res_ui.text
     assert "Audit &amp; Event Tracker" in res_ui.text
     for specialist_label in (
         "Serverless Agent",
@@ -28,11 +30,13 @@ def run_e2e_tests() -> None:
         "Infra Agent",
         "Networking Agent",
         "Data Analytics Agent",
+        "Security Agent",
+        "Billing Agent",
     ):
         assert specialist_label in res_ui.text, f"Missing {specialist_label} in Dashboard UI"
     assert "Simulate Issue" not in res_ui.text
     assert "scenarioSelect" not in res_ui.text
-    print("[PASS] Dashboard UI verified: Worker Agent Boutique & Audit Tracker present; Simulate/Demo removed")
+    print("[PASS] Dashboard UI verified: Heartbeat & Telemetry, Specialist Agent Roster (7 specialists) & Audit Tracker present; Simulate/Demo removed")
 
     # 2. Verify all 3 A2A AgentCards (/.well-known/agent.json)
     for agent_id in ("log-watcher-agent", "lead-orchestrator-agent", "gke-assist-agent"):

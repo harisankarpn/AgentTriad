@@ -39,7 +39,7 @@ MODEL_NAME = os.getenv("AAAS_GEMINI_MODEL", "gemini-2.5-flash")
 
 
 class GKEAssistAgent:
-    """ADK Specialist Hub for the Boutique of Worker Agents (Serverless, Database, Infra, Networking, Data Analytics)."""
+    """ADK Specialist Hub for the Specialist Agent Roster (Serverless, Database, Infra, Networking, Data Analytics, Security, Billing)."""
 
     AGENT_ID = "gke-assist-agent"
 
@@ -50,12 +50,12 @@ class GKEAssistAgent:
         self._genai_client = self._build_genai_client()
         self.card = AgentCard(
             id=self.AGENT_ID,
-            name="Worker Agent Boutique",
-            role="Domain Remediation Specialists (Serverless, Database, Infra, Networking, Data Analytics)",
+            name="Specialist Agent Roster",
+            role="Domain Remediation Specialists (Serverless, Database, Infra, Networking, Data Analytics, Security, Billing)",
             description=(
-                "Boutique of specialized domain Worker Agents (Serverless Agent, Database Agent, "
-                "Infra Agent, Networking Agent, Data Analytics Agent) that execute Atlas-delegated "
-                "remediations after verifying Stage 2 HITL JIT tokens and blast-radius guardrails."
+                "Roster of specialized domain Worker Agents (Serverless Agent, Database Agent, "
+                "Infra Agent, Networking Agent, Data Analytics Agent, Security Agent, Billing Agent) that execute "
+                "Atlas-delegated remediations after verifying Stage 2 HITL JIT tokens and blast-radius guardrails."
             ),
             url="/a2a/gke-assist-agent",
             skills=[
@@ -64,9 +64,9 @@ class GKEAssistAgent:
                     name="Execute Domain Specialist Remediation",
                     description=(
                         "Dispatches the approved JIT token and remediation payload to the selected "
-                        "domain specialist (Serverless, Database, Infra, Networking, or Data Analytics Agent)."
+                        "domain specialist (Serverless, Database, Infra, Networking, Data Analytics, Security, or Billing Agent)."
                     ),
-                    tags=["serverless", "database", "infra", "networking", "data-analytics", "jit"],
+                    tags=["serverless", "database", "infra", "networking", "data-analytics", "security", "billing", "jit"],
                 ),
             ],
         )
@@ -77,9 +77,9 @@ class GKEAssistAgent:
             return None
         try:
             return AdkAgent(
-                name="worker_agent_boutique",
+                name="specialist_agent_roster",
                 model=MODEL_NAME,
-                description="Boutique of specialist Worker Agents (Serverless, Database, Infra, Networking, Data Analytics).",
+                description="Roster of specialist Worker Agents (Serverless, Database, Infra, Networking, Data Analytics, Security, Billing).",
                 instruction=(
                     "You are the Domain Specialist Worker Agent in the AaaS Control Plane. "
                     "When Atlas (Lead Orchestrator) delegates an approved incident task to you over A2A, "
@@ -107,7 +107,7 @@ class GKEAssistAgent:
         if self._genai_client is not None:
             try:
                 prompt = (
-                    f"You are the {specialist_name} in the Google Cloud AaaS Worker Agent Boutique. "
+                    f"You are the {specialist_name} in the Google Cloud AaaS Specialist Agent Roster. "
                     "Summarize in 2 concise sentences what remediation you just executed for this incident "
                     "and why it resolves the root cause.\n"
                     f"Incident: {json.dumps(incident.get('log_entry', {}), default=str)}\n"
