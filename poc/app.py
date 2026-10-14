@@ -61,9 +61,13 @@ class SimulateIncidentRequest(BaseModel):
 
 
 class ApproveRemedyRequest(BaseModel):
-    approved_by: str = "sre-lead@cognizant.com"
+    approved_by: str = "Hari"
     execution_mode: str = "dry_run"
     custom_kubectl: Optional[str] = None
+
+
+class IncidentChatRequest(BaseModel):
+    message: str
 
 
 @app.get("/")
@@ -304,6 +308,24 @@ async def reopen_incident_remedy(incident_id: str) -> Dict[str, Any]:
     return {
         "status": "AWAITING_HITL_APPROVAL",
         "incident": updated,
+    }
+
+
+@app.post("/api/incidents/{incident_id}/chat")
+async def chat_about_incident(incident_id: str, req: IncidentChatRequest) -> Dict[str, Any]:
+    """
+    Interactive chatbot endpoint for Hari to ask the AaaS Lead Orchestrator (`Aria`)
+    questions about root cause, downtime, blast radius, or instruct it to proceed with the fix.
+    """
+    if incident_id not in lead_orchestrator.incidents:
+        raise HTTPException(status_code=404, detail=f"Incident {incident_id} not found")
+    result = await lead_orchestrator.chat_with_incident(
+        incident_id=incident_id,
+        user_message=req.message,
+    )
+    return {
+        "status": "CHAT_UPDATED",
+        **result,
     }
 
 

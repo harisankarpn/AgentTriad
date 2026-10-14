@@ -96,22 +96,22 @@
         </p>
       </div>
 
-      <!-- Agent 2: Lead Orchestrator -->
+      <!-- Agent 2: Lead Orchestrator (Aria Chatbot) -->
       <div id="card-lead-orchestrator-agent" class="glass border border-slate-800 rounded-2xl p-4 transition duration-300">
         <div class="flex items-center justify-between mb-2">
           <div class="flex items-center gap-2.5">
             <div class="w-9 h-9 rounded-xl bg-amber-500/15 border border-amber-500/30 flex items-center justify-center text-amber-400">
-              <i class="fa-solid fa-compass"></i>
+              <i class="fa-solid fa-comments"></i>
             </div>
             <div>
-              <div class="text-xs font-bold text-slate-400 uppercase tracking-wider">Step 2</div>
+              <div class="text-xs font-bold text-slate-400 uppercase tracking-wider">Step 2 • Aria</div>
               <div class="text-sm font-bold text-white">Lead Orchestrator</div>
             </div>
           </div>
-          <span id="badge-orchestrator" class="text-[10px] font-semibold px-2.5 py-1 rounded-full bg-amber-500/15 text-amber-300">Supervisor</span>
+          <span id="badge-orchestrator" class="text-[10px] font-semibold px-2.5 py-1 rounded-full bg-amber-500/15 text-amber-300">AI Co-Pilot</span>
         </div>
         <p class="text-xs text-slate-400 leading-relaxed">
-          Finds the business impact, prepares a safe fix, and asks for your approval.
+          Chats with you to explain the issue, answers your questions, and coordinates the fix.
         </p>
       </div>
 
@@ -261,6 +261,8 @@
       };
     }
 
+    let lastStageSignature = '';
+
     function escapeHtml(str) {
       if (str === null || str === undefined) return '';
       return String(str)
@@ -270,18 +272,26 @@
         .replace(/"/g, '&quot;');
     }
 
-    async function fetchState() {
+    function formatChatText(str) {
+      return escapeHtml(str)
+        .replace(/^\s*[\*\-]\s+/gm, '• ')
+        .replace(/\*\*(.+?)\*\*/g, '<strong class="text-white font-semibold">$1</strong>')
+        .replace(/`([^`]+)`/g, '<code class="mono text-[11px] px-1.5 py-0.5 rounded bg-slate-950/90 text-emerald-300 border border-slate-700/80">$1</code>')
+        .replace(/\n/g, '<br/>');
+    }
+
+    async function fetchState(forceRender = false) {
       try {
         const res = await fetch('/api/state');
         const data = await res.json();
         latestState = data;
-        renderDashboard(data);
+        renderDashboard(data, forceRender);
       } catch (err) {
         console.error('Failed to fetch state:', err);
       }
     }
 
-    function renderDashboard(data) {
+    function renderDashboard(data, forceRender = false) {
       const incidents = data.incidents || [];
       const pending = incidents.find(i => i.status === 'AWAITING_HITL_APPROVAL');
       const latestIncident = incidents[0];
@@ -297,8 +307,8 @@
 
       if (pending) {
         orchCard.classList.add('agent-active');
-        document.getElementById('badge-orchestrator').textContent = 'Waiting for You';
-        document.getElementById('badge-orchestrator').className = 'text-[10px] font-semibold px-2.5 py-1 rounded-full bg-rose-500/20 text-rose-300 animate-pulse';
+        document.getElementById('badge-orchestrator').textContent = 'Chatting with Hari';
+        document.getElementById('badge-orchestrator').className = 'text-[10px] font-semibold px-2.5 py-1 rounded-full bg-amber-500/20 text-amber-300 animate-pulse';
         document.getElementById('badge-worker').textContent = 'Ready to Fix';
       } else if (latestIncident && latestIncident.status === 'SKIPPED_MANUAL') {
         document.getElementById('badge-orchestrator').textContent = 'Manual Mode';
@@ -310,16 +320,36 @@
         document.getElementById('badge-worker').textContent = 'Standby';
       }
 
-      // Render Center Stage
+      // Render Center Stage only when state signature changes so typing in chat is never interrupted
+      const activeInc = pending || latestIncident;
+      const stageSig = activeInc
+        ? `${activeInc.incident_id}:${activeInc.status}:${(activeInc.chat_messages || []).length}`
+        : 'healthy';
+
       const stageEl = document.getElementById('centerStage');
-      if (pending) {
-        stageEl.innerHTML = renderCustomerApprovalCard(pending);
-      } else if (latestIncident && latestIncident.status === 'SKIPPED_MANUAL') {
-        stageEl.innerHTML = renderSkippedCard(latestIncident);
-      } else if (latestIncident && latestIncident.status === 'RESOLVED') {
-        stageEl.innerHTML = renderResolvedCard(latestIncident);
-      } else {
-        stageEl.innerHTML = renderHealthyCard();
+      if (forceRender || stageSig !== lastStageSignature) {
+        const activeInput = document.querySelector('[id^="chatInput-"]');
+        const savedDraft = activeInput ? activeInput.value : '';
+        lastStageSignature = stageSig;
+
+        if (pending) {
+          stageEl.innerHTML = renderCustomerApprovalCard(pending);
+        } else if (latestIncident && latestIncident.status === 'SKIPPED_MANUAL') {
+          stageEl.innerHTML = renderSkippedCard(latestIncident);
+        } else if (latestIncident && latestIncident.status === 'RESOLVED') {
+          stageEl.innerHTML = renderResolvedCard(latestIncident);
+        } else {
+          stageEl.innerHTML = renderHealthyCard();
+        }
+
+        const newInput = document.querySelector('[id^="chatInput-"]');
+        if (newInput && savedDraft) {
+          newInput.value = savedDraft;
+        }
+        const chatBox = document.getElementById('chatMessagesContainer');
+        if (chatBox) {
+          chatBox.scrollTop = chatBox.scrollHeight;
+        }
       }
 
       // Render bottom collapsed technical drawer
@@ -350,80 +380,129 @@
       `).join('');
     }
 
+    function renderChatBubbles(messages) {
+      return (messages || []).map(msg => {
+        const isUser = msg.role === 'user';
+        if (isUser) {
+          return `
+            <div class="flex justify-end">
+              <div class="max-w-[85%] rounded-2xl rounded-tr-sm bg-indigo-600 text-white px-4 py-2.5 text-xs sm:text-sm leading-relaxed shadow">
+                <div class="text-[10px] font-bold text-indigo-200 mb-0.5">Hari (You)</div>
+                <div>${formatChatText(msg.text)}</div>
+              </div>
+            </div>
+          `;
+        }
+        return `
+          <div class="flex items-start gap-2.5">
+            <div class="w-8 h-8 rounded-xl bg-amber-500/20 border border-amber-500/40 flex items-center justify-center text-amber-300 shrink-0 mt-0.5">
+              <i class="fa-solid fa-robot text-xs"></i>
+            </div>
+            <div class="max-w-[88%] rounded-2xl rounded-tl-sm bg-slate-900/95 border border-slate-700/80 text-slate-200 px-4 py-3 text-xs sm:text-sm leading-relaxed shadow">
+              <div class="text-[10px] font-bold text-amber-300 mb-1 flex items-center gap-1.5">
+                <span>${escapeHtml(msg.sender || 'Aria • AaaS Lead')}</span>
+                <span class="text-slate-500 font-normal">• Lead Orchestrator</span>
+              </div>
+              <div>${formatChatText(msg.text)}</div>
+            </div>
+          </div>
+        `;
+      }).join('');
+    }
+
     function renderCustomerApprovalCard(inc) {
       const copy = getCustomerCopy(inc);
       const impact = inc.impact_analysis || {};
+      const messages = inc.chat_messages || [];
 
       return `
-        <div class="glass border-2 border-amber-500/50 rounded-3xl p-6 sm:p-7 shadow-2xl space-y-5">
-          <!-- Top Alert Pill -->
-          <div class="flex items-center justify-between gap-2">
-            <span class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold bg-amber-500/20 text-amber-300 border border-amber-500/30">
-              <i class="fa-solid fa-bell animate-bounce"></i> Action Recommended by Lead Orchestrator
-            </span>
-            <span class="text-xs text-slate-400">Your Decision</span>
-          </div>
-
-          <!-- Plain-English Headline & Explanation -->
-          <div class="space-y-2">
-            <h2 class="text-xl sm:text-2xl font-extrabold text-white">${escapeHtml(copy.headline)}</h2>
-            <p class="text-sm text-slate-300 leading-relaxed">
-              ${escapeHtml(copy.what_happened)}
-            </p>
-          </div>
-
-          <!-- Recommended Fix Box (Simple & Reassuring) -->
-          <div class="p-4 rounded-2xl bg-emerald-950/30 border border-emerald-500/30 space-y-2">
-            <div class="text-xs font-bold text-emerald-400 uppercase tracking-wide flex items-center gap-1.5">
-              <i class="fa-solid fa-shield-heart"></i> Proposed Solution
-            </div>
-            <div class="text-sm text-white font-medium leading-relaxed">
-              ${escapeHtml(copy.why_approve)}
+        <div class="glass border-2 border-amber-500/50 rounded-3xl p-5 sm:p-6 shadow-2xl space-y-4">
+          <!-- Chatbot Header Bar -->
+          <div class="flex items-center justify-between gap-2 pb-3 border-b border-slate-800/80">
+            <div class="flex items-center gap-2.5">
+              <div class="w-9 h-9 rounded-xl bg-amber-500/20 border border-amber-500/40 flex items-center justify-center text-amber-300">
+                <i class="fa-solid fa-comments"></i>
+              </div>
+              <div>
+                <div class="flex items-center gap-2">
+                  <span class="text-sm font-extrabold text-white">Aria • AaaS Lead</span>
+                  <span class="px-2 py-0.5 rounded-full text-[10px] font-bold bg-rose-500/20 text-rose-300 border border-rose-500/30">
+                    ${escapeHtml(inc.severity || 'ERROR')}
+                  </span>
+                </div>
+                <div class="text-[11px] text-slate-400">${escapeHtml(copy.headline)}</div>
+              </div>
             </div>
 
-            <!-- 3 Reassurance Pills so a non-tech customer feels confident approving -->
-            <div class="flex flex-wrap gap-2 pt-2">
-              <span class="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-slate-900/90 border border-slate-700 text-[11px] text-emerald-300 font-medium">
-                <i class="fa-solid fa-circle-check"></i> ${escapeHtml(copy.risk_badge)}
-              </span>
-              <span class="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-slate-900/90 border border-slate-700 text-[11px] text-sky-300 font-medium">
+            <!-- 3 Compact Reassurance Badges -->
+            <div class="hidden sm:flex items-center gap-1.5">
+              <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg bg-slate-900 border border-slate-700 text-[10px] text-emerald-300">
                 <i class="fa-solid fa-bolt"></i> ${escapeHtml(copy.downtime_badge)}
               </span>
-              <span class="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-slate-900/90 border border-slate-700 text-[11px] text-indigo-300 font-medium">
+              <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg bg-slate-900 border border-slate-700 text-[10px] text-indigo-300">
                 <i class="fa-solid fa-rotate-left"></i> ${escapeHtml(copy.safety_badge)}
               </span>
             </div>
           </div>
 
-          <!-- Action Buttons: Approve OR Later / Ignore (Manual) -->
-          <div class="flex flex-col sm:flex-row items-stretch gap-3 pt-1">
+          <!-- Interactive Chat Conversation Thread -->
+          <div id="chatMessagesContainer" class="space-y-3 max-h-64 overflow-y-auto pr-1 py-1">
+            ${renderChatBubbles(messages)}
+          </div>
+
+          <!-- Quick Question Chips so Hari can ask details with 1 click -->
+          <div class="flex flex-wrap items-center gap-1.5 pt-1">
+            <span class="text-[10px] text-slate-400 mr-1">Ask Aria:</span>
+            <button type="button" onclick="askQuickQuestion('${escapeHtml(inc.incident_id)}', 'Why did this happen and what is the root cause?')"
+              class="px-2.5 py-1 rounded-full bg-slate-900 hover:bg-slate-800 border border-slate-700 text-[11px] text-slate-300 transition cursor-pointer">
+              💬 Why did this happen?
+            </button>
+            <button type="button" onclick="askQuickQuestion('${escapeHtml(inc.incident_id)}', 'Is this fix safe? Will there be any downtime?')"
+              class="px-2.5 py-1 rounded-full bg-slate-900 hover:bg-slate-800 border border-slate-700 text-[11px] text-slate-300 transition cursor-pointer">
+              🛡️ Any downtime or risk?
+            </button>
+            <button type="button" onclick="askQuickQuestion('${escapeHtml(inc.incident_id)}', 'Show me the raw log and exact command you will run.')"
+              class="px-2.5 py-1 rounded-full bg-slate-900 hover:bg-slate-800 border border-slate-700 text-[11px] text-slate-300 transition cursor-pointer">
+              🔍 Show log &amp; command
+            </button>
+          </div>
+
+          <!-- Free-text Chat Input -->
+          <form onsubmit="sendIncidentChat(event, '${escapeHtml(inc.incident_id)}')" class="flex items-center gap-2">
+            <input id="chatInput-${escapeHtml(inc.incident_id)}" type="text"
+              placeholder="Ask Aria anything about this issue, or type 'Proceed with the fix'..."
+              class="flex-1 bg-slate-950/90 border border-slate-700 focus:border-amber-400 rounded-xl px-3.5 py-2.5 text-xs sm:text-sm text-white placeholder-slate-500 focus:outline-none" />
+            <button id="btnSendChat" type="submit"
+              class="px-4 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-xs transition cursor-pointer flex items-center gap-1.5 shrink-0">
+              <i class="fa-solid fa-paper-plane"></i>
+              <span>Ask</span>
+            </button>
+          </form>
+
+          <!-- Action Buttons: Proceed with Fix OR Later / Ignore (Manual) -->
+          <div class="flex flex-col sm:flex-row items-stretch gap-2.5 pt-2 border-t border-slate-800/80">
             <button id="btnApproveMain" onclick="approveIncident('${escapeHtml(inc.incident_id)}')"
-              class="flex-1 py-3.5 px-5 rounded-2xl bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-400 hover:to-teal-400 text-slate-950 font-extrabold text-sm shadow-xl shadow-emerald-500/20 transition transform hover:scale-[1.01] cursor-pointer flex items-center justify-center gap-2">
+              class="flex-1 py-3 px-5 rounded-2xl bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-400 hover:to-teal-400 text-slate-950 font-extrabold text-xs sm:text-sm shadow-xl shadow-emerald-500/20 transition transform hover:scale-[1.01] cursor-pointer flex items-center justify-center gap-2">
               <i class="fa-solid fa-check-circle text-base"></i>
-              <span>Approve &amp; Let Worker Agent Fix It</span>
+              <span>I'm Convinced — Proceed with Fix</span>
             </button>
 
             <button id="btnSkipMain" onclick="skipIncident('${escapeHtml(inc.incident_id)}')"
-              class="py-3.5 px-5 rounded-2xl bg-slate-800/90 hover:bg-slate-700 text-slate-200 border border-slate-700 font-semibold text-xs transition cursor-pointer flex items-center justify-center gap-2">
+              class="py-3 px-4 rounded-2xl bg-slate-800/90 hover:bg-slate-700 text-slate-200 border border-slate-700 font-semibold text-xs transition cursor-pointer flex items-center justify-center gap-2">
               <i class="fa-regular fa-clock"></i>
               <span>Later / Ignore (Fix Manually)</span>
             </button>
           </div>
 
-          <!-- Optional View More for technical curious users -->
-          <details class="pt-1 border-t border-slate-800/80">
-            <summary class="text-xs text-slate-400 hover:text-slate-200 cursor-pointer flex items-center justify-between pt-2">
-              <span>View more (Technical Root Cause &amp; Command)</span>
+          <!-- Optional View More for command override -->
+          <details class="pt-1">
+            <summary class="text-[11px] text-slate-400 hover:text-slate-200 cursor-pointer flex items-center justify-between">
+              <span>View / edit exact remediation command</span>
               <i class="fa-solid fa-chevron-down text-[10px]"></i>
             </summary>
-            <div class="mt-3 p-3.5 rounded-xl bg-slate-950/90 border border-slate-800 space-y-2 text-xs text-slate-300">
-              <div><strong>Technical Impact:</strong> ${escapeHtml(impact.business_impact)}</div>
-              <div><strong>Root Cause:</strong> ${escapeHtml(impact.root_cause)}</div>
-              <div>
-                <label class="block text-[11px] text-slate-400 mb-1">Command to be executed by Worker Agent:</label>
-                <input id="kubectl-${escapeHtml(inc.incident_id)}" type="text" value="${escapeHtml(impact.recommended_kubectl || '')}"
-                  class="w-full bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-1.5 text-[11px] mono text-emerald-300" />
-              </div>
+            <div class="mt-2 p-3 rounded-xl bg-slate-950/90 border border-slate-800 space-y-1.5 text-xs text-slate-300">
+              <input id="kubectl-${escapeHtml(inc.incident_id)}" type="text" value="${escapeHtml(impact.recommended_kubectl || '')}"
+                class="w-full bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-1.5 text-[11px] mono text-emerald-300" />
             </div>
           </details>
         </div>
@@ -443,15 +522,15 @@
             <span class="text-xs font-bold uppercase tracking-wider text-amber-300">Skipped — Manual Mode</span>
             <h2 class="text-xl font-extrabold text-white">${escapeHtml(copy.headline)}</h2>
             <p class="text-xs text-slate-300 max-w-md mx-auto leading-relaxed">
-              You chose to skip automated remediation. The <strong>Worker Agent</strong> has stood down and made <strong>no changes</strong> to your environment so your team can handle it manually.
+              Got it, Hari — Aria stood down the <strong>Worker Agent</strong> and made <strong>no changes</strong> so you can handle this manually.
             </p>
           </div>
 
           <div class="pt-1 flex justify-center">
             <button onclick="reopenIncident('${escapeHtml(inc.incident_id)}')"
               class="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-700 text-xs font-semibold text-emerald-300 transition cursor-pointer">
-              <i class="fa-solid fa-rotate-left"></i>
-              <span>Changed your mind? Review &amp; Let AI Fix It</span>
+              <i class="fa-solid fa-comments"></i>
+              <span>Reopen Chat with Aria &amp; Let AI Fix It</span>
             </button>
           </div>
 
@@ -482,13 +561,13 @@
             <span class="text-xs font-bold uppercase tracking-wider text-emerald-400">Issue Resolved Automatically</span>
             <h2 class="text-xl font-extrabold text-white">${escapeHtml(copy.headline)} — Fixed!</h2>
             <p class="text-xs text-slate-300 max-w-md mx-auto leading-relaxed">
-              You approved the fix. The <strong>Worker Agent</strong> applied the solution and the <strong>Log Watcher</strong> confirmed all services are back to 100% health.
+              Thanks, Hari! Following your approval, <strong>Aria (AaaS Lead)</strong> delegated the fix to the <strong>Worker Agent</strong> and <strong>Log Watcher</strong> confirmed 100% service health.
             </p>
           </div>
 
           <details class="text-left pt-2 border-t border-slate-800/80">
             <summary class="text-xs text-slate-400 hover:text-slate-200 cursor-pointer flex items-center justify-center gap-1.5">
-              <span>View more (What Worker Agent did)</span>
+              <span>View more (Conversation &amp; What Worker Agent did)</span>
               <i class="fa-solid fa-chevron-down text-[10px]"></i>
             </summary>
             <div class="mt-3 p-3.5 rounded-xl bg-slate-950/90 border border-slate-800 space-y-1.5 text-xs text-slate-300">
@@ -502,16 +581,52 @@
 
     function renderHealthyCard() {
       return `
-        <div class="glass border border-slate-800 rounded-3xl p-8 text-center shadow-xl space-y-3">
-          <div class="w-12 h-12 rounded-2xl bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center text-emerald-400 text-xl mx-auto">
-            <i class="fa-solid fa-shield-check"></i>
+        <div class="glass border border-slate-800 rounded-3xl p-7 text-center shadow-xl space-y-3">
+          <div class="w-12 h-12 rounded-2xl bg-amber-500/15 border border-amber-500/30 flex items-center justify-center text-amber-300 text-xl mx-auto">
+            <i class="fa-solid fa-robot"></i>
           </div>
-          <h2 class="text-lg font-bold text-white">Your Cloud Environment is Healthy</h2>
-          <p class="text-xs text-slate-400 max-w-sm mx-auto leading-relaxed">
-            The <strong>Log Watcher</strong> and <strong>Lead Orchestrator</strong> are monitoring your services 24/7. Click <strong>"Poll Live Logs"</strong> to scan real GCP logs or <strong>"Simulate Issue"</strong> to run a demo.
+          <h2 class="text-lg font-bold text-white">Hey Hari 👋 — Aria (AaaS Lead) is Monitoring Your Cloud</h2>
+          <p class="text-xs text-slate-400 max-w-md mx-auto leading-relaxed">
+            Right now your environment is calm. Click <strong>"Poll Live Logs"</strong> at the top right to scan real GCP logs in <code>agent-triad</code> (or <strong>"Simulate Issue"</strong>), and I'll walk you through any issue I find before we fix it.
           </p>
         </div>
       `;
+    }
+
+    async function sendIncidentChat(event, incidentId) {
+      if (event) event.preventDefault();
+      const inputEl = document.getElementById(`chatInput-${incidentId}`);
+      const sendBtn = document.getElementById('btnSendChat');
+      if (!inputEl || !inputEl.value.trim()) return;
+
+      const userText = inputEl.value.trim();
+      inputEl.value = '';
+      if (sendBtn) {
+        sendBtn.disabled = true;
+        sendBtn.innerHTML = `<i class="fa-solid fa-spinner fa-spin"></i><span>Thinking...</span>`;
+      }
+
+      try {
+        await fetch(`/api/incidents/${encodeURIComponent(incidentId)}/chat`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ message: userText })
+        });
+        await fetchState(true);
+      } catch (err) {
+        console.error('Chat failed:', err);
+      } finally {
+        if (sendBtn) {
+          sendBtn.disabled = false;
+          sendBtn.innerHTML = `<i class="fa-solid fa-paper-plane"></i><span>Ask</span>`;
+        }
+      }
+    }
+
+    async function askQuickQuestion(incidentId, questionText) {
+      const inputEl = document.getElementById(`chatInput-${incidentId}`);
+      if (inputEl) inputEl.value = questionText;
+      await sendIncidentChat(null, incidentId);
     }
 
     async function approveIncident(incidentId) {
@@ -529,12 +644,12 @@
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            approved_by: 'customer-admin',
+            approved_by: 'Hari',
             execution_mode: 'dry_run',
             custom_kubectl: kubectlInput ? kubectlInput.value : null
           })
         });
-        await fetchState();
+        await fetchState(true);
       } catch (err) {
         console.error('Approval failed:', err);
       }
@@ -550,7 +665,7 @@
         await fetch(`/api/incidents/${encodeURIComponent(incidentId)}/skip`, {
           method: 'POST'
         });
-        await fetchState();
+        await fetchState(true);
       } catch (err) {
         console.error('Skip failed:', err);
       }
@@ -561,7 +676,7 @@
         await fetch(`/api/incidents/${encodeURIComponent(incidentId)}/reopen`, {
           method: 'POST'
         });
-        await fetchState();
+        await fetchState(true);
       } catch (err) {
         console.error('Reopen failed:', err);
       }

@@ -40,10 +40,23 @@ def run_e2e_tests() -> None:
     assert incident["status"] == "AWAITING_HITL_APPROVAL"
     assert "impact_analysis" in incident
     assert incident["impact_analysis"]["recommended_kubectl"].startswith("kubectl")
+    assert len(incident.get("chat_messages", [])) >= 1
+    assert "Hey Hari" in incident["chat_messages"][0]["text"]
     print(
-        f"[PASS] Watcher reported incident {incident_id} via A2A -> Lead Orchestrator computed Impact & Remedy "
+        f"[PASS] Watcher reported incident {incident_id} via A2A -> Aria • AaaS Lead greeted Hari "
         f"(Engine: {incident['impact_analysis'].get('reasoning_engine')})"
     )
+
+    # 3b. Interactive Chat with Aria • AaaS Lead before approving
+    chat_res = client.post(
+        f"/api/incidents/{incident_id}/chat",
+        json={"message": "Why did this happen and is there any downtime risk if we apply the fix?"},
+    )
+    assert chat_res.status_code == 200, f"Chat endpoint failed: {chat_res.text}"
+    chat_data = chat_res.json()
+    assert chat_data["action_taken"] == "ANSWERED_QUESTION"
+    assert len(chat_data["incident"]["chat_messages"]) >= 3
+    print(f"[PASS] Interactive Chat Q&A verified: Aria answered Hari's question ({chat_data['reply'][:80]}...)")
 
     # 4. Verify Zero-Standing Privilege: GKE Assist rejects unapproved A2A execution without JIT token
     unauth_rpc = {
@@ -82,22 +95,20 @@ def run_e2e_tests() -> None:
     assert reopen_res.json()["incident"]["status"] == "AWAITING_HITL_APPROVAL"
     print("[PASS] Skip / Manual Mode and Reopen verified!")
 
-    # 5b. User Accepts Remedy -> Lead Orchestrator mints JIT token & delegates via A2A to Worker Agent
+    # 5b. User gets convinced and approves via chat (or button) -> Lead Orchestrator mints JIT token & delegates via A2A to Worker Agent
     approve_res = client.post(
-        f"/api/incidents/{incident_id}/approve",
-        json={
-            "approved_by": "sre-lead@cognizant.com",
-            "execution_mode": "dry_run",
-        },
+        f"/api/incidents/{incident_id}/chat",
+        json={"message": "I am convinced, please proceed with the fix now."},
     )
-    assert approve_res.status_code == 200, f"Approval failed: {approve_res.text}"
+    assert approve_res.status_code == 200, f"Chat approval failed: {approve_res.text}"
+    assert approve_res.json()["action_taken"] == "APPROVED_AND_EXECUTED"
     resolved_inc = approve_res.json()["incident"]
     assert resolved_inc["status"] == "RESOLVED"
     assert resolved_inc["jit_token"]["token_id"].startswith("jit-wif-")
     assert resolved_inc["execution_result"]["status"] == "SUCCEEDED"
     assert resolved_inc["verification_result"]["status"] == "VERIFIED_HEALTHY"
     print(
-        f"[PASS] HITL Approval -> Lead Orchestrator delegated to GKE Assist Bot via A2A -> "
+        f"[PASS] Conversational Approval -> Aria • AaaS Lead delegated to Worker Agent via A2A -> "
         f"Executed ({resolved_inc['execution_result']['reconciliation_pr']}) & Watchdog Verified!"
     )
 

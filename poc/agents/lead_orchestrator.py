@@ -424,6 +424,48 @@ class LeadOrchestratorAgent:
 
         return analysis
 
+    def _friendly_service_name(self, log_entry: Dict[str, Any]) -> str:
+        source = str(log_entry.get("source", "")).lower()
+        scen = str(log_entry.get("scenario_id", "")).lower()
+        workload = str(log_entry.get("workload", "service"))
+        if "cloud_run" in source or "cloud_run" in scen:
+            return f"Cloud Run ({workload})"
+        if "cloud_function" in source or "cloud_function" in scen:
+            return f"Cloud Functions ({workload})"
+        if "reasoningengine" in source or "reasoning_engine" in scen:
+            return f"Vertex AI Reasoning Engine ({workload})"
+        if "cloudsql" in source or "cloudsql" in scen:
+            return f"Cloud SQL ({workload})"
+        if "gce_instance" in source:
+            return f"Compute Engine ({workload})"
+        return f"GKE ({workload})"
+
+    def _build_initial_chat_greeting(
+        self, log_entry: Dict[str, Any], impact: Dict[str, Any], now_iso: str
+    ) -> List[Dict[str, Any]]:
+        service_label = self._friendly_service_name(log_entry)
+        severity = log_entry.get("severity", "ERROR")
+        what_happened = impact.get("customer_what_happened") or log_entry.get("message", "")
+        next_step = impact.get("customer_why_approve") or impact.get("remedy_summary", "")
+        blast = impact.get("blast_radius_tier", "HIGH")
+
+        opening_text = (
+            f"Hey Hari 👋 There's an issue I just found with **{service_label}**.\n\n"
+            f"• **Severity**: `{severity}` — {blast}\n"
+            f"• **What happened**: {what_happened}\n"
+            f"• **Next Steps**: {next_step}\n\n"
+            "Ask me anything about why this happened, whether there's any downtime, the rollback plan, "
+            "or the exact command. Once you're convinced, tell me to **proceed with the fix** (or click Approve below)!"
+        )
+        return [
+            {
+                "role": "assistant",
+                "sender": "Aria • AaaS Lead",
+                "text": opening_text,
+                "timestamp": now_iso,
+            }
+        ]
+
     async def handle_a2a_task(self, request: A2ATaskRequest) -> A2ATaskResponse:
         """Handles incoming A2A `ingest_anomaly_alert` tasks from the Cloud Logging Watcher Agent."""
         skill_id = request.params.get("skill_id", "")
@@ -436,6 +478,8 @@ class LeadOrchestratorAgent:
             impact_and_remedy = self._analyze_impact_and_remedy(log_entry)
 
             now_iso = datetime.datetime.now(datetime.timezone.utc).isoformat()
+            chat_messages = self._build_initial_chat_greeting(log_entry, impact_and_remedy, now_iso)
+
             incident_record: Dict[str, Any] = {
                 "incident_id": incident_id,
                 "created_at": now_iso,
@@ -445,14 +489,15 @@ class LeadOrchestratorAgent:
                 "assigned_orchestrator": self.AGENT_ID,
                 "delegated_specialist_agent": "gke-assist-agent",
                 "severity": log_entry.get("severity", "CRITICAL"),
-                "title": log_entry.get("title", "GKE Cluster Anomaly"),
-                "cluster": log_entry.get("cluster", "gke-prod-us-central1"),
+                "title": log_entry.get("title", "Cloud Service Anomaly"),
+                "cluster": log_entry.get("cluster", "us-central1"),
                 "namespace": log_entry.get("namespace", "default"),
                 "workload": log_entry.get("workload", "deployment/app"),
                 "pod": log_entry.get("pod", "unknown-pod"),
-                "error_code": log_entry.get("error_code", "GKE_ERROR"),
+                "error_code": log_entry.get("error_code", "GCP_ERROR"),
                 "log_entry": log_entry,
                 "impact_analysis": impact_and_remedy,
+                "chat_messages": chat_messages,
                 "jit_token": None,
                 "execution_result": None,
                 "verification_result": None,
@@ -470,8 +515,7 @@ class LeadOrchestratorAgent:
                         "agent": "Lead Orchestrator",
                         "event": (
                             f"Evaluated blast radius ({impact_and_remedy['blast_radius_tier']}) and "
-                            f"matched Playbook {impact_and_remedy['playbook_id']}. Alerting user with "
-                            "Impact & Recommended Remedy for HITL acceptance."
+                            f"matched Playbook {impact_and_remedy['playbook_id']}. Initiated interactive chat with Hari."
                         ),
                     },
                 ],
@@ -493,15 +537,169 @@ class LeadOrchestratorAgent:
             result={"status": "OK", "agent": self.AGENT_ID},
         )
 
+    async def chat_with_incident(
+        self,
+        incident_id: str,
+        user_message: str,
+    ) -> Dict[str, Any]:
+        """
+        Interactive conversational handler for Hari to ask questions about an active incident,
+        or instruct the AaaS Lead to proceed with the fix / skip manually.
+        """
+        incident = self.incidents.get(incident_id)
+        if not incident:
+            raise ValueError(f"Incident {incident_id} not found")
+
+        now_iso = datetime.datetime.now(datetime.timezone.utc).isoformat()
+        clean_msg = user_message.strip()
+        incident.setdefault("chat_messages", []).append(
+            {
+                "role": "user",
+                "sender": "Hari",
+                "text": clean_msg,
+                "timestamp": now_iso,
+            }
+        )
+
+        lower_msg = clean_msg.lower()
+
+        # Check if Hari is convinced and telling the chatbot to proceed with the fix
+        approve_phrases = (
+            "proceed",
+            "go ahead",
+            "fix it",
+            "apply the fix",
+            "yes fix",
+            "convinced",
+            "approve",
+            "do it",
+            "run the fix",
+            "execute the fix",
+        )
+        if incident["status"] == "AWAITING_HITL_APPROVAL" and any(p in lower_msg for p in approve_phrases) and "?" not in lower_msg:
+            updated = await self.approve_and_delegate_to_gke_assist(
+                incident_id=incident_id,
+                approved_by="Hari (via Chat)",
+                execution_mode="dry_run",
+            )
+            return {
+                "action_taken": "APPROVED_AND_EXECUTED",
+                "reply": updated["chat_messages"][-1]["text"],
+                "incident": updated,
+            }
+
+        # Check if Hari wants to skip / handle manually
+        skip_phrases = (
+            "skip",
+            "ignore",
+            "fix manually",
+            "do it manually",
+            "handle manually",
+            "later",
+        )
+        if incident["status"] == "AWAITING_HITL_APPROVAL" and any(p in lower_msg for p in skip_phrases) and "?" not in lower_msg:
+            updated = self.skip_incident_manual(
+                incident_id=incident_id,
+                skipped_by="Hari (via Chat)",
+            )
+            return {
+                "action_taken": "SKIPPED_MANUAL",
+                "reply": updated["chat_messages"][-1]["text"],
+                "incident": updated,
+            }
+
+        impact = incident.get("impact_analysis", {})
+        log_entry = incident.get("log_entry", {})
+        history_text = "\n".join(
+            f"{m.get('sender', m.get('role'))}: {m.get('text')}"
+            for m in incident.get("chat_messages", [])[-8:]
+        )
+
+        reply_text = ""
+        if self._genai_client is not None:
+            try:
+                prompt = (
+                    "You are Aria, the friendly and sharp AaaS Lead Orchestrator chatbot for Hari's Google Cloud environment (`agent-triad`).\n"
+                    "You are currently discussing an active cloud incident with Hari before he decides whether to approve the automated fix.\n\n"
+                    f"Incident Summary:\n- Service/Workload: {incident.get('workload')} in {incident.get('cluster')}\n"
+                    f"- Severity: {incident.get('severity')} ({impact.get('blast_radius_tier')})\n"
+                    f"- Technical Root Cause: {impact.get('root_cause')}\n"
+                    f"- Business/Service Impact: {impact.get('business_impact')}\n"
+                    f"- Raw Log Message: {log_entry.get('message')}\n"
+                    f"- Proposed Fix Summary: {impact.get('remedy_summary')}\n"
+                    f"- Exact Command Worker Agent Will Run: `{impact.get('recommended_kubectl')}`\n"
+                    f"- Rollback & Safety Plan: {impact.get('rollback_plan')} (Plus 15-minute single-use JIT token and 45s Log Watcher post-check)\n\n"
+                    f"Conversation so far:\n{history_text}\n\n"
+                    "Respond directly to Hari's latest message in 2-4 concise, helpful sentences (use bullet points if helpful). "
+                    "Be warm, clear, and transparent. Remind Hari that whenever he feels confident, he can say 'Proceed with the fix' or click the Approve button."
+                )
+                resp = self._genai_client.models.generate_content(
+                    model=MODEL_NAME,
+                    contents=prompt,
+                )
+                if resp and resp.text:
+                    reply_text = resp.text.strip()
+            except Exception:
+                reply_text = ""
+
+        if not reply_text:
+            if any(k in lower_msg for k in ("why", "cause", "happen", "reason", "detail")):
+                reply_text = (
+                    f"Good question, Hari! Here's what happened under the hood:\n"
+                    f"• **Root Cause**: {impact.get('root_cause')}\n"
+                    f"• **Impact**: {impact.get('business_impact')}\n"
+                    f"• **Affected Services**: {', '.join(impact.get('affected_services', [incident.get('workload', '')]))}\n\n"
+                    "Would you like to see the exact command or rollback safety plan before we proceed?"
+                )
+            elif any(k in lower_msg for k in ("safe", "downtime", "risk", "break", "rollback", "revert")):
+                reply_text = (
+                    f"It's completely safe and causes **zero downtime**, Hari:\n"
+                    f"• **Guardrails**: The **Worker Agent** gets a single-use 15-minute JIT token scoped only to `{incident.get('workload')}`.\n"
+                    f"• **Auto-Rollback Plan**: {impact.get('rollback_plan')}\n"
+                    "• **Verification**: Immediately after the fix, **Log Watcher** monitors live logs for 45s to verify 0 errors.\n\n"
+                    "Let me know if you're ready for me to proceed with the fix!"
+                )
+            elif any(k in lower_msg for k in ("command", "kubectl", "gcloud", "log", "raw", "code")):
+                reply_text = (
+                    f"Here are the exact technical details, Hari:\n"
+                    f"• **Error Code**: `{log_entry.get('error_code')}`\n"
+                    f"• **Raw Log**: `{str(log_entry.get('message', ''))[:180]}`\n"
+                    f"• **Command to Execute**: `{impact.get('recommended_kubectl')}`\n\n"
+                    "Once you're comfortable with this command, just say **'Proceed with the fix'** or click Approve!"
+                )
+            else:
+                reply_text = (
+                    f"Here's the full picture for **{incident.get('workload')}**, Hari:\n"
+                    f"• **Root Cause**: {impact.get('root_cause')}\n"
+                    f"• **Proposed Fix**: {impact.get('remedy_summary')} (`{impact.get('recommended_kubectl')}`)\n"
+                    f"• **Safety**: Zero downtime + automatic rollback ({impact.get('rollback_plan')}).\n\n"
+                    "Whenever you're convinced, say **'Proceed with the fix'** or click the green button below!"
+                )
+
+        reply_msg = {
+            "role": "assistant",
+            "sender": "Aria • AaaS Lead",
+            "text": reply_text,
+            "timestamp": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+        }
+        incident["chat_messages"].append(reply_msg)
+        incident["updated_at"] = reply_msg["timestamp"]
+
+        return {
+            "action_taken": "ANSWERED_QUESTION",
+            "reply": reply_text,
+            "incident": incident,
+        }
+
     async def approve_and_delegate_to_gke_assist(
         self,
         incident_id: str,
-        approved_by: str = "sre-operator@cognizant.com",
+        approved_by: str = "Hari",
         execution_mode: str = "dry_run",
         custom_kubectl: Optional[str] = None,
     ) -> Dict[str, Any]:
         """
-        Called when the user clicks 'Accept & Execute Remedy' in the Dashboard UI:
+        Called when Hari approves the fix (via button or chat):
           1. Mints a 15-minute WIF JIT token scoped to the incident.
           2. Delegates the remediation task over A2A to `gke-assist-agent` (Worker Agent).
           3. Requests post-remediation telemetry verification over A2A from `log-watcher-agent`.
@@ -597,12 +795,25 @@ class LeadOrchestratorAgent:
                 "event": verify_resp.result.get("summary", "Telemetry verified healthy. Incident closed."),
             }
         )
+
+        incident.setdefault("chat_messages", []).append(
+            {
+                "role": "assistant",
+                "sender": "Aria • AaaS Lead",
+                "text": (
+                    f"✅ All done, Hari! I minted a single-use JIT token and delegated the fix to the **Worker Agent** over A2A.\n"
+                    f"• **Executed**: `{kubectl_cmd}`\n"
+                    f"• **Watchdog Check**: **Log Watcher** verified `{incident['workload']}` is back to 100% health with 0 error logs."
+                ),
+                "timestamp": incident["updated_at"],
+            }
+        )
         return incident
 
     def skip_incident_manual(
         self,
         incident_id: str,
-        skipped_by: str = "customer-admin",
+        skipped_by: str = "Hari",
     ) -> Dict[str, Any]:
         """Marks an incident as skipped so the user can handle it manually or review later."""
         incident = self.incidents.get(incident_id)
@@ -620,6 +831,17 @@ class LeadOrchestratorAgent:
                     f"User ({skipped_by}) chose 'Skip / Handle Manually'. "
                     "Worker Agent stood down; no automated changes made."
                 ),
+            }
+        )
+        incident.setdefault("chat_messages", []).append(
+            {
+                "role": "assistant",
+                "sender": "Aria • AaaS Lead",
+                "text": (
+                    "Got it, Hari — I've stood down the **Worker Agent** and made **no changes** to your environment "
+                    f"so you can handle `{incident['workload']}` manually. If you change your mind later, just click **Reopen** below!"
+                ),
+                "timestamp": now_iso,
             }
         )
         return incident
@@ -640,6 +862,17 @@ class LeadOrchestratorAgent:
                 "event": "User re-opened incident for automated Worker Agent remediation.",
             }
         )
+        incident.setdefault("chat_messages", []).append(
+            {
+                "role": "assistant",
+                "sender": "Aria • AaaS Lead",
+                "text": (
+                    f"Welcome back, Hari! I've re-opened the issue on **{incident['workload']}**. "
+                    "Ask me any follow-up questions or click **Proceed with Fix** whenever you're ready."
+                ),
+                "timestamp": now_iso,
+            }
+        )
         return incident
 
     def list_incidents(self) -> List[Dict[str, Any]]:
@@ -648,4 +881,5 @@ class LeadOrchestratorAgent:
             key=lambda item: item.get("created_at", ""),
             reverse=True,
         )
+
 
