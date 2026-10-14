@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>AaaS Control Plane | Lead Orchestrator + Log Watcher + Worker Agent</title>
+  <title>AaaS Control Plane | Atlas (Lead Orchestrator) + Log Watcher + Worker Agent</title>
   <script src="https://cdn.tailwindcss.com"></script>
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
@@ -46,7 +46,7 @@
       </div>
       <h1 class="text-xl font-extrabold text-white tracking-tight">
         AaaS Control Plane
-        <span class="text-slate-400 font-normal text-sm block sm:inline sm:ml-1">| Lead Orchestrator + Log Watcher + Worker Agent</span>
+        <span class="text-slate-400 font-normal text-sm block sm:inline sm:ml-1">| Atlas (Lead Orchestrator) + Log Watcher + Worker Agent</span>
       </h1>
     </div>
 
@@ -96,7 +96,7 @@
         </p>
       </div>
 
-      <!-- Agent 2: Lead Orchestrator (Aria Chatbot) -->
+      <!-- Agent 2: Lead Orchestrator (Atlas Chatbot) -->
       <div id="card-lead-orchestrator-agent" class="glass border border-slate-800 rounded-2xl p-4 transition duration-300">
         <div class="flex items-center justify-between mb-2">
           <div class="flex items-center gap-2.5">
@@ -104,7 +104,7 @@
               <i class="fa-solid fa-comments"></i>
             </div>
             <div>
-              <div class="text-xs font-bold text-slate-400 uppercase tracking-wider">Step 2 • Aria</div>
+              <div class="text-xs font-bold text-slate-400 uppercase tracking-wider">Step 2 • Atlas</div>
               <div class="text-sm font-bold text-white">Lead Orchestrator</div>
             </div>
           </div>
@@ -400,7 +400,7 @@
             </div>
             <div class="max-w-[88%] rounded-2xl rounded-tl-sm bg-slate-900/95 border border-slate-700/80 text-slate-200 px-4 py-3 text-xs sm:text-sm leading-relaxed shadow">
               <div class="text-[10px] font-bold text-amber-300 mb-1 flex items-center gap-1.5">
-                <span>${escapeHtml(msg.sender || 'Aria • AaaS Lead')}</span>
+                <span>${escapeHtml(msg.sender || 'Atlas • AaaS Lead')}</span>
                 <span class="text-slate-500 font-normal">• Lead Orchestrator</span>
               </div>
               <div>${formatChatText(msg.text)}</div>
@@ -425,7 +425,7 @@
               </div>
               <div>
                 <div class="flex items-center gap-2">
-                  <span class="text-sm font-extrabold text-white">Aria • AaaS Lead</span>
+                  <span class="text-sm font-extrabold text-white">Atlas • AaaS Lead</span>
                   <span class="px-2 py-0.5 rounded-full text-[10px] font-bold bg-rose-500/20 text-rose-300 border border-rose-500/30">
                     ${escapeHtml(inc.severity || 'ERROR')}
                   </span>
@@ -452,7 +452,7 @@
 
           <!-- Quick Question Chips so Hari can ask details with 1 click -->
           <div class="flex flex-wrap items-center gap-1.5 pt-1">
-            <span class="text-[10px] text-slate-400 mr-1">Ask Aria:</span>
+            <span class="text-[10px] text-slate-400 mr-1">Ask Atlas:</span>
             <button type="button" onclick="askQuickQuestion('${escapeHtml(inc.incident_id)}', 'Why did this happen and what is the root cause?')"
               class="px-2.5 py-1 rounded-full bg-slate-900 hover:bg-slate-800 border border-slate-700 text-[11px] text-slate-300 transition cursor-pointer">
               💬 Why did this happen?
@@ -470,7 +470,7 @@
           <!-- Free-text Chat Input -->
           <form onsubmit="sendIncidentChat(event, '${escapeHtml(inc.incident_id)}')" class="flex items-center gap-2">
             <input id="chatInput-${escapeHtml(inc.incident_id)}" type="text"
-              placeholder="Ask Aria anything about this issue, or type 'Proceed with the fix'..."
+              placeholder="Ask Atlas anything about this issue, or type 'Proceed with the fix'..."
               class="flex-1 bg-slate-950/90 border border-slate-700 focus:border-amber-400 rounded-xl px-3.5 py-2.5 text-xs sm:text-sm text-white placeholder-slate-500 focus:outline-none" />
             <button id="btnSendChat" type="submit"
               class="px-4 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-xs transition cursor-pointer flex items-center gap-1.5 shrink-0">
@@ -522,7 +522,7 @@
             <span class="text-xs font-bold uppercase tracking-wider text-amber-300">Skipped — Manual Mode</span>
             <h2 class="text-xl font-extrabold text-white">${escapeHtml(copy.headline)}</h2>
             <p class="text-xs text-slate-300 max-w-md mx-auto leading-relaxed">
-              Got it, Hari — Aria stood down the <strong>Worker Agent</strong> and made <strong>no changes</strong> so you can handle this manually.
+              Got it, Hari — Atlas stood down the <strong>Worker Agent</strong> and made <strong>no changes</strong> so you can handle this manually.
             </p>
           </div>
 
@@ -530,7 +530,7 @@
             <button onclick="reopenIncident('${escapeHtml(inc.incident_id)}')"
               class="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-700 text-xs font-semibold text-emerald-300 transition cursor-pointer">
               <i class="fa-solid fa-comments"></i>
-              <span>Reopen Chat with Aria &amp; Let AI Fix It</span>
+              <span>Reopen Chat with Atlas &amp; Let AI Fix It</span>
             </button>
           </div>
 
@@ -561,7 +561,7 @@
             <span class="text-xs font-bold uppercase tracking-wider text-emerald-400">Issue Resolved Automatically</span>
             <h2 class="text-xl font-extrabold text-white">${escapeHtml(copy.headline)} — Fixed!</h2>
             <p class="text-xs text-slate-300 max-w-md mx-auto leading-relaxed">
-              Thanks, Hari! Following your approval, <strong>Aria (AaaS Lead)</strong> delegated the fix to the <strong>Worker Agent</strong> and <strong>Log Watcher</strong> confirmed 100% service health.
+              Thanks, Hari! Following your approval, <strong>Atlas (AaaS Lead)</strong> delegated the fix to the <strong>Worker Agent</strong> and <strong>Log Watcher</strong> confirmed 100% service health.
             </p>
           </div>
 
@@ -585,7 +585,7 @@
           <div class="w-12 h-12 rounded-2xl bg-amber-500/15 border border-amber-500/30 flex items-center justify-center text-amber-300 text-xl mx-auto">
             <i class="fa-solid fa-robot"></i>
           </div>
-          <h2 class="text-lg font-bold text-white">Hey Hari 👋 — Aria (AaaS Lead) is Monitoring Your Cloud</h2>
+          <h2 class="text-lg font-bold text-white">Hey Hari 👋 — Atlas (AaaS Lead) is Monitoring Your Cloud</h2>
           <p class="text-xs text-slate-400 max-w-md mx-auto leading-relaxed">
             Right now your environment is calm. Click <strong>"Poll Live Logs"</strong> at the top right to scan real GCP logs in <code>agent-triad</code> (or <strong>"Simulate Issue"</strong>), and I'll walk you through any issue I find before we fix it.
           </p>

@@ -460,7 +460,7 @@ class LeadOrchestratorAgent:
         return [
             {
                 "role": "assistant",
-                "sender": "Aria • AaaS Lead",
+                "sender": "Atlas • AaaS Lead",
                 "text": opening_text,
                 "timestamp": now_iso,
             }
@@ -619,7 +619,7 @@ class LeadOrchestratorAgent:
         if self._genai_client is not None:
             try:
                 prompt = (
-                    "You are Aria, the friendly and sharp AaaS Lead Orchestrator chatbot for Hari's Google Cloud environment (`agent-triad`).\n"
+                    "You are Atlas, the friendly and sharp AaaS Lead Orchestrator chatbot for Hari's Google Cloud environment (`agent-triad`).\n"
                     "You are currently discussing an active cloud incident with Hari before he decides whether to approve the automated fix.\n\n"
                     f"Incident Summary:\n- Service/Workload: {incident.get('workload')} in {incident.get('cluster')}\n"
                     f"- Severity: {incident.get('severity')} ({impact.get('blast_radius_tier')})\n"
@@ -678,7 +678,7 @@ class LeadOrchestratorAgent:
 
         reply_msg = {
             "role": "assistant",
-            "sender": "Aria • AaaS Lead",
+            "sender": "Atlas • AaaS Lead",
             "text": reply_text,
             "timestamp": datetime.datetime.now(datetime.timezone.utc).isoformat(),
         }
@@ -799,7 +799,7 @@ class LeadOrchestratorAgent:
         incident.setdefault("chat_messages", []).append(
             {
                 "role": "assistant",
-                "sender": "Aria • AaaS Lead",
+                "sender": "Atlas • AaaS Lead",
                 "text": (
                     f"✅ All done, Hari! I minted a single-use JIT token and delegated the fix to the **Worker Agent** over A2A.\n"
                     f"• **Executed**: `{kubectl_cmd}`\n"
@@ -836,7 +836,7 @@ class LeadOrchestratorAgent:
         incident.setdefault("chat_messages", []).append(
             {
                 "role": "assistant",
-                "sender": "Aria • AaaS Lead",
+                "sender": "Atlas • AaaS Lead",
                 "text": (
                     "Got it, Hari — I've stood down the **Worker Agent** and made **no changes** to your environment "
                     f"so you can handle `{incident['workload']}` manually. If you change your mind later, just click **Reopen** below!"
@@ -865,7 +865,7 @@ class LeadOrchestratorAgent:
         incident.setdefault("chat_messages", []).append(
             {
                 "role": "assistant",
-                "sender": "Aria • AaaS Lead",
+                "sender": "Atlas • AaaS Lead",
                 "text": (
                     f"Welcome back, Hari! I've re-opened the issue on **{incident['workload']}**. "
                     "Ask me any follow-up questions or click **Proceed with Fix** whenever you're ready."

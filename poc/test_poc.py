@@ -41,13 +41,14 @@ def run_e2e_tests() -> None:
     assert "impact_analysis" in incident
     assert incident["impact_analysis"]["recommended_kubectl"].startswith("kubectl")
     assert len(incident.get("chat_messages", [])) >= 1
+    assert incident["chat_messages"][0]["sender"] == "Atlas • AaaS Lead"
     assert "Hey Hari" in incident["chat_messages"][0]["text"]
     print(
-        f"[PASS] Watcher reported incident {incident_id} via A2A -> Aria • AaaS Lead greeted Hari "
+        f"[PASS] Watcher reported incident {incident_id} via A2A -> Atlas • AaaS Lead greeted Hari "
         f"(Engine: {incident['impact_analysis'].get('reasoning_engine')})"
     )
 
-    # 3b. Interactive Chat with Aria • AaaS Lead before approving
+    # 3b. Interactive Chat with Atlas • AaaS Lead before approving
     chat_res = client.post(
         f"/api/incidents/{incident_id}/chat",
         json={"message": "Why did this happen and is there any downtime risk if we apply the fix?"},
@@ -56,7 +57,7 @@ def run_e2e_tests() -> None:
     chat_data = chat_res.json()
     assert chat_data["action_taken"] == "ANSWERED_QUESTION"
     assert len(chat_data["incident"]["chat_messages"]) >= 3
-    print(f"[PASS] Interactive Chat Q&A verified: Aria answered Hari's question ({chat_data['reply'][:80]}...)")
+    print(f"[PASS] Interactive Chat Q&A verified: Atlas answered Hari's question ({chat_data['reply'][:80]}...)")
 
     # 4. Verify Zero-Standing Privilege: GKE Assist rejects unapproved A2A execution without JIT token
     unauth_rpc = {
@@ -108,7 +109,7 @@ def run_e2e_tests() -> None:
     assert resolved_inc["execution_result"]["status"] == "SUCCEEDED"
     assert resolved_inc["verification_result"]["status"] == "VERIFIED_HEALTHY"
     print(
-        f"[PASS] Conversational Approval -> Aria • AaaS Lead delegated to Worker Agent via A2A -> "
+        f"[PASS] Conversational Approval -> Atlas • AaaS Lead delegated to Worker Agent via A2A -> "
         f"Executed ({resolved_inc['execution_result']['reconciliation_pr']}) & Watchdog Verified!"
     )
 
