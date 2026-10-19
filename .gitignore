@@ -4,4 +4,7 @@ AGENTS.md
 .venv/
 __pycache__/
 *.pyc
+**/.terraform/
+*.tfstate
+*.tfstate.*
 

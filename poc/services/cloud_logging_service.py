@@ -281,28 +281,34 @@ class CloudLoggingService:
 
         # Real Cloud SQL logs (`cloudsql_database`)
         if res_type == "cloudsql_database":
-            db_id = labels.get("database_id") or "agent-triad:postgres"
+            db_id = labels.get("database_id") or "agent-triad:testdbinstance1"
+            instance_short = db_id.split(":")[-1]
             region = labels.get("region") or "us-west1"
-            is_anom = severity in ("ERROR", "CRITICAL", "ALERT", "EMERGENCY")
             clean_msg = " ".join(raw_msg.strip().split())
+            if not clean_msg or clean_msg == "None":
+                self.suppressed_routine_logs_count += 1
+                return None
+            is_anom = severity in ("ERROR", "CRITICAL", "ALERT", "EMERGENCY") or "FATAL:" in clean_msg
             return {
                 "log_id": f"gcp-sql-{entry.insert_id or uuid.uuid4().hex[:8]}",
-                "signature_key": f"cloudsql:{db_id}:{severity}",
+                "signature_key": f"cloudsql:{db_id}:FATAL_OR_ERROR",
                 "timestamp": ts_iso,
-                "severity": severity,
+                "severity": severity if severity in ("ERROR", "CRITICAL", "ALERT") else "ERROR",
                 "scenario_id": "cloudsql_anomaly" if is_anom else "info",
-                "title": f"Cloud SQL ({db_id.split(':')[-1]}): {clean_msg[:65]}",
+                "title": f"Cloud SQL ({instance_short}): {clean_msg[:65]}",
                 "source": "gcp:cloudsql_database",
                 "project_id": self.project_id,
                 "cluster": region,
                 "namespace": "cloud-sql",
-                "workload": f"cloudsql/{db_id}",
-                "pod": db_id.split(":")[-1],
+                "workload": f"cloudsql/{instance_short}",
+                "pod": instance_short,
                 "container": "postgres",
-                "error_code": "CLOUDSQL_POSTGRES_ERROR" if is_anom else "POSTGRES_TELEMETRY",
+                "error_code": "CLOUDSQL_POSTGRES_FATAL" if is_anom else "POSTGRES_TELEMETRY",
                 "message": clean_msg,
                 "metrics_snapshot": {"database_id": db_id, "region": region},
-                "recommended_kubectl": f"gcloud sql instances restart {db_id.split(':')[-1]} --project={self.project_id}",
+                "recommended_kubectl": (
+                    f"gcloud sql instances patch {instance_short} --activation-policy=ALWAYS --project={self.project_id}"
+                ),
                 "is_anomaly": is_anom,
                 "persisted_to_gcp": True,
             }
@@ -427,6 +433,10 @@ class CloudLoggingService:
         if should_poll:
             self._last_poll_time = now_ts
             try:
+                # 0. Prioritize real Cloud SQL (`testdbinstance1`) FATAL/ALERT/ERROR logs
+                cloudsql_anomaly_filter = (
+                    'resource.type="cloudsql_database" AND (severity>=WARNING OR textPayload:"FATAL")'
+                )
                 # 1. Query real project-wide warnings/errors (Cloud Run, ReasoningEngine, CloudSQL, GKE, etc.)
                 anomaly_filter = (
                     'severity>=WARNING '
@@ -441,6 +451,19 @@ class CloudLoggingService:
                 )
 
                 raw_entries = []
+                try:
+                    raw_entries.extend(
+                        list(
+                            self._client.list_entries(
+                                filter_=cloudsql_anomaly_filter,
+                                order_by=gcp_logging.DESCENDING,
+                                max_results=10,
+                            )
+                        )
+                    )
+                except Exception:
+                    pass
+
                 try:
                     raw_entries.extend(
                         list(

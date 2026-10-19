@@ -26,6 +26,7 @@ from agents.a2a_protocol import A2AProtocolHub, A2ATaskRequest
 from agents.gke_assist_agent import GKEAssistAgent
 from agents.lead_orchestrator import LeadOrchestratorAgent, WORKER_AGENT_BOUTIQUE
 from agents.watcher_agent import CloudLoggingWatcherAgent
+from services.agent_harness import agent_harness
 from services.cloud_logging_service import CloudLoggingService
 from services.gke_remediator import GKERemediator
 
@@ -155,12 +156,19 @@ async def get_system_state() -> Dict[str, Any]:
         },
         "agents": [card.model_dump() for card in a2a_hub.agents.values()],
         "worker_boutique": WORKER_AGENT_BOUTIQUE,
+        "agent_harness_status": agent_harness.get_global_harness_status(),
         "logs": logs,
         "incidents": lead_orchestrator.list_incidents(),
         "audit_events": lead_orchestrator.list_audit_events(),
         "general_chat_messages": lead_orchestrator.list_general_chat_messages(),
         "a2a_ledger": a2a_hub.message_ledger[:30],
     }
+
+
+@app.get("/api/harness/status")
+async def get_harness_status() -> Dict[str, Any]:
+    """Returns live Agent Harness telemetry (`.tflock` leases, OPA evaluations, SAIF sanitization count, and 45s Watchdog)."""
+    return agent_harness.get_global_harness_status()
 
 
 @app.get("/api/audit-events")
@@ -191,6 +199,11 @@ async def poll_cloud_logging() -> Dict[str, Any]:
     ]
     if not real_anomalies:
         real_anomalies = [entry for entry in logs if entry.get("is_anomaly")]
+
+    # Prioritize real Cloud SQL (`gcp-sql-...`) anomalies first so the live ADK Database Agent is showcased
+    real_anomalies.sort(
+        key=lambda e: (0 if str(e.get("log_id", "")).startswith("gcp-sql-") else 1)
+    )
 
     target_entry = None
     for entry in real_anomalies:
@@ -293,14 +306,30 @@ async def chat_about_incident(incident_id: str, req: IncidentChatRequest) -> Dic
 @app.post("/api/atlas/chat")
 async def chat_general_atlas(req: IncidentChatRequest) -> Dict[str, Any]:
     """
-    Direct on-demand chatbot endpoint for Hari to manually invoke Atlas for
-    'How-to' GCP questions or ad-hoc troubleshooting not captured in Cloud Logging.
+    Direct on-demand chatbot endpoint for Hari to manually invoke Atlas across all 4 scenarios:
+      - Scenario 1: Simple CLI/API troubleshooting
+      - Scenario 2: Multi-service IAM + VPC + API Terraform remediation
+      - Scenario 3: Custom Terraform deployment generation & validation
+      - Scenario 4: Simple GCP How-To questions
     """
     if not req.message or not req.message.strip():
         raise HTTPException(status_code=400, detail="Message cannot be empty")
     result = await lead_orchestrator.chat_general_with_atlas(user_message=req.message)
     return {
         "status": "CHAT_UPDATED",
+        **result,
+    }
+
+
+@app.post("/api/atlas/chat/deploy-terraform")
+async def deploy_chat_terraform() -> Dict[str, Any]:
+    """
+    Approves and executes the most recent Scenario 2 / Scenario 3 Terraform bundle from
+    Direct Atlas Chat via the Agent Harness Sandbox and Specialist Roster.
+    """
+    result = await lead_orchestrator.execute_chat_terraform_deployment(approved_by="Hari (via Chat)")
+    return {
+        "status": "TERRAFORM_EXECUTED_VIA_HARNESS",
         **result,
     }
 
