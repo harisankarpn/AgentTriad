@@ -23,8 +23,18 @@ output "service_account_email" {
   value       = google_service_account.database_agent_sa.email
 }
 
+output "infra_agent_url" {
+  description = "Base HTTPS URL of the deployed ADK Infra Specialist Agent on Cloud Run"
+  value       = google_cloud_run_v2_service.infra_agent.uri
+}
+
+output "infra_service_account_email" {
+  description = "Dedicated Zero-Standing Privilege Service Account for the ADK Infra Agent"
+  value       = google_service_account.infra_agent_sa.email
+}
+
 output "aaas_command_center_url" {
-  description = "Live Cloud Run AaaS Command Center Dashboard URL (Atlas connected to Database Agent)"
+  description = "Live Cloud Run AaaS Command Center Dashboard URL (Atlas connected to Database & Infra Agents)"
   value       = "https://agent-triad-control-plane-${data.google_project.current.number}.${var.region}.run.app"
 }
 

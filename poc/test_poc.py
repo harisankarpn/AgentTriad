@@ -301,6 +301,51 @@ def run_e2e_tests() -> None:
         f"jit_token_id={tracked_2['jit_token_id']}, protected_resources={len(harness_data['protected_external_resources'])}"
     )
 
+    # 7. Verify ADK Infra Specialist Agent (`agents/infra_agent/`) live tools & AgentCard
+    import importlib.util
+
+    infra_dir = Path(__file__).resolve().parent.parent / "agents" / "infra_agent"
+    if str(infra_dir) not in sys.path:
+        sys.path.insert(0, str(infra_dir))
+    spec_agent = importlib.util.spec_from_file_location("infra_agent_mod", str(infra_dir / "agent.py"))
+    assert spec_agent and spec_agent.loader
+    infra_agent_mod = importlib.util.module_from_spec(spec_agent)
+    spec_agent.loader.exec_module(infra_agent_mod)
+
+    spec_srv = importlib.util.spec_from_file_location("infra_srv_mod", str(infra_dir / "server.py"))
+    assert spec_srv and spec_srv.loader
+    infra_srv_mod = importlib.util.module_from_spec(spec_srv)
+    spec_srv.loader.exec_module(infra_srv_mod)
+
+    infra_client = TestClient(infra_srv_mod.app)
+    infra_health = infra_client.get("/healthz")
+    assert infra_health.status_code == 200
+    infra_card = infra_client.get("/.well-known/agent.json")
+    assert infra_card.status_code == 200
+    assert infra_card.json()["id"] == "infra-agent"
+
+    live_vms = infra_agent_mod.inspect_compute_instances("2397540675679890849")
+    assert live_vms["status"] == "LIVE_GCP_COMPUTE_API"
+    assert len(live_vms["discovered_instances"]) >= 1
+    assert live_vms["lifecycle_note"] is not None
+
+    live_perf = infra_agent_mod.get_compute_performance_metrics("testinstance1")
+    assert live_perf["status"] == "LIVE_GCP_CLOUD_MONITORING"
+
+    live_logs = infra_agent_mod.analyze_infra_logs("Error watching metadata: context canceled", "2397540675679890849")
+    assert live_logs["status"] == "LIVE_GCP_CLOUD_LOGGING"
+    assert "customer_what_happened" in live_logs
+
+    live_ident = infra_agent_mod.inspect_infra_agent_runtime_identity()
+    assert live_ident["active_service_account"] == "aaas-infra-agent-sa@agent-triad.iam.gserviceaccount.com"
+
+    live_prop = infra_agent_mod.generate_infra_remediation_proposal(live_logs["finding"], "2397540675679890849")
+    assert "gcloud compute" in live_prop["recommended_cli"]
+    print(
+        f"[PASS] ADK Infra Specialist Agent verified: discovered_vms={[v['instance_name'] for v in live_vms['discovered_instances']]}, "
+        f"service_account={live_ident['active_service_account']}"
+    )
+
 
 if __name__ == "__main__":
     run_e2e_tests()

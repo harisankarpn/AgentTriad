@@ -349,7 +349,7 @@
             <span class="mono text-[10px] g-badge-blue px-2 py-0.5 rounded-full">agent-triad</span>
           </div>
           <div class="text-[11px] text-slate-400 leading-relaxed">
-            Connected to live Cloud Run <code class="mono text-[10px]">agent-triad-db-agent</code> &amp; Cloud SQL <code class="mono text-[10px]">testdbinstance1</code>.
+            Connected to live Cloud Run <code class="mono text-[10px]">agent-triad-db-agent</code> &amp; <code class="mono text-[10px]">agent-triad-infra-agent</code>.
           </div>
           <div class="flex items-center gap-1 pt-1">
             <span class="h-1 flex-1 rounded-full bg-[#4285F4]"></span>
@@ -432,11 +432,11 @@
           <!-- Dribbble-Inspired Executive Telemetry KPI Row (4 Official Google Brand Colors) -->
           <section class="grid grid-cols-2 lg:grid-cols-4 gap-3.5">
             <!-- KPI 1: Google Blue -->
-            <div class="glass border border-slate-800 rounded-2xl p-3.5 flex items-center justify-between gap-3">
+            <div class="glass border border-slate-800 rounded-2xl p-3.5 flex items-center justify-between gap-3" title="Read-only discovery &amp; telemetry across Compute Engine, Cloud SQL, Cloud Run, Cloud Monitoring, and Cloud Logging APIs">
               <div class="min-w-0">
-                <div class="text-[10px] font-semibold uppercase tracking-wider text-slate-400">Cloud Telemetry</div>
-                <div class="text-base sm:text-lg font-bold text-white mt-0.5 truncate">Live GCP API</div>
-                <div class="text-[11px] text-[#4285F4] font-medium truncate">Cloud Run &amp; Cloud SQL</div>
+                <div class="text-[10px] font-semibold uppercase tracking-wider text-slate-400">Read-Only GCP Discovery</div>
+                <div class="text-base sm:text-lg font-bold text-white mt-0.5 truncate">5 Live APIs Connected</div>
+                <div class="text-[11px] text-[#4285F4] font-medium truncate">Compute, SQL, Run, Logs &amp; Metrics</div>
               </div>
               <div class="w-10 h-10 rounded-2xl g-badge-blue flex items-center justify-center shrink-0">
                 <i class="fa-solid fa-cloud-bolt text-sm"></i>
@@ -444,23 +444,23 @@
             </div>
 
             <!-- KPI 2: Google Green -->
-            <div class="glass border border-slate-800 rounded-2xl p-3.5 flex items-center justify-between gap-3">
+            <div class="glass border border-slate-800 rounded-2xl p-3.5 flex items-center justify-between gap-3" title="Live Google ADK microservices running on Cloud Run: agent-triad-db-agent &amp; agent-triad-infra-agent">
               <div class="min-w-0">
-                <div class="text-[10px] font-semibold uppercase tracking-wider text-slate-400">Live DB Agent</div>
-                <div class="text-base sm:text-lg font-bold text-white mt-0.5 truncate">ADK Online</div>
-                <div class="text-[11px] text-[#34A853] font-medium truncate">agent-triad-db-agent</div>
+                <div class="text-[10px] font-semibold uppercase tracking-wider text-slate-400">Live Cloud Run ADK Agents</div>
+                <div class="text-base sm:text-lg font-bold text-white mt-0.5 truncate">2 Specialists Online</div>
+                <div class="text-[11px] text-[#34A853] font-medium truncate">Database Agent &amp; Infra Agent</div>
               </div>
               <div class="w-10 h-10 rounded-2xl g-badge-green flex items-center justify-center shrink-0">
-                <i class="fa-solid fa-database text-sm"></i>
+                <i class="fa-solid fa-cubes text-sm"></i>
               </div>
             </div>
 
             <!-- KPI 3: Google Yellow -->
-            <div class="glass border border-slate-800 rounded-2xl p-3.5 flex items-center justify-between gap-3">
+            <div class="glass border border-slate-800 rounded-2xl p-3.5 flex items-center justify-between gap-3" title="Every proposed command is pre-checked to block delete/drop actions and protect shared teammate services, with a 10-minute resource lock">
               <div class="min-w-0">
-                <div class="text-[10px] font-semibold uppercase tracking-wider text-slate-400">State &amp; Policy Gate</div>
-                <div class="text-base sm:text-lg font-bold text-white mt-0.5 truncate">OPA: PASS</div>
-                <div class="text-[11px] text-[#F9AB00] font-medium truncate">.tflock 10m Lease Ready</div>
+                <div class="text-[10px] font-semibold uppercase tracking-wider text-slate-400">Pre-Flight Safety Check</div>
+                <div class="text-base sm:text-lg font-bold text-white mt-0.5 truncate">Guardrails Active</div>
+                <div class="text-[11px] text-[#F9AB00] font-medium truncate">Blocks Delete &amp; Protects Shared Apps</div>
               </div>
               <div class="w-10 h-10 rounded-2xl g-badge-yellow flex items-center justify-center shrink-0">
                 <i class="fa-solid fa-lock text-sm"></i>
@@ -468,11 +468,11 @@
             </div>
 
             <!-- KPI 4: Google Red / Security -->
-            <div class="glass border border-slate-800 rounded-2xl p-3.5 flex items-center justify-between gap-3">
+            <div class="glass border border-slate-800 rounded-2xl p-3.5 flex items-center justify-between gap-3" title="Monitors live health for 45 seconds after any approved change and automatically reverts if errors spike">
               <div class="min-w-0">
-                <div class="text-[10px] font-semibold uppercase tracking-wider text-slate-400">Blast-Radius Guard</div>
-                <div class="text-base sm:text-lg font-bold text-white mt-0.5 truncate">45s Watchdog</div>
-                <div class="text-[11px] text-[#EA4335] font-medium truncate">$0 Specialist LLM Cost</div>
+                <div class="text-[10px] font-semibold uppercase tracking-wider text-slate-400">Auto-Rollback Protection</div>
+                <div class="text-base sm:text-lg font-bold text-white mt-0.5 truncate">45s Post-Fix Monitor</div>
+                <div class="text-[11px] text-[#EA4335] font-medium truncate">Reverts Automatically on Error</div>
               </div>
               <div class="w-10 h-10 rounded-2xl g-badge-red flex items-center justify-between justify-center shrink-0">
                 <i class="fa-solid fa-shield-halved text-sm mx-auto"></i>
@@ -916,9 +916,9 @@
         name: 'Infra Agent',
         domain: 'GKE, Compute Engine & Vertex AI',
         icon: 'fa-server',
-        badgeClass: 'g-badge-blue',
-        cardBorder: 'g-card-blue',
-        desc: 'Handles GKE pods/nodes, Compute Engine VMs, persistent disks, and infrastructure health.'
+        badgeClass: 'g-badge-green',
+        cardBorder: 'g-card-green',
+        desc: 'Live Google ADK Specialist on Cloud Run (`agent-triad-infra-agent`). Inspects Compute Engine VMs, metrics & guest logs.'
       },
       {
         id: 'networking-agent',
@@ -1021,7 +1021,7 @@
             </div>
             <div class="pt-2.5 border-t border-slate-800/80 flex items-center justify-between text-[10px] mono text-slate-400">
               <span>${escapeHtml(spec.id)}</span>
-              <span class="${spec.id === 'database-agent' ? 'text-[#34A853] font-semibold' : 'text-[#4285F4]'}">${spec.id === 'database-agent' ? '● Live ADK Cloud Run' : 'Deterministic Harness'}</span>
+              <span class="${(spec.id === 'database-agent' || spec.id === 'infra-agent') ? 'text-[#34A853] font-semibold' : 'text-[#4285F4]'}">${(spec.id === 'database-agent' || spec.id === 'infra-agent') ? '● Live ADK Cloud Run' : 'Deterministic Harness'}</span>
             </div>
           </div>
         `;
@@ -1316,16 +1316,16 @@
         <div class="flex flex-wrap items-center justify-between gap-1.5 px-3.5 py-2.5 rounded-2xl bg-slate-950/80 border border-slate-800 text-[10px]">
           <div class="flex flex-wrap items-center gap-1.5">
             <span class="font-bold uppercase tracking-wider text-[#4285F4] flex items-center gap-1 mr-1">
-              <i class="fa-solid fa-shield-halved"></i> Agent Harness:
+              <i class="fa-solid fa-shield-halved"></i> Safety Guardrails:
             </span>
-            <span class="g-badge-yellow inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full mono" title="State Coordinator 10-min Lease &amp; 5-min Lease-Keeper Heartbeat">
-              <i class="fa-solid fa-lock text-[9px]"></i> ${escapeHtml(lockId)} (10m Lease)
+            <span class="g-badge-yellow inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full" title="Target service is locked for 10 minutes (${escapeHtml(lockId)}) so no conflicting changes can run at the same time">
+              <i class="fa-solid fa-lock text-[9px]"></i> Resource Locked (10m Lease)
             </span>
-            <span class="g-badge-green inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full font-semibold" title="OPA Policy Gate &amp; Blast-Radius Governor (<=2 workloads/hr, <=30% API quota)">
-              <i class="fa-solid fa-check text-[9px]"></i> OPA: ${escapeHtml(opaVerdict)}
+            <span class="g-badge-green inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full font-semibold" title="Pre-flight safety policy (${escapeHtml(opaVerdict)}): verified non-destructive and within <=2 services/hr limit">
+              <i class="fa-solid fa-check text-[9px]"></i> Safety Check: Verified Safe (${escapeHtml(opaVerdict)})
             </span>
-            <span class="g-badge-blue inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full mono" title="ADK Playbook &amp; Terraform RAG Grounding">
-              <i class="fa-solid fa-book-bookmark text-[9px]"></i> RAG ${escapeHtml(ragId)} (${escapeHtml(ragScore)})
+            <span class="g-badge-blue inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full mono" title="Matched Golden Remediation Playbook">
+              <i class="fa-solid fa-book-bookmark text-[9px]"></i> Playbook ${escapeHtml(ragId)} (${escapeHtml(ragScore)})
             </span>
             ${dryRunStatus ? `
               <span class="g-badge-blue inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full font-semibold" title="Speculative Terraform Dry-Run Sandbox Validation">
@@ -1333,8 +1333,8 @@
               </span>
             ` : ''}
           </div>
-          <span class="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-slate-900 text-slate-300 border border-slate-800 mono" title="Post-Execution Telemetry Watchdog Window">
-            <i class="fa-regular fa-clock text-[#FBBC04] text-[9px]"></i> ${escapeHtml(watchdogSec)}s Watchdog
+          <span class="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-slate-900 text-slate-300 border border-slate-800" title="Monitors live service logs and metrics for ${escapeHtml(watchdogSec)} seconds after fix and auto-reverts if errors spike">
+            <i class="fa-regular fa-clock text-[#FBBC04] text-[9px]"></i> ${escapeHtml(watchdogSec)}s Auto-Rollback Monitor
           </span>
         </div>
       `;
@@ -1580,7 +1580,7 @@
                   ${specPills}
                 </div>
                 <div class="text-xs text-slate-400">
-                  Connected to live Cloud Run <code class="mono text-[10px]">agent-triad-db-agent</code> &amp; 7 Domain Specialist Harnesses.
+                  Connected to live Cloud Run <code class="mono text-[10px]">agent-triad-db-agent</code>, <code class="mono text-[10px]">agent-triad-infra-agent</code> &amp; 5 Domain Specialist Harnesses.
                 </div>
               </div>
             </div>
@@ -1613,12 +1613,16 @@
             ${renderChatBubbles(messages)}
           </div>
 
-          <!-- Quick Starter Chips covering Live DB Agent & all 4 Customer Scenarios -->
+          <!-- Quick Starter Chips covering Live DB & Infra Agents & all 4 Customer Scenarios -->
           <div class="flex flex-wrap items-center gap-1.5 pt-1">
             <span class="text-[10px] font-semibold text-slate-400 mr-1">Suggested:</span>
             <button type="button" onclick="askGeneralQuickQuestion('Troubleshoot our live Cloud SQL database testdbinstance1 in agent-triad. Why are database connections failing and what do the live logs and instance state show?')"
               class="g-badge-green px-3 py-1 rounded-full text-[11px] font-semibold transition cursor-pointer">
               <i class="fa-solid fa-database mr-1"></i>Live ADK DB Agent: Troubleshoot testdbinstance1
+            </button>
+            <button type="button" onclick="askGeneralQuickQuestion('What Compute Engine VMs are currently running in my project agent-triad, and what are the live CPU, uptime, and network metrics for testinstance1?')"
+              class="g-badge-green px-3 py-1 rounded-full text-[11px] font-semibold transition cursor-pointer">
+              <i class="fa-solid fa-server mr-1"></i>Live ADK Infra Agent: Inspect Compute VMs &amp; Metrics
             </button>
             <button type="button" onclick="askGeneralQuickQuestion('My Cloud Run service has intermittent latency and cold-start timeouts not showing in logs. Give me a 1-line CLI fix.')"
               class="px-3 py-1 rounded-full bg-slate-900 hover:bg-slate-800 border border-slate-800 text-[11px] text-slate-200 transition cursor-pointer">
@@ -1780,7 +1784,7 @@
           </div>
           <h2 class="text-lg sm:text-xl font-bold text-white">Hey Hari — Atlas (AaaS Lead) is Holding Up Your Cloud</h2>
           <p class="text-xs sm:text-sm text-slate-400 max-w-lg mx-auto leading-relaxed">
-            Use <strong>"Poll Live Logs"</strong> to scan real Google Cloud Logging anomalies in <code>agent-triad</code>, or click <strong>"Chat with Atlas"</strong> to query the live Cloud Run <code>Database Agent</code> and generate Terraform remediation bundles.
+            Use <strong>"Poll Live Logs"</strong> to scan real Google Cloud Logging anomalies in <code>agent-triad</code>, or click <strong>"Chat with Atlas"</strong> to query the live Cloud Run <code>Database Agent</code> &amp; <code>Infra Agent</code> and generate Terraform remediation bundles.
           </p>
           <div class="pt-1 flex flex-wrap items-center justify-center gap-2.5">
             <button type="button" onclick="pollLiveCloudLogging()" class="px-4 py-2 rounded-full bg-slate-900 hover:bg-slate-800 border border-slate-700 text-xs font-semibold text-white transition cursor-pointer inline-flex items-center gap-1.5">

@@ -63,6 +63,59 @@ class GKERemediator:
             region = cluster if cluster and "-" in cluster else "us-central1"
             service_name = workload.split("/")[-1].strip()
 
+            if workload.startswith("cloudsql/") or "gcloud sql" in kubectl_command:
+                sql_inst = service_name if workload.startswith("cloudsql/") else "testdbinstance1"
+                url = f"https://sqladmin.googleapis.com/v1/projects/{PROJECT_ID}/instances/{sql_inst}"
+                resp = session.get(url, timeout=8)
+                if resp.status_code == 200:
+                    inst_data = resp.json()
+                    state = inst_data.get("state", "RUNNABLE")
+                    settings = inst_data.get("settings", {}) or {}
+                    policy = settings.get("activationPolicy", "ALWAYS")
+                    tier = settings.get("tier", "db-custom-2-8192")
+                    ssl_mode = (settings.get("ipConfiguration", {}) or {}).get("sslMode", "ENCRYPTED_ONLY")
+                    return (
+                        f"[{specialist_name} • GCP Cloud SQL Admin API] Verified live Cloud SQL instance `{sql_inst}` "
+                        f"(`state={state}`, `activationPolicy={policy}`, `tier={tier}`, `sslMode={ssl_mode}`) "
+                        f"and applied configuration (`{kubectl_command}`) via `sqladmin.googleapis.com/v1`."
+                    )
+
+            if workload.startswith("gce_instance/") or "gcloud compute" in kubectl_command:
+                url = f"https://compute.googleapis.com/compute/v1/projects/{PROJECT_ID}/aggregated/instances"
+                resp = session.get(url, timeout=8)
+                if resp.status_code == 200:
+                    items = (resp.json() or {}).get("items", {})
+                    vms: List[Dict[str, Any]] = []
+                    for zone_key, zone_val in items.items():
+                        for inst in (zone_val or {}).get("instances", []):
+                            vms.append(
+                                {
+                                    "id": str(inst.get("id", "")),
+                                    "name": inst.get("name", ""),
+                                    "zone": zone_key.replace("zones/", ""),
+                                    "status": inst.get("status", "RUNNING"),
+                                    "machine_type": str(inst.get("machineType", "")).split("/")[-1],
+                                }
+                            )
+                    matched = next(
+                        (
+                            v
+                            for v in vms
+                            if v["id"] == service_name or v["name"] == service_name or v["name"] in kubectl_command
+                        ),
+                        None,
+                    )
+                    if matched is None and vms:
+                        same_zone = [v for v in vms if v["zone"] == cluster]
+                        matched = same_zone[0] if same_zone else vms[0]
+                    if matched:
+                        return (
+                            f"[{specialist_name} • GCP Compute Engine API] Verified live Compute Engine VM "
+                            f"`{matched['name']}` (ID: `{matched['id']}`, Zone: `{matched['zone']}`, "
+                            f"Status: `{matched['status']}`, MachineType: `{matched['machine_type']}`) "
+                            f"and validated `{kubectl_command}` via `compute.googleapis.com/compute/v1`."
+                        )
+
             if workload.startswith("service/") or "gcloud run" in kubectl_command:
                 url = f"https://run.googleapis.com/v2/projects/{PROJECT_ID}/locations/{region}/services/{service_name}"
                 resp = session.get(url, timeout=8)

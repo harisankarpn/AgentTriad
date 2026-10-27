@@ -30,7 +30,7 @@ app = FastAPI(
 
 class DiagnoseRequest(BaseModel):
     prompt: str = Field(..., description="Incident description or database question from Atlas/User")
-    instance_name: str = Field(default="orders-db-prod", description="Target Cloud SQL instance name")
+    instance_name: str = Field(default="auto", description="Target Cloud SQL instance name (or 'auto' for live discovery)")
 
 
 class A2ARequest(BaseModel):
@@ -69,8 +69,10 @@ async def get_agent_card() -> Dict[str, Any]:
         "ZeroStandingPrivilege": True,
         "capabilities": [
             "cloudsql-read-only-inspection",
+            "cloud-monitoring-performance-metrics",
             "connection-pool-exhaustion-analysis",
             "slow-query-log-triage",
+            "runtime-service-account-introspection",
             "terraform-and-gcloud-proposal-generation",
             "jit-gated-remediation-execution",
         ],
@@ -114,7 +116,7 @@ async def handle_a2a_rpc(rpc: A2ARequest) -> Dict[str, Any]:
     # Skill 1: Read-Only ADK DBA Diagnosis
     if skill_id == "diagnose_database_anomaly":
         prompt = payload.get("prompt") or payload.get("message") or "Diagnose Cloud SQL connection anomaly"
-        instance_name = payload.get("instance_name", "orders-db-prod")
+        instance_name = payload.get("instance_name", "auto")
         diagnosis = await run_diagnosis(prompt=prompt, instance_name=instance_name)
         return {
             "jsonrpc": "2.0",

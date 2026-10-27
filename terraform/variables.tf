@@ -16,6 +16,12 @@ variable "service_name" {
   default     = "agent-triad-db-agent"
 }
 
+variable "infra_service_name" {
+  description = "Cloud Run service name for the ADK Infra Specialist Agent"
+  type        = string
+  default     = "agent-triad-infra-agent"
+}
+
 variable "artifact_repo" {
   description = "Existing Artifact Registry repository name in us-central1"
   type        = string

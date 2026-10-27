@@ -1,9 +1,17 @@
 locals {
-  container_image = "${var.region}-docker.pkg.dev/${var.project_id}/${var.artifact_repo}/${var.service_name}:${var.image_tag}"
+  container_image       = "${var.region}-docker.pkg.dev/${var.project_id}/${var.artifact_repo}/${var.service_name}:${var.image_tag}"
+  infra_container_image = "${var.region}-docker.pkg.dev/${var.project_id}/${var.artifact_repo}/${var.infra_service_name}:${var.image_tag}"
 
   # Strictly Read-Only + Vertex AI Reasoning IAM roles (Zero-Standing Privilege)
   database_agent_roles = toset([
     "roles/cloudsql.viewer",
+    "roles/logging.viewer",
+    "roles/monitoring.viewer",
+    "roles/aiplatform.user",
+  ])
+
+  infra_agent_roles = toset([
+    "roles/compute.viewer",
     "roles/logging.viewer",
     "roles/monitoring.viewer",
     "roles/aiplatform.user",
@@ -17,6 +25,7 @@ resource "google_project_service" "required_apis" {
   for_each = toset([
     "run.googleapis.com",
     "sqladmin.googleapis.com",
+    "compute.googleapis.com",
     "aiplatform.googleapis.com",
     "logging.googleapis.com",
     "cloudbuild.googleapis.com",
@@ -153,15 +162,130 @@ resource "google_cloud_run_v2_service_iam_member" "control_plane_invoker" {
 }
 
 # ---------------------------------------------------------------------------
-# 5. Wire Atlas Control Plane (`agent-triad-control-plane`) to Live DB Agent
+# 4b. Dedicated Least-Privilege Service Account & Cloud Run v2 Service:
+#     ADK Infra Specialist Agent (`agent-triad-infra-agent`)
+# ---------------------------------------------------------------------------
+resource "google_service_account" "infra_agent_sa" {
+  account_id   = "aaas-infra-agent-sa"
+  display_name = "AaaS ADK Infra Specialist Agent (Zero-Standing Privilege)"
+  description  = "Read-only Compute Engine, Monitoring & Logging diagnostic identity + Vertex AI Gemini reasoning for the ADK Infra Agent."
+  project      = var.project_id
+
+  depends_on = [google_project_service.required_apis]
+}
+
+resource "google_project_iam_member" "infra_agent_readonly_roles" {
+  for_each = local.infra_agent_roles
+
+  project = var.project_id
+  role    = each.value
+  member  = "serviceAccount:${google_service_account.infra_agent_sa.email}"
+}
+
+resource "terraform_data" "build_infra_agent_image" {
+  count = var.auto_build_image ? 1 : 0
+
+  triggers_replace = [
+    filesha256("${path.module}/../agents/infra_agent/agent.py"),
+    filesha256("${path.module}/../agents/infra_agent/server.py"),
+    filesha256("${path.module}/../agents/infra_agent/requirements.txt"),
+    filesha256("${path.module}/../agents/infra_agent/Dockerfile"),
+  ]
+
+  provisioner "local-exec" {
+    command = "gcloud builds submit ${path.module}/../agents/infra_agent --tag ${local.infra_container_image} --project=${var.project_id}"
+  }
+
+  depends_on = [google_project_service.required_apis]
+}
+
+resource "google_cloud_run_v2_service" "infra_agent" {
+  name     = var.infra_service_name
+  location = var.region
+  project  = var.project_id
+  ingress  = "INGRESS_TRAFFIC_ALL"
+
+  template {
+    service_account = google_service_account.infra_agent_sa.email
+
+    # Scale-to-Zero ($0 idle cost) + FinOps ceiling (max 3 instances)
+    scaling {
+      min_instance_count = 0
+      max_instance_count = 3
+    }
+
+    containers {
+      image = local.infra_container_image
+
+      ports {
+        container_port = 8080
+      }
+
+      resources {
+        limits = {
+          cpu    = "1"
+          memory = "512Mi"
+        }
+        cpu_idle = true
+      }
+
+      env {
+        name  = "GCP_PROJECT_ID"
+        value = var.project_id
+      }
+      env {
+        name  = "GCP_REGION"
+        value = var.region
+      }
+      env {
+        name  = "GOOGLE_CLOUD_PROJECT"
+        value = var.project_id
+      }
+      env {
+        name  = "GOOGLE_CLOUD_LOCATION"
+        value = var.region
+      }
+      env {
+        name  = "GOOGLE_GENAI_USE_VERTEXAI"
+        value = "TRUE"
+      }
+      env {
+        name  = "ADK_MODEL"
+        value = var.adk_model
+      }
+      env {
+        name  = "AGENT_SOURCE_HASH"
+        value = filesha256("${path.module}/../agents/infra_agent/agent.py")
+      }
+    }
+  }
+
+  depends_on = [
+    google_project_iam_member.infra_agent_readonly_roles,
+    terraform_data.build_infra_agent_image,
+  ]
+}
+
+resource "google_cloud_run_v2_service_iam_member" "control_plane_infra_invoker" {
+  project  = var.project_id
+  location = var.region
+  name     = google_cloud_run_v2_service.infra_agent.name
+  role     = "roles/run.invoker"
+  member   = "serviceAccount:${data.google_project.current.number}-compute@developer.gserviceaccount.com"
+}
+
+# ---------------------------------------------------------------------------
+# 5. Wire Atlas Control Plane (`agent-triad-control-plane`) to Live ADK Agents
 # ---------------------------------------------------------------------------
 resource "terraform_data" "sync_control_plane_with_db_agent" {
   count = var.auto_build_image ? 1 : 0
 
   triggers_replace = [
     google_cloud_run_v2_service.database_agent.uri,
+    google_cloud_run_v2_service.infra_agent.uri,
     filesha256("${path.module}/../poc/agents/lead_orchestrator.py"),
     filesha256("${path.module}/../poc/services/cloud_logging_service.py"),
+    filesha256("${path.module}/../poc/services/gke_remediator.py"),
     filesha256("${path.module}/../poc/static/index.html"),
     filesha256("${path.module}/../poc/app.py"),
   ]
@@ -175,7 +299,7 @@ resource "terraform_data" "sync_control_plane_with_db_agent" {
         --image=${var.region}-docker.pkg.dev/${var.project_id}/${var.artifact_repo}/agent-triad-poc:latest \
         --region=${var.region} \
         --project=${var.project_id} \
-        --set-env-vars="GCP_PROJECT_ID=${var.project_id},GCP_LOCATION=${var.region},DATABASE_AGENT_URL=${google_cloud_run_v2_service.database_agent.uri}" \
+        --set-env-vars="GCP_PROJECT_ID=${var.project_id},GCP_LOCATION=${var.region},DATABASE_AGENT_URL=${google_cloud_run_v2_service.database_agent.uri},INFRA_AGENT_URL=${google_cloud_run_v2_service.infra_agent.uri}" \
         --quiet
     EOT
   }
@@ -183,6 +307,8 @@ resource "terraform_data" "sync_control_plane_with_db_agent" {
   depends_on = [
     google_cloud_run_v2_service.database_agent,
     google_cloud_run_v2_service_iam_member.control_plane_invoker,
+    google_cloud_run_v2_service.infra_agent,
+    google_cloud_run_v2_service_iam_member.control_plane_infra_invoker,
   ]
 }
 

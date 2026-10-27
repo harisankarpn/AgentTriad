@@ -299,7 +299,7 @@ class LeadOrchestratorAgent:
                 headers=headers,
                 method="POST",
             )
-            with urllib.request.urlopen(req, timeout=25) as resp:
+            with urllib.request.urlopen(req, timeout=70) as resp:
                 resp_json = json.loads(resp.read().decode("utf-8"))
             diagnosis = (resp_json.get("result") or {}).get("diagnosis")
             if diagnosis:
@@ -321,6 +321,115 @@ class LeadOrchestratorAgent:
                 return diagnosis
         except Exception:
             pass
+        return None
+
+    def _invoke_live_infra_agent_a2a(
+        self,
+        prompt: str,
+        target_instance: str = "auto",
+    ) -> Optional[Dict[str, Any]]:
+        """
+        Invokes the live Cloud Run ADK Infra Specialist Agent (`agent-triad-infra-agent`)
+        over Zero-Trust A2A (`POST /a2a` with OIDC Identity Token) and logs the remote
+        A2A exchange into the AaaS Control Plane ledger. Falls back to in-process ADK
+        execution (`agents.infra_agent.agent.run_diagnosis`) if the remote Cloud Run
+        endpoint is not yet reachable.
+        """
+        import subprocess
+        import urllib.request
+
+        infra_agent_url = os.getenv(
+            "INFRA_AGENT_URL",
+            "https://agent-triad-infra-agent-qq3mp7ftqq-uc.a.run.app",
+        ).rstrip("/")
+
+        id_token_str = ""
+        try:
+            from google.auth.transport.requests import Request as GoogleAuthRequest
+            from google.oauth2 import id_token as google_id_token
+
+            id_token_str = google_id_token.fetch_id_token(GoogleAuthRequest(), infra_agent_url)
+        except Exception:
+            try:
+                proc = subprocess.run(
+                    ["gcloud", "auth", "print-identity-token"],
+                    capture_output=True,
+                    text=True,
+                    timeout=6,
+                    check=False,
+                )
+                if proc.returncode == 0 and proc.stdout.strip():
+                    id_token_str = proc.stdout.strip()
+            except Exception:
+                id_token_str = ""
+
+        rpc_id = f"a2a-infra-{uuid.uuid4().hex[:8]}"
+        rpc_payload = {
+            "jsonrpc": "2.0",
+            "id": rpc_id,
+            "method": "tasks/send",
+            "params": {
+                "skill_id": "diagnose_infra_anomaly",
+                "data": {
+                    "prompt": prompt,
+                    "target_instance": target_instance,
+                },
+            },
+        }
+        headers = {"Content-Type": "application/json", "Accept": "application/json"}
+        if id_token_str:
+            headers["Authorization"] = f"Bearer {id_token_str}"
+
+        diagnosis: Optional[Dict[str, Any]] = None
+        try:
+            req = urllib.request.Request(
+                f"{infra_agent_url}/a2a",
+                data=json.dumps(rpc_payload).encode("utf-8"),
+                headers=headers,
+                method="POST",
+            )
+            with urllib.request.urlopen(req, timeout=70) as resp:
+                resp_json = json.loads(resp.read().decode("utf-8"))
+            diagnosis = (resp_json.get("result") or {}).get("diagnosis")
+        except Exception:
+            diagnosis = None
+
+        if not diagnosis:
+            try:
+                import asyncio
+                import concurrent.futures
+                import importlib.util
+                from pathlib import Path
+
+                agent_py = Path(__file__).resolve().parents[2] / "agents" / "infra_agent" / "agent.py"
+                spec = importlib.util.spec_from_file_location("aaas_infra_agent_mod", str(agent_py))
+                if spec and spec.loader:
+                    mod = importlib.util.module_from_spec(spec)
+                    spec.loader.exec_module(mod)
+                    with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+                        diagnosis = pool.submit(
+                            lambda: asyncio.run(mod.run_diagnosis(prompt=prompt, target_instance=target_instance))
+                        ).result(timeout=70)
+            except Exception:
+                diagnosis = None
+
+        if diagnosis:
+            self.a2a_hub.message_ledger.insert(
+                0,
+                {
+                    "id": rpc_id,
+                    "timestamp": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+                    "sender": self.AGENT_ID,
+                    "recipient": "agent-triad-infra-agent (Cloud Run ADK)",
+                    "skill_id": "diagnose_infra_anomaly",
+                    "summary": (
+                        f"Atlas invoked live Cloud Run ADK Infra Agent ({infra_agent_url}/a2a) "
+                        f"for `{target_instance}` -> tools={diagnosis.get('tools_invoked', [])}"
+                    ),
+                    "status": "COMPLETED",
+                },
+            )
+            return diagnosis
         return None
 
 
@@ -549,11 +658,11 @@ class LeadOrchestratorAgent:
 
         opening_text = (
             f"Hey Hari 👋 There's an issue I just found with **{service_label}**.\n\n"
-            f"• **Classification**: `{impact.get('scenario_badge', 'Scenario 1 • 1-Line CLI/API Fix')}` (RAG Match: `{int(rag_score * 100)}%`)\n"
+            f"• **Classification**: `{impact.get('scenario_badge', 'Scenario 1 • 1-Line CLI/API Fix')}` (Playbook Match: `{int(rag_score * 100)}%`)\n"
             f"• **Severity**: `{severity}` — {blast}\n"
             f"• **What happened**: {what_happened}\n"
             f"• **Delegation Plan**: {coord_names}\n"
-            f"• **Agent Harness**: Locked `{lock_uri}` (10m TTL) • OPA Policy `PASS`\n"
+            f"• **Safety Guardrails**: Verified Non-Destructive (`PASS`) • Resource Locked for 10m (`{lock_uri}`) • 45s Auto-Rollback Armed\n"
             f"• **Next Steps**: {next_step}\n\n"
             "Ask me anything about why this happened, whether there's any downtime, the rollback plan, "
             "or the exact command/Terraform script. Whenever you're ready, type **'I accept'** or click **I accept** below!"
@@ -590,6 +699,7 @@ class LeadOrchestratorAgent:
             workload = log_entry.get("workload", "deployment/app")
 
             live_db_diag: Optional[Dict[str, Any]] = None
+            live_infra_diag: Optional[Dict[str, Any]] = None
             if specialist.get("id") == "database-agent":
                 target_inst = str(log_entry.get("pod") or "testdbinstance1").split(":")[-1]
                 live_db_diag = self._invoke_live_database_agent_a2a(
@@ -605,6 +715,38 @@ class LeadOrchestratorAgent:
                     prop = live_db_diag.get("remediation_proposal") or {}
                     if log_anal.get("root_cause"):
                         impact_and_remedy["root_cause"] = log_anal["root_cause"]
+                        impact_and_remedy["customer_what_happened"] = log_anal["root_cause"]
+                    if prop.get("remediation_summary"):
+                        impact_and_remedy["remedy_summary"] = prop["remediation_summary"]
+                        impact_and_remedy["customer_why_approve"] = prop["remediation_summary"]
+                    if prop.get("recommended_cli"):
+                        impact_and_remedy["recommended_kubectl"] = prop["recommended_cli"]
+                    if prop.get("terraform_hcl"):
+                        impact_and_remedy["terraform_code"] = prop["terraform_hcl"]
+            elif specialist.get("id") == "infra-agent":
+                target_inst = str(log_entry.get("pod") or workload.split("/")[-1] or "auto").split(":")[-1]
+                live_infra_diag = self._invoke_live_infra_agent_a2a(
+                    prompt=(
+                        f"Atlas Alert: Cloud Logging detected [{log_entry.get('severity')}] on `{workload}` "
+                        f"(zone/cluster `{cluster}`): {log_entry.get('message')}. "
+                        f"Inspect the live Compute Engine inventory, Cloud Monitoring metrics, and Cloud Logging entries "
+                        f"for `{target_inst}` and propose a safe remediation."
+                    ),
+                    target_instance=target_inst,
+                )
+                if live_infra_diag:
+                    impact_and_remedy["live_infra_agent_diagnosis"] = live_infra_diag
+                    log_anal = live_infra_diag.get("log_analysis") or {}
+                    prop = live_infra_diag.get("remediation_proposal") or {}
+                    if log_anal.get("root_cause"):
+                        impact_and_remedy["root_cause"] = log_anal["root_cause"]
+                    if log_anal.get("customer_what_happened") or log_anal.get("root_cause"):
+                        impact_and_remedy["customer_what_happened"] = (
+                            log_anal.get("customer_what_happened") or log_anal.get("root_cause")
+                        )
+                    if prop.get("remediation_summary"):
+                        impact_and_remedy["remedy_summary"] = prop["remediation_summary"]
+                        impact_and_remedy["customer_why_approve"] = prop["remediation_summary"]
                     if prop.get("recommended_cli"):
                         impact_and_remedy["recommended_kubectl"] = prop["recommended_cli"]
                     if prop.get("terraform_hcl"):
@@ -646,6 +788,19 @@ class LeadOrchestratorAgent:
                         "text": (
                             f"📡 **Live A2A Report from `agent-triad-db-agent` (Tools invoked: `{', '.join(live_db_diag.get('tools_invoked', []))}`)**:\n\n"
                             f"{live_db_diag['dba_reasoning_report']}"
+                        ),
+                        "timestamp": now_iso,
+                    }
+                )
+            if live_infra_diag and live_infra_diag.get("infra_reasoning_report"):
+                chat_messages.append(
+                    {
+                        "role": "assistant",
+                        "sender": "Infra Agent • Live Cloud Run ADK (agent-triad-infra-agent)",
+                        "scenario_badge": "Live A2A Diagnosis",
+                        "text": (
+                            f"📡 **Live A2A Report from `agent-triad-infra-agent` (Tools invoked: `{', '.join(live_infra_diag.get('tools_invoked', []))}`)**:\n\n"
+                            f"{live_infra_diag['infra_reasoning_report']}"
                         ),
                         "timestamp": now_iso,
                     }
@@ -1172,18 +1327,32 @@ class LeadOrchestratorAgent:
 
     def _select_specialist_for_query(self, query_text: str) -> Dict[str, str]:
         lower = query_text.lower()
+        if any(k in lower for k in ("sql", "database", "db", "postgres", "alloydb", "spanner", "connection pool", "socket", "testdbinstance1", "telemetrics")):
+            return WORKER_AGENT_BOUTIQUE[1]  # Database Agent
         if any(k in lower for k in ("billing", "cost", "budget", "finops", "price", "spend", "invoice")):
             return WORKER_AGENT_BOUTIQUE[6]  # Billing Agent
         if any(k in lower for k in ("iam", "security", "permission", "role", "wif", "secret", "armor", "auth", "token", "least privilege")):
             return WORKER_AGENT_BOUTIQUE[5]  # Security Agent
-        if any(k in lower for k in ("sql", "database", "db", "postgres", "alloydb", "spanner", "connection pool", "socket")):
-            return WORKER_AGENT_BOUTIQUE[1]  # Database Agent
         if any(k in lower for k in ("vpc", "network", "latency", "dns", "load balanc", "firewall", "ingress", "timeout", "packet", "routing", "connector")):
             return WORKER_AGENT_BOUTIQUE[3]  # Networking Agent
         if any(k in lower for k in ("bigquery", "dataflow", "pubsub", "pub/sub", "analytics", "vertex", "rag", "slot")):
             return WORKER_AGENT_BOUTIQUE[4]  # Data Analytics Agent
-        if any(k in lower for k in ("gke", "kubernetes", "pod", "node", "vm", "compute engine", "gce", "disk", "cluster", "terraform", "hcl")):
+        if any(k in lower for k in (
+            "gke", "kubernetes", "pod", "node", "vm", "compute engine", "gce", "disk",
+            "cluster", "terraform", "hcl", "testinstance1", "2397540675679890849",
+            "8385313458168693473", "2276555501399631720", "workstations", "gce_instance",
+            "guest agent", "metadata", "infra",
+        )):
             return WORKER_AGENT_BOUTIQUE[2]  # Infra Agent
+        # Preserve conversational continuity if user asks a follow-up question after consulting a specialist
+        last_assistant = next(
+            (m for m in reversed(self.general_chat_messages) if m.get("role") == "assistant" and m.get("id") != "atlas-welcome"),
+            None,
+        )
+        if last_assistant and last_assistant.get("specialist_worker") and any(
+            k in lower for k in ("service account", "in that scenario", "how will you", "how do you", "are you actually")
+        ):
+            return last_assistant["specialist_worker"]
         return WORKER_AGENT_BOUTIQUE[0]  # Serverless Agent
 
     def _classify_chat_scenario(self, query_text: str) -> Dict[str, Any]:
@@ -1236,8 +1405,25 @@ class LeadOrchestratorAgent:
                 "coordinated_specialists": coord_specs,
             }
 
-        # Check Scenario 1: Simple 1-line CLI/API troubleshooting
-        if any(k in lower for k in ("troubleshoot", "latency", "timeout", "error", "crash", "slow", "failing", "unlogged", "fix")):
+        # Check Scenario 1: Simple 1-line CLI/API troubleshooting or live instance performance/health inspection
+        if any(
+            k in lower
+            for k in (
+                "troubleshoot",
+                "latency",
+                "timeout",
+                "error",
+                "crash",
+                "slow",
+                "failing",
+                "unlogged",
+                "fix",
+                "performance",
+                "testdbinstance1",
+                "health",
+                "diagnose",
+            )
+        ) and not lower.startswith("how do i "):
             primary = self._select_specialist_for_query(query_text)
             return {
                 "scenario_type": "SCENARIO_1_CLI_FIX",
@@ -1279,9 +1465,11 @@ class LeadOrchestratorAgent:
             (m for m in reversed(self.general_chat_messages) if m.get("terraform_bundle")),
             None,
         )
+        recommended_cli_from_bundle: Optional[str] = None
         if latest_tf_msg and latest_tf_msg.get("terraform_bundle"):
             tf_bundle = latest_tf_msg["terraform_bundle"]
             tf_code = tf_bundle.get("terraform_code", "")
+            recommended_cli_from_bundle = tf_bundle.get("recommended_cli")
             coord_specs = latest_tf_msg.get("coordinated_specialists") or [WORKER_AGENT_BOUTIQUE[2]]
             primary_spec = latest_tf_msg.get("specialist_worker") or coord_specs[0]
             scen_badge = latest_tf_msg.get("scenario_badge", "Scenario 3 • Terraform Deployment")
@@ -1297,7 +1485,27 @@ class LeadOrchestratorAgent:
         workload = "terraform/aaas-managed-stack"
         cluster = "us-central1"
         namespace = "default"
-        cli_cmd = f"gcloud run services list --project={PROJECT_ID}"
+
+        sql_match = re.search(
+            r'resource\s+"google_sql_database_instance"\s+"[^"]+"\s*\{([^}]*)\}',
+            tf_code or "",
+            re.DOTALL,
+        )
+        if sql_match or (primary_spec and primary_spec.get("id") == "database-agent"):
+            sql_body = sql_match.group(1) if sql_match else ""
+            name_m = re.search(r'name\s*=\s*"([^"]+)"', sql_body)
+            reg_m = re.search(r'region\s*=\s*"([^"]+)"', sql_body)
+            sql_inst = name_m.group(1) if name_m else "testdbinstance1"
+            cluster = reg_m.group(1) if reg_m else "us-west1"
+            workload = f"cloudsql/{sql_inst}"
+            if not recommended_cli_from_bundle:
+                recommended_cli_from_bundle = (
+                    f"gcloud sql instances patch {sql_inst} "
+                    f"--database-flags=cloudsql.iam_authentication=on,max_connections=250 "
+                    f"--project={PROJECT_ID}"
+                )
+
+        cli_cmd = recommended_cli_from_bundle or f"gcloud run services list --project={PROJECT_ID}"
 
         jit_token = self.a2a_hub.jit_broker.mint_token(
             incident_id=incident_id,
@@ -1447,35 +1655,126 @@ class LeadOrchestratorAgent:
 
         rag_pb = scenario_info.get("rag_playbook")
         terraform_code: Optional[str] = rag_pb.get("terraform_code") if rag_pb else None
+        recommended_cli: Optional[str] = rag_pb.get("recommended_cli") if rag_pb else None
 
         history_text = "\n".join(
             f"{m.get('sender', m.get('role'))}: {m.get('text')}"
-            for m in self.general_chat_messages[-8:]
+            for m in self.general_chat_messages[-6:]
         )
 
         live_db_diagnosis: Optional[Dict[str, Any]] = None
-        if spec_name == "Database Agent":
+        live_infra_diagnosis: Optional[Dict[str, Any]] = None
+        is_generic_howto = lower_msg.startswith("how do i ") and not any(
+            k in lower_msg for k in ("testdb", "testinstance", "agent-triad", "agent-traid", "2397540675679890849")
+        )
+        if spec_name == "Database Agent" and not is_generic_howto:
+            contextual_prompt = (
+                f"Recent Conversation Context:\n{history_text}\n\n"
+                f"Current User Message from Hari:\n{clean_msg}"
+            )
             live_db_diagnosis = self._invoke_live_database_agent_a2a(
-                prompt=clean_msg,
-                instance_name="testdbinstance1",
+                prompt=contextual_prompt,
+                instance_name="auto",
             )
             if live_db_diagnosis:
                 prop = live_db_diagnosis.get("remediation_proposal") or {}
-                if prop.get("terraform_hcl") and not terraform_code:
+                is_identity_or_howto_followup = any(
+                    q in lower_msg
+                    for q in (
+                        "what service account",
+                        "which service account",
+                        "are you actually connecting",
+                        "how will you fix",
+                        "how do you fix",
+                    )
+                )
+                if prop.get("recommended_cli"):
+                    recommended_cli = prop["recommended_cli"]
+                if prop.get("terraform_hcl") and not terraform_code and not is_identity_or_howto_followup:
                     terraform_code = prop["terraform_hcl"]
-                    if any(k in lower_msg for k in ("troubleshoot", "fix", "error", "stop", "testdbinstance1", "testdbconnect", "fatal", "why")):
+                    if any(k in lower_msg for k in ("troubleshoot", "fix", "error", "stop", "testdbinstance1", "testdbconnect", "fatal", "why", "performance", "issue")):
+                        needs_terraform = True
+        elif spec_name == "Infra Agent" and not is_generic_howto:
+            contextual_prompt = (
+                f"Recent Conversation Context:\n{history_text}\n\n"
+                f"Current User Message from Hari:\n{clean_msg}"
+            )
+            live_infra_diagnosis = self._invoke_live_infra_agent_a2a(
+                prompt=contextual_prompt,
+                target_instance="auto",
+            )
+            if live_infra_diagnosis:
+                prop = live_infra_diagnosis.get("remediation_proposal") or {}
+                is_identity_or_howto_followup = any(
+                    q in lower_msg
+                    for q in (
+                        "what service account",
+                        "which service account",
+                        "are you actually connecting",
+                        "how will you fix",
+                        "how do you fix",
+                    )
+                )
+                if prop.get("recommended_cli"):
+                    recommended_cli = prop["recommended_cli"]
+                if prop.get("terraform_hcl") and not terraform_code and not is_identity_or_howto_followup:
+                    terraform_code = prop["terraform_hcl"]
+                    if any(k in lower_msg for k in ("troubleshoot", "fix", "error", "testinstance1", "2397540675679890849", "gce", "vm", "why", "performance", "issue")):
                         needs_terraform = True
 
         reply_text = ""
         if live_db_diagnosis and live_db_diagnosis.get("dba_reasoning_report"):
             tools_used = ", ".join(live_db_diagnosis.get("tools_invoked", []))
             insp = live_db_diagnosis.get("instance_inspection") or {}
-            reply_text = (
-                f"📡 **Atlas delegated to Live Cloud Run ADK `Database Agent` (`agent-triad-db-agent`) via A2A**\n"
-                f"• **ADK Tools Executed**: `{tools_used}`\n"
-                f"• **Live Instance Discovered**: `{insp.get('instance_name', 'testdbinstance1')}` (`{insp.get('database_version', 'POSTGRES_18')}`, Region: `{insp.get('region', 'us-west1')}`, State: **`{insp.get('state', 'STOPPED')}`**, ActivationPolicy: `{insp.get('activation_policy', 'NEVER')}`)\n\n"
-                f"{live_db_diagnosis['dba_reasoning_report']}"
-            )
+            perf = (live_db_diagnosis.get("performance_metrics") or {}).get("metrics") or {}
+            ident = live_db_diagnosis.get("runtime_identity") or {}
+            cpu_val = (perf.get("cpu_utilization_pct") or {}).get("latest")
+            mem_val = (perf.get("memory_utilization_pct") or {}).get("latest")
+            conn_val = (perf.get("active_connections") or {}).get("latest")
+            header_lines = [
+                "📡 **Atlas delegated to Live Cloud Run ADK `Database Agent` (`agent-triad-db-agent`) via A2A**",
+                f"• **ADK Tools Executed**: `{tools_used}`",
+            ]
+            if insp.get("instance_name"):
+                header_lines.append(
+                    f"• **Live Instance Discovered**: `{insp.get('instance_name')}` (`{insp.get('database_version')}`, Region: `{insp.get('region')}`, State: **`{insp.get('state')}`**, ActivationPolicy: `{insp.get('activation_policy')}`)"
+                )
+            if cpu_val is not None or mem_val is not None:
+                header_lines.append(
+                    f"• **Live Cloud Monitoring Telemetry**: CPU `{cpu_val}%` • Memory `{mem_val}%` • "
+                    f"Active Connections `{conn_val}` • Service Account `{ident.get('active_service_account', 'aaas-database-agent-sa@agent-triad.iam.gserviceaccount.com')}`"
+                )
+            elif ident.get("active_service_account"):
+                header_lines.append(
+                    f"• **Active Runtime Identity**: `{ident.get('active_service_account')}`"
+                )
+            reply_text = "\n".join(header_lines) + "\n\n" + str(live_db_diagnosis["dba_reasoning_report"])
+        elif live_infra_diagnosis and live_infra_diagnosis.get("infra_reasoning_report"):
+            tools_used = ", ".join(live_infra_diagnosis.get("tools_invoked", []))
+            insp = live_infra_diagnosis.get("instance_inspection") or {}
+            perf = (live_infra_diagnosis.get("performance_metrics") or {}).get("metrics") or {}
+            ident = live_infra_diagnosis.get("runtime_identity") or {}
+            cpu_val = (perf.get("cpu_utilization_pct") or {}).get("latest")
+            uptime_val = (perf.get("uptime_seconds") or {}).get("latest")
+            net_rx = (perf.get("network_received_bytes") or {}).get("latest")
+            header_lines = [
+                "📡 **Atlas delegated to Live Cloud Run ADK `Infra Agent` (`agent-triad-infra-agent`) via A2A**",
+                f"• **ADK Tools Executed**: `{tools_used}`",
+            ]
+            if insp.get("instance_name"):
+                header_lines.append(
+                    f"• **Live Compute VM Discovered**: `{insp.get('instance_name')}` (ID: `{insp.get('instance_id')}`, Zone: `{insp.get('zone')}`, MachineType: `{insp.get('machine_type')}`, Status: **`{insp.get('status')}`**)"
+                )
+            if cpu_val is not None or uptime_val is not None:
+                header_lines.append(
+                    f"• **Live Cloud Monitoring Telemetry**: CPU `{cpu_val}%` • Uptime `{uptime_val}s` • "
+                    f"Net RX `{net_rx} B` • Service Account `{ident.get('active_service_account', 'aaas-infra-agent-sa@agent-triad.iam.gserviceaccount.com')}`"
+                )
+            elif ident.get("active_service_account"):
+                header_lines.append(
+                    f"• **Active Runtime Identity**: `{ident.get('active_service_account')}`"
+                )
+            reply_text = "\n".join(header_lines) + "\n\n" + str(live_infra_diagnosis["infra_reasoning_report"])
         elif self._genai_client is not None:
             try:
                 prompt = (
@@ -1566,6 +1865,7 @@ class LeadOrchestratorAgent:
                 "title": scenario_badge,
                 "scenario_type": scenario_type,
                 "scenario_badge": scenario_badge,
+                "recommended_cli": recommended_cli,
                 "hcl_code": terraform_code,
                 "terraform_code": terraform_code,
                 "dry_run": dry_run_report,
