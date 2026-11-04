@@ -656,13 +656,19 @@ class LeadOrchestratorAgent:
         lock_uri = (harness_bundle.get("lock") or {}).get("gcs_uri", "gs://agent-triad-tf-state/lock.tflock")
         rag_score = impact.get("rag_similarity_score", 0.94)
 
+        w_spec = (harness_bundle.get("watchdog_spec") or {})
+        rb_mode = (
+            "Stateful Safe-Mode Isolation (`prevent_destroy=true`)"
+            if w_spec.get("rollback_mode") == "STATEFUL_SAFE_MODE_ISOLATION"
+            else "Stateless Canary Auto-Rollback"
+        )
         opening_text = (
             f"Hey Hari 👋 There's an issue I just found with **{service_label}**.\n\n"
             f"• **Classification**: `{impact.get('scenario_badge', 'Scenario 1 • 1-Line CLI/API Fix')}` (Playbook Match: `{int(rag_score * 100)}%`)\n"
             f"• **Severity**: `{severity}` — {blast}\n"
             f"• **What happened**: {what_happened}\n"
             f"• **Delegation Plan**: {coord_names}\n"
-            f"• **Safety Guardrails**: Verified Non-Destructive (`PASS`) • Resource Locked for 10m (`{lock_uri}`) • 45s Auto-Rollback Armed\n"
+            f"• **Safety Guardrails**: Verified Non-Destructive (`PASS`) • Resource Locked for 10m (`{lock_uri}`) • 45s Liveness + 3m Metric Verify ({rb_mode})\n"
             f"• **Next Steps**: {next_step}\n\n"
             "Ask me anything about why this happened, whether there's any downtime, the rollback plan, "
             "or the exact command/Terraform script. Whenever you're ready, type **'I accept'** or click **I accept** below!"
@@ -1311,16 +1317,8 @@ class LeadOrchestratorAgent:
                 "specialist": WORKER_AGENT_BOUTIQUE[0],
                 "specialist_worker": WORKER_AGENT_BOUTIQUE[0],
                 "coordinated_specialists": [WORKER_AGENT_BOUTIQUE[0]],
-                "scenario_badge": "All 4 AaaS Scenarios Ready",
-                "text": (
-                    "Hey Hari 👋 You're connected directly to **Atlas (Single Authorizing ADK Root Agent)**!\n\n"
-                    "I support all **4 AaaS Operational Scenarios**:\n"
-                    "• **Scenario 1 (Simple 1-Line CLI/API Fix)**: Quick troubleshooting & 1-line fixes.\n"
-                    "• **Scenario 2 (Complex Multi-Service Fix)**: Coordinated IAM + VPC Firewall + API/DB fixes via a validated **Terraform (`.tf`)** bundle.\n"
-                    "• **Scenario 3 (Terraform Deployment Generator)**: Ask me to generate, dry-run validate, and deploy custom **Terraform (`.tf`)** stacks.\n"
-                    "• **Scenario 4 (GCP How-To & Advisory)**: Instant answers with `$0` execution sandbox overhead.\n\n"
-                    "What would you like to build, ask, or troubleshoot today?"
-                ),
+                "scenario_badge": "Orchestrator of AaaS",
+                "text": "Hey Hari, you are now interacting with **Atlas (Orchestrator of AaaS)**. What would you like to do?",
                 "timestamp": now_iso,
             }
         ]
@@ -1381,7 +1379,7 @@ class LeadOrchestratorAgent:
             ]
             return {
                 "scenario_type": "SCENARIO_2_MULTI_SERVICE_TERRAFORM",
-                "scenario_badge": "Scenario 2 • Multi-Service Terraform Fix",
+                "scenario_badge": "Multi-Service Terraform Fix",
                 "needs_terraform": True,
                 "rag_playbook": rag_pb,
                 "coordinated_specialists": coord_specs,
@@ -1399,7 +1397,7 @@ class LeadOrchestratorAgent:
             ]
             return {
                 "scenario_type": "SCENARIO_3_TERRAFORM_DEPLOYMENT",
-                "scenario_badge": "Scenario 3 • Terraform Deployment Generator",
+                "scenario_badge": "Terraform Stack Generator",
                 "needs_terraform": True,
                 "rag_playbook": rag_pb,
                 "coordinated_specialists": coord_specs,
@@ -1427,7 +1425,7 @@ class LeadOrchestratorAgent:
             primary = self._select_specialist_for_query(query_text)
             return {
                 "scenario_type": "SCENARIO_1_CLI_FIX",
-                "scenario_badge": "Scenario 1 • CLI/API Troubleshooting",
+                "scenario_badge": "Live Diagnostics & CLI Fix",
                 "needs_terraform": False,
                 "rag_playbook": None,
                 "coordinated_specialists": [primary],
@@ -1437,7 +1435,7 @@ class LeadOrchestratorAgent:
         primary = self._select_specialist_for_query(query_text)
         return {
             "scenario_type": "SCENARIO_4_HOW_TO",
-            "scenario_badge": "Scenario 4 • GCP How-To Advisory ($0 Sandbox Overhead)",
+            "scenario_badge": "GCP How-To Guide",
             "needs_terraform": False,
             "rag_playbook": None,
             "coordinated_specialists": [primary],
@@ -1639,6 +1637,59 @@ class LeadOrchestratorAgent:
         # If Hari says "I accept" or "deploy terraform" after a Terraform bundle was generated in chat
         if any(p in lower_msg for p in ("i accept", "deploy terraform", "apply terraform", "execute terraform")) and "?" not in lower_msg:
             return await self.execute_chat_terraform_deployment(approved_by="Hari (via Chat)")
+
+        # If Hari asks about the scenarios / capabilities Atlas supports
+        if any(
+            p in lower_msg
+            for p in (
+                "what scenario",
+                "which scenario",
+                "about the scenario",
+                "list scenario",
+                "4 scenario",
+                "four scenario",
+                "supported scenario",
+                "what can you do",
+                "what do you support",
+                "show scenario",
+                "scenarios",
+            )
+        ) and not any(k in lower_msg for k in ("in that scenario", "cloud run", "cloud sql", "firewall", "latency")):
+            scenarios_text = (
+                "I support all **4 AaaS Operational Scenarios**, Hari:\n"
+                "• **Scenario 1 (Simple 1-Line CLI/API Fix)**: Quick troubleshooting & 1-line fixes.\n"
+                "• **Scenario 2 (Complex Multi-Service Fix)**: Coordinated IAM + VPC Firewall + API/DB fixes via a validated **Terraform (`.tf`)** bundle.\n"
+                "• **Scenario 3 (Terraform Deployment Generator)**: Ask me to generate, dry-run validate, and deploy custom **Terraform (`.tf`)** stacks.\n"
+                "• **Scenario 4 (GCP How-To & Advisory)**: Instant answers with `$0` execution sandbox overhead.\n\n"
+                "Which scenario would you like to run?"
+            )
+            primary_spec = WORKER_AGENT_BOUTIQUE[0]
+            reply_msg = {
+                "role": "assistant",
+                "sender": "Atlas • AaaS Lead",
+                "specialist": primary_spec,
+                "specialist_worker": primary_spec,
+                "coordinated_specialists": [primary_spec],
+                "scenario_type": "SCENARIO_4_HOW_TO",
+                "scenario_badge": "All 4 AaaS Scenarios",
+                "terraform_bundle": None,
+                "live_database_agent_diagnosis": None,
+                "text": scenarios_text,
+                "timestamp": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+            }
+            self.general_chat_messages.append(reply_msg)
+            return {
+                "action_taken": "DIRECT_ATLAS_CHAT_REPLY",
+                "scenario_type": "SCENARIO_4_HOW_TO",
+                "scenario_badge": "All 4 AaaS Scenarios",
+                "reply": scenarios_text,
+                "specialist_worker": primary_spec,
+                "coordinated_specialists": [primary_spec],
+                "consulted_specialist": primary_spec,
+                "terraform_bundle": None,
+                "live_database_agent_diagnosis": None,
+                "messages": list(self.general_chat_messages),
+            }
 
         scenario_info = self._classify_chat_scenario(clean_msg)
         scenario_type = scenario_info["scenario_type"]

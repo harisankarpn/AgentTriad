@@ -584,14 +584,18 @@ def generate_infra_remediation_proposal(
         )
 
     terraform_hcl = f"""resource "google_compute_instance" "{vm_name.replace('-', '_')}" {{
-  name         = "{vm_name}"
-  project      = "{project_id}"
-  zone         = "{vm_zone}"
-  machine_type = "{vm_type}"
+  name           = "{vm_name}"
+  project        = "{project_id}"
+  zone           = "{vm_zone}"
+  machine_type   = "{vm_type}"
   desired_status = "RUNNING"
 
   metadata = {{
     enable-guest-attributes = "TRUE"
+  }}
+
+  lifecycle {{
+    prevent_destroy = true
   }}
 }}"""
 

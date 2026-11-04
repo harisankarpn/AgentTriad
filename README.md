@@ -24,7 +24,7 @@ Agent-Triad is an autonomous, outcome-driven cloud support and operations platfo
   * **Pre-Flight Safety Check (OPA Policy Gate)**: Blocks destructive commands (`delete`, `drop`, `destroy`) and strictly protects external/shared teammate services (such as `testdbconnect` in `us-west1`).
   * **10-Minute Resource Lease (`.tflock`)**: Prevents concurrent or conflicting modifications to the same cloud resource.
   * **15-Minute Single-Use WIF JIT Token**: Specialists have **read-only** standing permissions; mutations require an ephemeral token minted only when the operator clicks **`I accept`**.
-  * **45-Second Post-Fix Auto-Rollback Monitor**: Watches live logs and metrics for 45 seconds after any change and automatically reverts the configuration if errors spike.
+  * **Two-Stage Post-Fix Verification & Bifurcated Rollback (`45s` Liveness + `3m` Metrics)**: Pairs a **45-second direct Control-Plane API liveness probe** (with strict `timestamp > execution_completed_at` filtering to ignore delayed pre-fix logs) with a **3-minute (180s) Cloud Monitoring stabilization window** and **45-minute anti-flapping hysteresis freeze**. Stateless workloads (`Cloud Run`/`GKE`) auto-revert on regression, while stateful workloads (`Cloud SQL`/Disks) enforce **Stateful Safe-Mode Isolation** (`deletion_protection = true`, `prevent_destroy = true`).
 
 ---
 
@@ -80,6 +80,25 @@ AgentTriad enforces **Zero-Standing Privilege** across all deployed identities m
 | **`aaas-database-agent-sa@agent-triad.iam.gserviceaccount.com`** | `agent-triad-db-agent` | `roles/cloudsql.viewer`<br>`roles/monitoring.viewer`<br>`roles/logging.viewer`<br>`roles/aiplatform.user` | **Strictly Read-Only** Cloud SQL metadata, Cloud Monitoring metrics, and Cloud Logging access + Vertex AI Gemini ADK inference. **Zero write/admin roles.** |
 | **`aaas-infra-agent-sa@agent-triad.iam.gserviceaccount.com`** | `agent-triad-infra-agent` | `roles/compute.viewer`<br>`roles/monitoring.viewer`<br>`roles/logging.viewer`<br>`roles/aiplatform.user` | **Strictly Read-Only** Compute Engine VM/disk inventory, Cloud Monitoring metrics, and Cloud Logging access + Vertex AI Gemini ADK inference. **Zero write/admin roles.** |
 | **Control Plane Runtime SA** (`1041190629307-compute@developer.gserviceaccount.com`) | `agent-triad-control-plane` | `roles/run.invoker` *(on `agent-triad-db-agent` & `agent-triad-infra-agent`)*<br>Cloud Logging, Monitoring, Run, SQL & Compute API inspection | Authorizes Atlas to invoke specialist Cloud Run endpoints via OIDC tokens and execute human-approved remediations only after minting a 15-minute JIT token. |
+
+### 6. Production Resilience & Enterprise Architecture Guarantees
+To prevent common autonomous SRE failure modes in production, the Agent Harness ([`poc/services/agent_harness.py`](./poc/services/agent_harness.py)) and ADK Specialist Agents enforce four additional architectural guarantees:
+
+1. **Two-Stage Post-Fix Verification Window (Accounting for GCP Metric Ingestion Latency)**:
+   * Because Google Cloud Monitoring (`monitoring.googleapis.com/v3`) time-series pipelines can take 60–180 seconds to aggregate, a single 45-second check could miss delayed metric spikes or react to pre-fix log entries.
+   * AgentTriad therefore uses a **3-Stage Verification Pipeline**:
+     * **Stage 1 (`45s` Direct API Liveness + Timestamp Guard)**: Immediately polls the live GCP Control Plane REST API (`sqladmin`, `compute`, `run`) and filters Cloud Logging strictly to `timestamp > execution_completed_at` so delayed pre-fix logs are never mistaken for post-fix regressions.
+     * **Stage 2 (`180s` / `3-Minute` Cloud Monitoring Stabilization Window)**: Evaluates aggregated CPU, memory, and connection time-series across a full 3-minute window.
+     * **Stage 3 (`45-Minute` Temporal Hysteresis Freeze)**: Applies a 45-minute cooldown (`temporal_hysteresis_freezes`) per workload to prevent oscillation/flapping.
+2. **Bifurcated Rollback Engine (Stateless Auto-Rollback vs. Stateful Safe-Mode Isolation)**:
+   * **Stateless Workloads (`STATELESS_CANARY_ROLLBACK`)**: Cloud Run revisions, GKE deployments, and VM guest metadata support atomic rollback to the prior healthy revision/state.
+   * **Stateful Workloads (`STATEFUL_SAFE_MODE_ISOLATION`)**: Automated destructive rollbacks are **strictly forbidden** on stateful resources (`Cloud SQL`, `AlloyDB`, `Spanner`, Persistent Disks). All generated Terraform HCL in [`agents/database_agent/agent.py`](./agents/database_agent/agent.py) enforces `deletion_protection = true` and `lifecycle { prevent_destroy = true }`, and [`validate_terraform_dry_run()`](./poc/services/agent_harness.py) rejects (`FAILED`) any HCL with `deletion_protection = false` or `force_destroy = true`.
+3. **Zero-SPOF Degraded Mode (`$0` LLM Deterministic Fallback & Direct Specialist Endpoints)**:
+   * If the regional Vertex AI Gemini endpoint (`us-central1`) experiences quota exhaustion (`429`) or an outage, `Atlas`, `agent-triad-db-agent`, and `agent-triad-infra-agent` automatically bypass the LLM and execute their **deterministic GCP REST API tools and Golden Playbooks at `0` LLM tokens**.
+   * Furthermore, each specialist microservice exposes an independent `POST /diagnose` endpoint so Cloud Monitoring webhooks or SREs can invoke domain diagnostics directly even if `agent-triad-control-plane` is unreachable.
+4. **Hub-and-Spoke Multi-Project & Shared VPC / VPC-SC Readiness**:
+   * While deployed in a single project (`agent-triad`) for this reference implementation, every ADK tool function (`inspect_cloudsql_instance`, `inspect_compute_instances`, `get_database_performance_metrics`, `get_compute_performance_metrics`, `analyze_postgres_logs`, `analyze_infra_logs`) accepts a dynamic `project_id` parameter.
+   * In a multi-project enterprise **Hub-and-Spoke** topology, the Cloud Run ADK agents reside in the central **AaaS Hub Project** and inspect **Spoke Projects** via cross-project read-only IAM bindings (`roles/cloudsql.viewer`, `roles/compute.viewer`, `roles/monitoring.viewer`, `roles/logging.viewer`), Aggregated Organization Log Sinks, and VPC Service Controls (VPC-SC) ingress/egress rules.
 
 ---
 

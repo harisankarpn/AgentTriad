@@ -535,14 +535,19 @@ def generate_remediation_proposal(
         )
         reason = f"Instance `{instance_name}` has `state={real_state}` (`activationPolicy={real_policy}`). Starting instance."
         terraform_hcl = f"""resource "google_sql_database_instance" "{instance_name}" {{
-  name             = "{instance_name}"
-  project          = "{project_id}"
-  region           = "{real_region}"
-  database_version = "{real_version}"
+  name                = "{instance_name}"
+  project             = "{project_id}"
+  region              = "{real_region}"
+  database_version    = "{real_version}"
+  deletion_protection = true
 
   settings {{
     tier              = "{real_tier}"
     activation_policy = "ALWAYS"
+  }}
+
+  lifecycle {{
+    prevent_destroy = true
   }}
 }}"""
     # Case 2: Instance is RUNNABLE, but `0.0.0.0/0` is open and logs show external unencrypted / brute-force rejections
@@ -559,10 +564,11 @@ def generate_remediation_proposal(
             f"to trusted CIDR `{trusted_cidr_str}` while preserving `ENCRYPTED_ONLY`."
         )
         terraform_hcl = f"""resource "google_sql_database_instance" "{instance_name}" {{
-  name             = "{instance_name}"
-  project          = "{project_id}"
-  region           = "{real_region}"
-  database_version = "{real_version}"
+  name                = "{instance_name}"
+  project             = "{project_id}"
+  region              = "{real_region}"
+  database_version    = "{real_version}"
+  deletion_protection = true
 
   settings {{
     tier              = "{real_tier}"
@@ -583,6 +589,10 @@ def generate_remediation_proposal(
       value = "on"
     }}
   }}
+
+  lifecycle {{
+    prevent_destroy = true
+  }}
 }}"""
     # Case 3: Connection pool / performance tuning
     else:
@@ -596,10 +606,11 @@ def generate_remediation_proposal(
             f"on `{instance_name}` ({real_version}, {real_tier} in {real_region})."
         )
         terraform_hcl = f"""resource "google_sql_database_instance" "{instance_name}" {{
-  name             = "{instance_name}"
-  project          = "{project_id}"
-  region           = "{real_region}"
-  database_version = "{real_version}"
+  name                = "{instance_name}"
+  project             = "{project_id}"
+  region              = "{real_region}"
+  database_version    = "{real_version}"
+  deletion_protection = true
 
   settings {{
     tier              = "{real_tier}"
@@ -617,6 +628,10 @@ def generate_remediation_proposal(
       name  = "log_min_duration_statement"
       value = "500"
     }}
+  }}
+
+  lifecycle {{
+    prevent_destroy = true
   }}
 }}"""
 

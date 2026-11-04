@@ -247,7 +247,9 @@
     html[data-theme="light"] .bg-slate-900\/95,
     html[data-theme="light"] .bg-slate-900\/90,
     html[data-theme="light"] .bg-slate-900\/80,
+    html[data-theme="light"] .bg-slate-900\/70,
     html[data-theme="light"] .bg-slate-900\/60,
+    html[data-theme="light"] .bg-slate-900\/50,
     html[data-theme="light"] .bg-slate-800,
     html[data-theme="light"] .bg-slate-800\/90 { background-color: var(--bg-elevated) !important; }
     html[data-theme="light"] .border-slate-800,
@@ -338,26 +340,6 @@
             </button>
           </nav>
         </div>
-
-        <!-- Google Cloud Architecture Mini Card in Sidebar -->
-        <div class="hidden lg:block p-3.5 rounded-2xl bg-slate-900/70 border border-slate-800 space-y-2">
-          <div class="flex items-center justify-between text-[11px] font-semibold text-white">
-            <span class="flex items-center gap-1.5">
-              <span class="inline-block w-2 h-2 rounded-full bg-[#4285F4]"></span>
-              <span>GCP Project</span>
-            </span>
-            <span class="mono text-[10px] g-badge-blue px-2 py-0.5 rounded-full">agent-triad</span>
-          </div>
-          <div class="text-[11px] text-slate-400 leading-relaxed">
-            Connected to live Cloud Run <code class="mono text-[10px]">agent-triad-db-agent</code> &amp; <code class="mono text-[10px]">agent-triad-infra-agent</code>.
-          </div>
-          <div class="flex items-center gap-1 pt-1">
-            <span class="h-1 flex-1 rounded-full bg-[#4285F4]"></span>
-            <span class="h-1 flex-1 rounded-full bg-[#EA4335]"></span>
-            <span class="h-1 flex-1 rounded-full bg-[#FBBC04]"></span>
-            <span class="h-1 flex-1 rounded-full bg-[#34A853]"></span>
-          </div>
-        </div>
       </div>
 
       <!-- Bottom Sidebar Clean Footer Metadata -->
@@ -422,182 +404,248 @@
       </header>
 
       <!-- View Content Container -->
-      <main class="flex-1 max-w-6xl w-full mx-auto px-4 sm:px-8 py-6">
+      <main class="flex-1 max-w-6xl w-full mx-auto px-4 sm:px-8 py-5">
 
         <!-- ===================================================================== -->
-        <!-- VIEW 1: ATLAS COMMAND CENTER (Google Cloud Dribbble Dashboard Style)  -->
+        <!-- VIEW 1: ATLAS COMMAND CENTER (Minimal, Action-First Layout)           -->
         <!-- ===================================================================== -->
-        <div id="view-command" class="space-y-6">
+        <div id="view-command" class="space-y-4">
 
-          <!-- Dribbble-Inspired Executive Telemetry KPI Row (4 Official Google Brand Colors) -->
-          <section class="grid grid-cols-2 lg:grid-cols-4 gap-3.5">
-            <!-- KPI 1: Google Blue -->
-            <div class="glass border border-slate-800 rounded-2xl p-3.5 flex items-center justify-between gap-3" title="Read-only discovery &amp; telemetry across Compute Engine, Cloud SQL, Cloud Run, Cloud Monitoring, and Cloud Logging APIs">
+          <!-- 1. Compact 4-Metric Status Strip -->
+          <section class="grid grid-cols-2 lg:grid-cols-4 gap-3">
+            <div class="glass border border-slate-800 rounded-2xl px-3.5 py-2.5 flex items-center justify-between gap-2.5" title="Read-only discovery &amp; telemetry across Compute Engine, Cloud SQL, Cloud Run, Cloud Monitoring, and Cloud Logging APIs">
               <div class="min-w-0">
-                <div class="text-[10px] font-semibold uppercase tracking-wider text-slate-400">Read-Only GCP Discovery</div>
-                <div class="text-base sm:text-lg font-bold text-white mt-0.5 truncate">5 Live APIs Connected</div>
-                <div class="text-[11px] text-[#4285F4] font-medium truncate">Compute, SQL, Run, Logs &amp; Metrics</div>
+                <div class="text-[10px] font-medium text-slate-400">GCP Discovery</div>
+                <div class="text-sm font-bold text-white truncate">5 APIs Live</div>
               </div>
-              <div class="w-10 h-10 rounded-2xl g-badge-blue flex items-center justify-center shrink-0">
-                <i class="fa-solid fa-cloud-bolt text-sm"></i>
+              <div class="w-8 h-8 rounded-xl g-badge-blue flex items-center justify-center shrink-0">
+                <i class="fa-solid fa-cloud-bolt text-xs"></i>
               </div>
             </div>
 
-            <!-- KPI 2: Google Green -->
-            <div class="glass border border-slate-800 rounded-2xl p-3.5 flex items-center justify-between gap-3" title="Live Google ADK microservices running on Cloud Run: agent-triad-db-agent &amp; agent-triad-infra-agent">
+            <div class="glass border border-slate-800 rounded-2xl px-3.5 py-2.5 flex items-center justify-between gap-2.5" title="Live Google ADK microservices running on Cloud Run: Database Agent &amp; Infra Agent">
               <div class="min-w-0">
-                <div class="text-[10px] font-semibold uppercase tracking-wider text-slate-400">Live Cloud Run ADK Agents</div>
-                <div class="text-base sm:text-lg font-bold text-white mt-0.5 truncate">2 Specialists Online</div>
-                <div class="text-[11px] text-[#34A853] font-medium truncate">Database Agent &amp; Infra Agent</div>
+                <div class="text-[10px] font-medium text-slate-400">Cloud Run ADK</div>
+                <div class="text-sm font-bold text-white truncate">2 Agents Online</div>
               </div>
-              <div class="w-10 h-10 rounded-2xl g-badge-green flex items-center justify-center shrink-0">
-                <i class="fa-solid fa-cubes text-sm"></i>
+              <div class="w-8 h-8 rounded-xl g-badge-green flex items-center justify-center shrink-0">
+                <i class="fa-solid fa-cubes text-xs"></i>
               </div>
             </div>
 
-            <!-- KPI 3: Google Yellow -->
-            <div class="glass border border-slate-800 rounded-2xl p-3.5 flex items-center justify-between gap-3" title="Every proposed command is pre-checked to block delete/drop actions and protect shared teammate services, with a 10-minute resource lock">
+            <div class="glass border border-slate-800 rounded-2xl px-3.5 py-2.5 flex items-center justify-between gap-2.5" title="Blocks destructive commands, protects shared services, and locks target resources for 10m during fixes">
               <div class="min-w-0">
-                <div class="text-[10px] font-semibold uppercase tracking-wider text-slate-400">Pre-Flight Safety Check</div>
-                <div class="text-base sm:text-lg font-bold text-white mt-0.5 truncate">Guardrails Active</div>
-                <div class="text-[11px] text-[#F9AB00] font-medium truncate">Blocks Delete &amp; Protects Shared Apps</div>
+                <div class="text-[10px] font-medium text-slate-400">Safety Policy</div>
+                <div class="text-sm font-bold text-white truncate">Guardrails Active</div>
               </div>
-              <div class="w-10 h-10 rounded-2xl g-badge-yellow flex items-center justify-center shrink-0">
-                <i class="fa-solid fa-lock text-sm"></i>
+              <div class="w-8 h-8 rounded-xl g-badge-yellow flex items-center justify-center shrink-0">
+                <i class="fa-solid fa-lock text-xs"></i>
               </div>
             </div>
 
-            <!-- KPI 4: Google Red / Security -->
-            <div class="glass border border-slate-800 rounded-2xl p-3.5 flex items-center justify-between gap-3" title="Monitors live health for 45 seconds after any approved change and automatically reverts if errors spike">
+            <div class="glass border border-slate-800 rounded-2xl px-3.5 py-2.5 flex items-center justify-between gap-2.5" title="45s direct API liveness probe + 3m Cloud Monitoring metric window; Safe-Mode Isolation for databases">
               <div class="min-w-0">
-                <div class="text-[10px] font-semibold uppercase tracking-wider text-slate-400">Auto-Rollback Protection</div>
-                <div class="text-base sm:text-lg font-bold text-white mt-0.5 truncate">45s Post-Fix Monitor</div>
-                <div class="text-[11px] text-[#EA4335] font-medium truncate">Reverts Automatically on Error</div>
+                <div class="text-[10px] font-medium text-slate-400">Post-Fix Verify</div>
+                <div class="text-sm font-bold text-white truncate">45s + 3m Watchdog</div>
               </div>
-              <div class="w-10 h-10 rounded-2xl g-badge-red flex items-center justify-between justify-center shrink-0">
-                <i class="fa-solid fa-shield-halved text-sm mx-auto"></i>
+              <div class="w-8 h-8 rounded-xl g-badge-red flex items-center justify-center shrink-0">
+                <i class="fa-solid fa-shield-halved text-xs"></i>
               </div>
             </div>
           </section>
 
-          <!-- 1. Visual 3-Agent Flow Pipeline (Google Blue, Google 4-Color, Google Green) -->
-          <section class="grid grid-cols-1 md:grid-cols-3 gap-4 items-stretch">
-            <!-- Agent 1: Heartbeat & Telemetry (Google Blue) -->
-            <div id="card-log-watcher-agent" class="glass g-card-blue border border-slate-800 rounded-2xl p-5 transition duration-200 flex flex-col justify-between">
-              <div>
-                <div class="flex items-center justify-between mb-3">
-                  <div class="flex items-center gap-3">
-                    <div class="w-10 h-10 rounded-xl g-badge-blue flex items-center justify-center">
-                      <i class="fa-solid fa-wave-square text-sm"></i>
-                    </div>
-                    <div>
-                      <div class="text-[10px] font-bold uppercase tracking-wider text-[#4285F4]">Step 1 • Observe</div>
-                      <div class="text-sm sm:text-base font-bold text-white">Heartbeat &amp; Telemetry</div>
-                    </div>
-                  </div>
-                  <span id="badge-watcher" class="g-badge-blue text-[10px] font-semibold px-2.5 py-0.5 rounded-full">Watching Live</span>
-                </div>
-                <p class="text-xs text-slate-300 leading-relaxed">
-                  Continuously streams SAIF-sanitized Google Cloud Logging entries, Cloud SQL alerts, and 15s service heartbeats.
-                </p>
-              </div>
-              <div class="pt-3.5 mt-4 border-t border-slate-800/80 flex items-center justify-between text-xs">
-                <span class="text-slate-400 mono text-[11px]">Cloud Logging API</span>
-                <button type="button" onclick="switchView('logs')" class="text-[#4285F4] hover:underline font-medium cursor-pointer flex items-center gap-1">
-                  <span>View Stream</span>
-                  <i class="fa-solid fa-arrow-right text-[10px]"></i>
-                </button>
-              </div>
-            </div>
+          <!-- 2. Multi-Incident Switcher Bar (Appears only when >1 incident is active) -->
+          <div id="incidentSwitcherBar" class="hidden max-w-4xl w-full mx-auto"></div>
 
-            <!-- Agent 2: Lead Orchestrator (Atlas) (Google 4-Color Signature) -->
-            <div id="card-lead-orchestrator-agent" class="glass g-card-fourcolor border border-slate-800 rounded-2xl p-5 transition duration-200 flex flex-col justify-between">
-              <div>
-                <div class="flex items-center justify-between mb-3">
-                  <div class="flex items-center gap-3">
-                    <div class="w-10 h-10 rounded-xl g-badge-yellow flex items-center justify-center p-1.5">
-                      <svg viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg" class="w-full h-full" aria-label="Atlas Holding GCP Cloud">
-                        <path d="M20 28C15.58 28 12 24.42 12 20C12 15.93 15.05 12.57 19 12.06C20.88 7.89 25.09 5 30 5C36.05 5 41.06 9.48 41.88 15.3C46.46 15.74 50 19.59 50 24.25" stroke="#4285F4" stroke-width="3.8" stroke-linecap="round"/>
-                        <path d="M19 12.06C20.88 7.89 25.09 5 30 5C34.25 5 37.98 7.21 40.08 10.56" stroke="#EA4335" stroke-width="3.8" stroke-linecap="round"/>
-                        <path d="M12.5 22.5C13.6 25.7 16.55 28 20 28H33" stroke="#FBBC04" stroke-width="3.8" stroke-linecap="round"/>
-                        <path d="M33 28H44" stroke="#34A853" stroke-width="3.8" stroke-linecap="round"/>
-                        <circle cx="32" cy="36.5" r="4.2" fill="#FBBC04"/>
-                        <path d="M17 29L22 39.5L27.5 42.5H36.5L42 39.5L47 29" stroke="#4285F4" stroke-width="3.6" stroke-linecap="round" stroke-linejoin="round"/>
-                      </svg>
-                    </div>
-                    <div>
-                      <div class="text-[10px] font-bold uppercase tracking-wider text-[#F9AB00]">Step 2 • Reason &amp; Gate</div>
-                      <div class="text-sm sm:text-base font-bold text-white">Atlas (AaaS Lead)</div>
-                    </div>
-                  </div>
-                  <span id="badge-orchestrator" class="g-badge-yellow text-[10px] font-semibold px-2.5 py-0.5 rounded-full">All Clear</span>
-                </div>
-                <p class="text-xs text-slate-300 leading-relaxed">
-                  Single Gemini ADK Root Orchestrator. Diagnoses root causes, coordinates specialists over A2A, and mints 15m WIF JIT tokens on approval.
-                </p>
-              </div>
-              <div class="pt-3.5 mt-4 border-t border-slate-800/80 flex items-center justify-between text-xs">
-                <button type="button" onclick="openDirectAtlasChat()" class="text-[#4285F4] hover:underline font-medium cursor-pointer flex items-center gap-1">
-                  <i class="fa-regular fa-comment-dots"></i>
-                  <span>Ask Atlas</span>
-                </button>
-                <button type="button" onclick="switchView('audit')" class="text-slate-400 hover:text-white cursor-pointer">
-                  Audit Trail →
-                </button>
-              </div>
-            </div>
-
-            <!-- Agent 3: Specialist Agent Roster (Google Green) -->
-            <div id="card-gke-assist-agent" class="glass g-card-green border border-slate-800 rounded-2xl p-5 transition duration-200 flex flex-col justify-between">
-              <div>
-                <div class="flex items-center justify-between mb-2.5">
-                  <div class="flex items-center gap-3">
-                    <div class="w-10 h-10 rounded-xl g-badge-green flex items-center justify-center">
-                      <i class="fa-solid fa-cubes text-sm"></i>
-                    </div>
-                    <div>
-                      <div class="text-[10px] font-bold uppercase tracking-wider text-[#34A853]">Step 3 • Remediate</div>
-                      <div class="text-sm sm:text-base font-bold text-white">Specialist Agent Roster</div>
-                    </div>
-                  </div>
-                  <span id="badge-worker" class="g-badge-green text-[10px] font-semibold px-2.5 py-0.5 rounded-full">7 Specialists</span>
-                </div>
-                <div id="workerBoutiquePills" class="flex flex-wrap gap-1.5 mt-2">
-                  <span data-agent-id="serverless-agent" class="worker-pill inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-slate-900 border border-slate-800 text-[10px] text-slate-300">
-                    <i class="fa-solid fa-bolt text-[#4285F4] text-[9px]"></i> Serverless Agent
-                  </span>
-                  <span data-agent-id="database-agent" class="worker-pill inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-slate-900 border border-slate-800 text-[10px] text-slate-300">
-                    <i class="fa-solid fa-database text-[#34A853] text-[9px]"></i> Database Agent
-                  </span>
-                  <span data-agent-id="infra-agent" class="worker-pill inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-slate-900 border border-slate-800 text-[10px] text-slate-300">
-                    <i class="fa-solid fa-server text-[#4285F4] text-[9px]"></i> Infra Agent
-                  </span>
-                  <span data-agent-id="networking-agent" class="worker-pill inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-slate-900 border border-slate-800 text-[10px] text-slate-300">
-                    <i class="fa-solid fa-network-wired text-[#FBBC04] text-[9px]"></i> Networking Agent
-                  </span>
-                  <span data-agent-id="data-analytics-agent" class="worker-pill inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-slate-900 border border-slate-800 text-[10px] text-slate-300">
-                    <i class="fa-solid fa-chart-line text-[#4285F4] text-[9px]"></i> Data Analytics Agent
-                  </span>
-                  <span data-agent-id="security-agent" class="worker-pill inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-slate-900 border border-slate-800 text-[10px] text-slate-300">
-                    <i class="fa-solid fa-shield-halved text-[#EA4335] text-[9px]"></i> Security Agent
-                  </span>
-                  <span data-agent-id="billing-agent" class="worker-pill inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-slate-900 border border-slate-800 text-[10px] text-slate-300">
-                    <i class="fa-solid fa-coins text-[#34A853] text-[9px]"></i> Billing Agent
-                  </span>
-                </div>
-              </div>
-              <div class="pt-3.5 mt-4 border-t border-slate-800/80 flex items-center justify-between text-xs">
-                <span class="text-slate-400 mono text-[11px]">WIF 15m JIT Token</span>
-                <button type="button" onclick="switchView('roster')" class="text-[#34A853] hover:underline font-medium cursor-pointer flex items-center gap-1">
-                  <span>Explore Roster</span>
-                  <i class="fa-solid fa-arrow-right text-[10px]"></i>
-                </button>
-              </div>
-            </div>
-          </section>
-
-          <!-- 2. CENTER HERO STAGE: Interactive Atlas Co-Pilot Chatbot -->
+          <!-- 3. PRIMARY FOCUS: Interactive Center Stage (Incident Approval / Atlas Chat / Healthy Status) -->
           <section id="centerStage" class="max-w-4xl w-full mx-auto">
+          </section>
+
+          <!-- 4. Slim 1-Line Pipeline Status & On-Demand Info Bar (Both Drawers Collapsed by Default) -->
+          <section class="max-w-4xl w-full mx-auto space-y-3">
+            <div class="glass border border-slate-800 rounded-2xl px-4 py-2.5 flex flex-wrap items-center justify-between gap-2 text-xs">
+              <!-- Live 1-Line Step 1 -> Step 2 -> Step 3 Indicator -->
+              <div class="flex flex-wrap items-center gap-2 text-[11px]">
+                <span class="inline-flex items-center gap-1.5 text-slate-300">
+                  <span class="w-2 h-2 rounded-full bg-[#4285F4]"></span>
+                  <span class="font-semibold text-white">1. Observe</span>
+                  <span id="compact-badge-watcher" class="text-[10px] text-slate-400">(Watching)</span>
+                </span>
+                <i class="fa-solid fa-chevron-right text-[9px] text-slate-600"></i>
+                <span class="inline-flex items-center gap-1.5 text-slate-300">
+                  <span class="w-2 h-2 rounded-full bg-[#FBBC04]"></span>
+                  <span class="font-semibold text-white">2. Atlas</span>
+                  <span id="compact-badge-orchestrator" class="text-[10px] text-[#34A853] font-medium">(All Clear)</span>
+                </span>
+                <i class="fa-solid fa-chevron-right text-[9px] text-slate-600"></i>
+                <span class="inline-flex items-center gap-1.5 text-slate-300">
+                  <span class="w-2 h-2 rounded-full bg-[#34A853]"></span>
+                  <span class="font-semibold text-white">3. Specialists</span>
+                  <span id="compact-badge-worker" class="text-[10px] text-slate-400">(7 Ready)</span>
+                </span>
+              </div>
+
+              <!-- On-Demand Toggle Buttons for Pipeline Details & Architecture Features -->
+              <div class="flex items-center gap-2">
+                <button type="button" onclick="togglePipelineSteps()" id="btnTogglePipeline"
+                  class="px-3 py-1 rounded-full bg-slate-900 hover:bg-slate-800 border border-slate-800 text-[11px] text-slate-300 transition cursor-pointer inline-flex items-center gap-1.5">
+                  <i class="fa-solid fa-diagram-next text-[#4285F4] text-[10px]"></i>
+                  <span id="pipelineToggleText">How It Works (Step 1–3)</span>
+                  <i class="fa-solid fa-chevron-down text-[9px]" id="pipelineChevronIcon"></i>
+                </button>
+                <button type="button" onclick="toggleCapabilitiesBanner()" id="btnToggleBanner"
+                  class="px-3 py-1 rounded-full bg-slate-900 hover:bg-slate-800 border border-slate-800 text-[11px] text-slate-300 transition cursor-pointer inline-flex items-center gap-1.5">
+                  <i class="fa-solid fa-bolt text-[#FBBC04] text-[10px]"></i>
+                  <span id="bannerToggleText">Key Features</span>
+                  <i class="fa-solid fa-chevron-down text-[9px]" id="bannerChevronIcon"></i>
+                </button>
+              </div>
+            </div>
+
+            <!-- Collapsible Drawer A: Step 1 to Step 3 Agent Pipeline (Hidden by default) -->
+            <div id="pipelineStepsDrawer" class="hidden grid grid-cols-1 md:grid-cols-3 gap-3.5 items-stretch">
+              <!-- Agent 1: Heartbeat & Telemetry -->
+              <div id="card-log-watcher-agent" class="glass g-card-blue border border-slate-800 rounded-2xl p-4 transition duration-200 flex flex-col justify-between">
+                <div>
+                  <div class="flex items-center justify-between mb-2">
+                    <div class="flex items-center gap-2.5">
+                      <div class="w-8 h-8 rounded-xl g-badge-blue flex items-center justify-center">
+                        <i class="fa-solid fa-wave-square text-xs"></i>
+                      </div>
+                      <div>
+                        <div class="text-[10px] font-bold uppercase tracking-wider text-[#4285F4]">Step 1 • Observe</div>
+                        <div class="text-xs sm:text-sm font-bold text-white">Heartbeat &amp; Telemetry</div>
+                      </div>
+                    </div>
+                    <span id="badge-watcher" class="g-badge-blue text-[10px] font-semibold px-2 py-0.5 rounded-full">Watching Live</span>
+                  </div>
+                  <p class="text-[11px] text-slate-400 leading-relaxed">
+                    Scans Google Cloud Logging and sanitizes alerts before sending them to Atlas.
+                  </p>
+                </div>
+                <div class="pt-2.5 mt-3 border-t border-slate-800/80 flex items-center justify-between text-[11px]">
+                  <span class="text-slate-500 mono text-[10px]">Cloud Logging</span>
+                  <button type="button" onclick="switchView('logs')" class="text-[#4285F4] hover:underline font-medium cursor-pointer">
+                    View Logs →
+                  </button>
+                </div>
+              </div>
+
+              <!-- Agent 2: Lead Orchestrator (Atlas) -->
+              <div id="card-lead-orchestrator-agent" class="glass g-card-fourcolor border border-slate-800 rounded-2xl p-4 transition duration-200 flex flex-col justify-between">
+                <div>
+                  <div class="flex items-center justify-between mb-2">
+                    <div class="flex items-center gap-2.5">
+                      <div class="w-8 h-8 rounded-xl g-badge-yellow flex items-center justify-center p-1">
+                        <svg viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg" class="w-full h-full" aria-label="Atlas Holding GCP Cloud">
+                          <path d="M20 28C15.58 28 12 24.42 12 20C12 15.93 15.05 12.57 19 12.06C20.88 7.89 25.09 5 30 5C36.05 5 41.06 9.48 41.88 15.3C46.46 15.74 50 19.59 50 24.25" stroke="#4285F4" stroke-width="3.8" stroke-linecap="round"/>
+                          <path d="M19 12.06C20.88 7.89 25.09 5 30 5C34.25 5 37.98 7.21 40.08 10.56" stroke="#EA4335" stroke-width="3.8" stroke-linecap="round"/>
+                          <path d="M12.5 22.5C13.6 25.7 16.55 28 20 28H33" stroke="#FBBC04" stroke-width="3.8" stroke-linecap="round"/>
+                          <path d="M33 28H44" stroke="#34A853" stroke-width="3.8" stroke-linecap="round"/>
+                          <circle cx="32" cy="36.5" r="4.2" fill="#FBBC04"/>
+                          <path d="M17 29L22 39.5L27.5 42.5H36.5L42 39.5L47 29" stroke="#4285F4" stroke-width="3.6" stroke-linecap="round" stroke-linejoin="round"/>
+                        </svg>
+                      </div>
+                      <div>
+                        <div class="text-[10px] font-bold uppercase tracking-wider text-[#F9AB00]">Step 2 • Reason &amp; Gate</div>
+                        <div class="text-xs sm:text-sm font-bold text-white">Atlas (AaaS Lead)</div>
+                      </div>
+                    </div>
+                    <span id="badge-orchestrator" class="g-badge-yellow text-[10px] font-semibold px-2 py-0.5 rounded-full">All Clear</span>
+                  </div>
+                  <p class="text-[11px] text-slate-400 leading-relaxed">
+                    Diagnoses root causes, routes to domain specialists, and waits for your approval.
+                  </p>
+                </div>
+                <div class="pt-2.5 mt-3 border-t border-slate-800/80 flex items-center justify-between text-[11px]">
+                  <button type="button" onclick="openDirectAtlasChat()" class="text-[#4285F4] hover:underline font-medium cursor-pointer">
+                    Ask Atlas →
+                  </button>
+                  <button type="button" onclick="switchView('audit')" class="text-slate-400 hover:text-white cursor-pointer">
+                    Audit Trail →
+                  </button>
+                </div>
+              </div>
+
+              <!-- Agent 3: Specialist Agent Roster -->
+              <div id="card-gke-assist-agent" class="glass g-card-green border border-slate-800 rounded-2xl p-4 transition duration-200 flex flex-col justify-between">
+                <div>
+                  <div class="flex items-center justify-between mb-2">
+                    <div class="flex items-center gap-2.5">
+                      <div class="w-8 h-8 rounded-xl g-badge-green flex items-center justify-center">
+                        <i class="fa-solid fa-cubes text-xs"></i>
+                      </div>
+                      <div>
+                        <div class="text-[10px] font-bold uppercase tracking-wider text-[#34A853]">Step 3 • Remediate</div>
+                        <div class="text-xs sm:text-sm font-bold text-white">Specialist Agent Roster</div>
+                      </div>
+                    </div>
+                    <span id="badge-worker" class="g-badge-green text-[10px] font-semibold px-2 py-0.5 rounded-full">7 Specialists</span>
+                  </div>
+                  <div id="workerBoutiquePills" class="flex flex-wrap gap-1 mt-1.5">
+                    <span data-agent-id="serverless-agent" class="worker-pill inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-slate-900 border border-slate-800 text-[10px] text-slate-300">Serverless Agent</span>
+                    <span data-agent-id="database-agent" class="worker-pill inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-slate-900 border border-slate-800 text-[10px] text-slate-300">Database Agent</span>
+                    <span data-agent-id="infra-agent" class="worker-pill inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-slate-900 border border-slate-800 text-[10px] text-slate-300">Infra Agent</span>
+                    <span data-agent-id="networking-agent" class="worker-pill inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-slate-900 border border-slate-800 text-[10px] text-slate-300">Networking Agent</span>
+                    <span data-agent-id="data-analytics-agent" class="worker-pill inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-slate-900 border border-slate-800 text-[10px] text-slate-300">Data Analytics Agent</span>
+                    <span data-agent-id="security-agent" class="worker-pill inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-slate-900 border border-slate-800 text-[10px] text-slate-300">Security Agent</span>
+                    <span data-agent-id="billing-agent" class="worker-pill inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-slate-900 border border-slate-800 text-[10px] text-slate-300">Billing Agent</span>
+                  </div>
+                </div>
+                <div class="pt-2.5 mt-3 border-t border-slate-800/80 flex items-center justify-between text-[11px]">
+                  <span class="text-slate-500 mono text-[10px]">15m JIT Token</span>
+                  <button type="button" onclick="switchView('roster')" class="text-[#34A853] hover:underline font-medium cursor-pointer">
+                    Full Roster →
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            <!-- Collapsible Drawer B: Key Architecture Features (Hidden by default) -->
+            <div id="capabilitiesBannerGrid" class="hidden glass border border-slate-800 rounded-2xl p-4 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2.5 text-xs">
+              <div class="p-2.5 rounded-xl bg-slate-900/70 border border-slate-800 flex items-start gap-2">
+                <i class="fa-solid fa-satellite-dish text-[#4285F4] mt-0.5"></i>
+                <div>
+                  <div class="font-bold text-white text-[11px]">Zero-SSH / Zero-Socket Triage</div>
+                  <div class="text-[10px] text-slate-400">Uses Cloud Run OAuth REST APIs directly.</div>
+                </div>
+              </div>
+              <div class="p-2.5 rounded-xl bg-slate-900/70 border border-slate-800 flex items-start gap-2">
+                <i class="fa-solid fa-database text-[#34A853] mt-0.5"></i>
+                <div>
+                  <div class="font-bold text-white text-[11px]">Stateful Database Safe-Mode</div>
+                  <div class="text-[10px] text-slate-400">Enforces <code>prevent_destroy=true</code> on Cloud SQL.</div>
+                </div>
+              </div>
+              <div class="p-2.5 rounded-xl bg-slate-900/70 border border-slate-800 flex items-start gap-2">
+                <i class="fa-regular fa-clock text-[#FBBC04] mt-0.5"></i>
+                <div>
+                  <div class="font-bold text-white text-[11px]">45s Probe + 3m Metrics</div>
+                  <div class="text-[10px] text-slate-400">2-stage verification filters pre-fix log lag.</div>
+                </div>
+              </div>
+              <div class="p-2.5 rounded-xl bg-slate-900/70 border border-slate-800 flex items-start gap-2">
+                <i class="fa-solid fa-key text-[#EA4335] mt-0.5"></i>
+                <div>
+                  <div class="font-bold text-white text-[11px]">15m WIF JIT Token</div>
+                  <div class="text-[10px] text-slate-400">Read-only by default; mutates only after approval.</div>
+                </div>
+              </div>
+              <div class="p-2.5 rounded-xl bg-slate-900/70 border border-slate-800 flex items-start gap-2">
+                <i class="fa-solid fa-network-wired text-[#34A853] mt-0.5"></i>
+                <div>
+                  <div class="font-bold text-white text-[11px]">Zero-SPOF Degraded Mode</div>
+                  <div class="text-[10px] text-slate-400">$0 LLM deterministic fallback if Vertex AI throttles.</div>
+                </div>
+              </div>
+              <div class="p-2.5 rounded-xl bg-slate-900/70 border border-slate-800 flex items-start gap-2">
+                <i class="fa-solid fa-diagram-project text-[#4285F4] mt-0.5"></i>
+                <div>
+                  <div class="font-bold text-white text-[11px]">Hub-and-Spoke Ready</div>
+                  <div class="text-[10px] text-slate-400">Cross-project <code>project_id</code> support for Shared VPCs.</div>
+                </div>
+              </div>
+            </div>
           </section>
         </div>
 
@@ -638,7 +686,10 @@
                   <p class="text-xs text-slate-400">Immutable compliance ledger of detected GCP anomalies, assigned specialists, HITL approvals, and WIF JIT token IDs.</p>
                 </div>
               </div>
-              <div class="flex items-center gap-3">
+              <div class="flex items-center gap-2">
+                <button type="button" onclick="resetAuditFilters()" class="px-3 py-1.5 rounded-full bg-slate-900 hover:bg-slate-800 border border-slate-700 text-xs text-slate-300 transition cursor-pointer">
+                  <i class="fa-solid fa-filter-circle-xmark mr-1 text-[10px]"></i>Clear Filters
+                </button>
                 <a href="/api/audit-events" target="_blank" class="px-3.5 py-1.5 rounded-full bg-slate-900 hover:bg-slate-800 border border-slate-700 text-xs text-slate-200 font-medium mono flex items-center gap-1.5">
                   <i class="fa-solid fa-download text-[#4285F4] text-[10px]"></i>
                   <span>Export JSON</span>
@@ -646,15 +697,63 @@
               </div>
             </div>
 
+            <!-- Audit Search, Status & Date/Time Filter Toolbar -->
+            <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-2.5 p-3 rounded-2xl bg-slate-950/80 border border-slate-800 text-xs">
+              <div class="lg:col-span-2 relative">
+                <i class="fa-solid fa-magnifying-glass text-slate-400 text-[11px] absolute left-3.5 top-1/2 -translate-y-1/2"></i>
+                <input id="auditSearchInput" type="search" oninput="applyAuditFilters()"
+                  placeholder="Search incident ID, service, specialist, status, or approver..."
+                  class="w-full bg-slate-900 border border-slate-800 focus:border-[#4285F4] rounded-full pl-9 pr-3.5 py-1.5 text-xs text-white placeholder-slate-500 focus:outline-none" />
+              </div>
+
+              <div>
+                <select id="auditStatusFilter" onchange="applyAuditFilters()"
+                  class="w-full bg-slate-900 border border-slate-800 focus:border-[#4285F4] rounded-full px-3 py-1.5 text-xs text-slate-200 focus:outline-none">
+                  <option value="ALL">All Statuses</option>
+                  <option value="AWAITING_HITL_APPROVAL">Awaiting Approval</option>
+                  <option value="RESOLVED">Resolved</option>
+                  <option value="SKIPPED_MANUAL">Skipped (Manual)</option>
+                </select>
+              </div>
+
+              <div>
+                <select id="auditTimePreset" onchange="onAuditTimePresetChange()"
+                  class="w-full bg-slate-900 border border-slate-800 focus:border-[#4285F4] rounded-full px-3 py-1.5 text-xs text-slate-200 focus:outline-none">
+                  <option value="all">Time: All Events</option>
+                  <option value="1h">Last 1 Hour</option>
+                  <option value="24h">Last 24 Hours</option>
+                  <option value="7d">Last 7 Days</option>
+                  <option value="custom">Custom Date/Time Range</option>
+                </select>
+              </div>
+
+              <div class="flex items-center gap-1.5">
+                <input id="auditDateFrom" type="datetime-local" onchange="onAuditCustomDateChange()" title="Filter From Date &amp; Time"
+                  class="w-1/2 bg-slate-900 border border-slate-800 focus:border-[#4285F4] rounded-full px-2.5 py-1 text-[10px] mono text-slate-200 focus:outline-none" />
+                <input id="auditDateTo" type="datetime-local" onchange="onAuditCustomDateChange()" title="Filter To Date &amp; Time"
+                  class="w-1/2 bg-slate-900 border border-slate-800 focus:border-[#4285F4] rounded-full px-2.5 py-1 text-[10px] mono text-slate-200 focus:outline-none" />
+              </div>
+            </div>
+
             <div class="overflow-x-auto">
               <table class="w-full text-left border-collapse">
                 <thead>
-                  <tr class="text-[10px] font-bold uppercase tracking-wider text-slate-400 border-b border-slate-800">
-                    <th class="py-3 pr-3">Issue &amp; Cloud Service</th>
-                    <th class="py-3 px-3">Occurred At</th>
-                    <th class="py-3 px-3">Status</th>
-                    <th class="py-3 px-3">Approved / Actioned By</th>
-                    <th class="py-3 pl-3">Approval Timestamp</th>
+                  <tr class="text-[10px] font-bold uppercase tracking-wider text-slate-400 border-b border-slate-800 select-none">
+                    <th onclick="sortAuditBy('title')" class="py-3 pr-3 cursor-pointer hover:text-white transition">
+                      <span>Issue &amp; Cloud Service</span> <span id="auditSortIcon-title" class="text-slate-500 ml-1">↕</span>
+                    </th>
+                    <th onclick="sortAuditBy('occurred_at')" class="py-3 px-3 cursor-pointer hover:text-white transition">
+                      <span>Occurred At</span> <span id="auditSortIcon-occurred_at" class="text-[#4285F4] ml-1">↓</span>
+                    </th>
+                    <th onclick="sortAuditBy('status')" class="py-3 px-3 cursor-pointer hover:text-white transition">
+                      <span>Status</span> <span id="auditSortIcon-status" class="text-slate-500 ml-1">↕</span>
+                    </th>
+                    <th onclick="sortAuditBy('approved_by')" class="py-3 px-3 cursor-pointer hover:text-white transition">
+                      <span>Approved / Actioned By</span> <span id="auditSortIcon-approved_by" class="text-slate-500 ml-1">↕</span>
+                    </th>
+                    <th onclick="sortAuditBy('approved_at')" class="py-3 pl-3 cursor-pointer hover:text-white transition">
+                      <span>Approval Timestamp</span> <span id="auditSortIcon-approved_at" class="text-slate-500 ml-1">↕</span>
+                    </th>
                   </tr>
                 </thead>
                 <tbody id="auditTrackerBody" class="divide-y divide-slate-800/70 text-xs">
@@ -679,36 +778,120 @@
                     <span>Live Cloud Logs &amp; Agent-to-Agent (A2A) Protocol Stream</span>
                     <span id="techSummaryCount" class="g-badge-blue px-2.5 py-0.5 text-[10px] mono rounded-full"></span>
                   </h3>
-                  <p class="text-xs text-slate-400">Real-time telemetry from Google Cloud Logging (`agent-triad`) and JSON-RPC 2.0 A2A handshakes across agents.</p>
+                  <p class="text-xs text-slate-400">Searchable, sortable real-time telemetry from Google Cloud Logging (`agent-triad`) and JSON-RPC 2.0 A2A handshakes.</p>
                 </div>
               </div>
-              <button onclick="pollLiveCloudLogging()" class="g-btn-blue px-4 py-1.5 rounded-full text-xs font-medium cursor-pointer flex items-center gap-1.5 shrink-0">
-                <i class="fa-solid fa-rotate text-[10px]" id="pollIcon"></i>
-                <span>Refresh Logs</span>
-              </button>
+              <div class="flex items-center gap-2">
+                <button type="button" onclick="resetLogFilters()" class="px-3 py-1.5 rounded-full bg-slate-900 hover:bg-slate-800 border border-slate-700 text-xs text-slate-300 transition cursor-pointer">
+                  <i class="fa-solid fa-filter-circle-xmark mr-1 text-[10px]"></i>Clear Filters
+                </button>
+                <button onclick="pollLiveCloudLogging()" class="g-btn-blue px-4 py-1.5 rounded-full text-xs font-medium cursor-pointer flex items-center gap-1.5 shrink-0">
+                  <i class="fa-solid fa-rotate text-[10px]" id="pollIcon"></i>
+                  <span>Refresh Logs</span>
+                </button>
+              </div>
             </div>
 
-            <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
-              <!-- Cloud Logging Stream -->
-              <div class="bg-slate-950/90 border border-slate-800 rounded-2xl p-4">
+            <!-- Unified Log Search, Severity, Date/Time Range & Sort Toolbar -->
+            <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-6 gap-2.5 p-3 rounded-2xl bg-slate-950/80 border border-slate-800 text-xs">
+              <!-- Search String Input -->
+              <div class="lg:col-span-2 relative">
+                <i class="fa-solid fa-magnifying-glass text-slate-400 text-[11px] absolute left-3.5 top-1/2 -translate-y-1/2"></i>
+                <input id="logSearchInput" type="search" oninput="applyLogAndA2AFilters()"
+                  placeholder="Search string (e.g. testdbinstance1, ERROR, context canceled, 23975...)"
+                  class="w-full bg-slate-900 border border-slate-800 focus:border-[#4285F4] rounded-full pl-9 pr-3.5 py-1.5 text-xs text-white placeholder-slate-500 focus:outline-none" />
+              </div>
+
+              <!-- Severity Filter -->
+              <div>
+                <select id="logSeverityFilter" onchange="applyLogAndA2AFilters()"
+                  class="w-full bg-slate-900 border border-slate-800 focus:border-[#4285F4] rounded-full px-3 py-1.5 text-xs text-slate-200 focus:outline-none">
+                  <option value="ALL">All Severities</option>
+                  <option value="ERRORS_ONLY">Errors &amp; Critical Only</option>
+                  <option value="CRITICAL">CRITICAL / ALERT</option>
+                  <option value="ERROR">ERROR</option>
+                  <option value="WARNING">WARNING</option>
+                  <option value="INFO">INFO / OK</option>
+                </select>
+              </div>
+
+              <!-- Quick Time Preset -->
+              <div>
+                <select id="logTimePreset" onchange="onLogTimePresetChange()"
+                  class="w-full bg-slate-900 border border-slate-800 focus:border-[#4285F4] rounded-full px-3 py-1.5 text-xs text-slate-200 focus:outline-none">
+                  <option value="all">Time: All Logs</option>
+                  <option value="1h">Last 1 Hour</option>
+                  <option value="24h">Last 24 Hours</option>
+                  <option value="7d">Last 7 Days</option>
+                  <option value="custom">Custom Date/Time</option>
+                </select>
+              </div>
+
+              <!-- Custom From / To Date-Time Pickers -->
+              <div class="flex items-center gap-1.5">
+                <input id="logDateFrom" type="datetime-local" onchange="onLogCustomDateChange()" title="Filter Logs From Date &amp; Time"
+                  class="w-1/2 bg-slate-900 border border-slate-800 focus:border-[#4285F4] rounded-full px-2 py-1 text-[10px] mono text-slate-200 focus:outline-none" />
+                <input id="logDateTo" type="datetime-local" onchange="onLogCustomDateChange()" title="Filter Logs To Date &amp; Time"
+                  class="w-1/2 bg-slate-900 border border-slate-800 focus:border-[#4285F4] rounded-full px-2 py-1 text-[10px] mono text-slate-200 focus:outline-none" />
+              </div>
+
+              <!-- Sort Field & Direction -->
+              <div class="flex items-center gap-1.5">
+                <select id="logSortField" onchange="onLogSortSelectChange()"
+                  class="flex-1 bg-slate-900 border border-slate-800 focus:border-[#4285F4] rounded-full px-3 py-1.5 text-xs text-slate-200 focus:outline-none">
+                  <option value="timestamp">Sort: Timestamp</option>
+                  <option value="severity">Sort: Severity</option>
+                  <option value="workload">Sort: Service</option>
+                  <option value="message">Sort: Message</option>
+                </select>
+                <button type="button" id="btnLogSortDir" onclick="toggleLogSortDirection()" title="Toggle Ascending / Descending Sort"
+                  class="px-3 py-1.5 rounded-full bg-slate-900 hover:bg-slate-800 border border-slate-800 text-xs font-bold text-[#4285F4] cursor-pointer shrink-0">
+                  ↓ Desc
+                </button>
+              </div>
+            </div>
+
+            <div class="grid grid-cols-1 lg:grid-cols-3 gap-4">
+              <!-- Sortable & Searchable Cloud Logging Explorer Table (2/3 width on desktop) -->
+              <div class="lg:col-span-2 bg-slate-950/90 border border-slate-800 rounded-2xl p-4">
                 <div class="flex items-center justify-between mb-3 pb-2 border-b border-slate-800">
                   <span class="text-xs font-bold text-white flex items-center gap-2">
                     <i class="fa-solid fa-wave-square text-[#4285F4]"></i>
-                    <span>Recent GCP Cloud Logs</span>
+                    <span>GCP Cloud Logs Explorer</span>
                   </span>
-                  <span class="text-[10px] mono g-badge-blue px-2 py-0.5 rounded-full">Heartbeat &amp; Telemetry</span>
+                  <span id="filteredLogsCountBadge" class="text-[10px] mono g-badge-blue px-2.5 py-0.5 rounded-full">Heartbeat &amp; Telemetry</span>
                 </div>
-                <div id="logsContainer" class="space-y-2 max-h-96 overflow-y-auto pr-1"></div>
+                <div class="overflow-x-auto max-h-96 overflow-y-auto pr-1">
+                  <table class="w-full text-left border-collapse">
+                    <thead>
+                      <tr class="text-[10px] font-bold uppercase tracking-wider text-slate-400 border-b border-slate-800 select-none">
+                        <th onclick="sortLogsByColumn('severity')" class="py-2 pr-2 cursor-pointer hover:text-white transition w-24">
+                          <span>Severity</span> <span id="logSortIcon-severity" class="text-slate-500 ml-0.5">↕</span>
+                        </th>
+                        <th onclick="sortLogsByColumn('workload')" class="py-2 px-2 cursor-pointer hover:text-white transition w-40">
+                          <span>Service / Resource</span> <span id="logSortIcon-workload" class="text-slate-500 ml-0.5">↕</span>
+                        </th>
+                        <th onclick="sortLogsByColumn('message')" class="py-2 px-2 cursor-pointer hover:text-white transition">
+                          <span>Log Message (Click to Expand)</span> <span id="logSortIcon-message" class="text-slate-500 ml-0.5">↕</span>
+                        </th>
+                        <th onclick="sortLogsByColumn('timestamp')" class="py-2 pl-2 cursor-pointer hover:text-white transition text-right w-36">
+                          <span>Date &amp; Time</span> <span id="logSortIcon-timestamp" class="text-[#4285F4] ml-0.5">↓</span>
+                        </th>
+                      </tr>
+                    </thead>
+                    <tbody id="logsContainer" class="divide-y divide-slate-800/70 text-[11px]"></tbody>
+                  </table>
+                </div>
               </div>
 
-              <!-- A2A Protocol Handshakes -->
+              <!-- A2A Protocol Handshakes (1/3 width on desktop, also filtered by search & date/time) -->
               <div class="bg-slate-950/90 border border-slate-800 rounded-2xl p-4">
                 <div class="flex items-center justify-between mb-3 pb-2 border-b border-slate-800">
                   <span class="text-xs font-bold text-white flex items-center gap-2">
                     <i class="fa-solid fa-code-commit text-[#34A853]"></i>
                     <span>A2A Protocol Handshakes</span>
                   </span>
-                  <span class="text-[10px] mono g-badge-green px-2 py-0.5 rounded-full">JSON-RPC 2.0</span>
+                  <span id="filteredA2ACountBadge" class="text-[10px] mono g-badge-green px-2 py-0.5 rounded-full">JSON-RPC 2.0</span>
                 </div>
                 <div id="a2aContainer" class="space-y-2 max-h-96 overflow-y-auto pr-1"></div>
               </div>
@@ -1020,12 +1203,128 @@
               <p class="text-[11px] text-slate-300 leading-relaxed">${escapeHtml(spec.desc)}</p>
             </div>
             <div class="pt-2.5 border-t border-slate-800/80 flex items-center justify-between text-[10px] mono text-slate-400">
-              <span>${escapeHtml(spec.id)}</span>
               <span class="${(spec.id === 'database-agent' || spec.id === 'infra-agent') ? 'text-[#34A853] font-semibold' : 'text-[#4285F4]'}">${(spec.id === 'database-agent' || spec.id === 'infra-agent') ? '● Live ADK Cloud Run' : 'Deterministic Harness'}</span>
+              <button type="button" onclick="consultSpecialistInChat('${escapeHtml(spec.id)}')"
+                class="g-badge-blue px-2.5 py-0.5 rounded-full text-[10px] font-sans font-semibold cursor-pointer hover:opacity-90 transition">
+                Consult in Chat →
+              </button>
             </div>
           </div>
         `;
       }).join('');
+    }
+
+    let selectedIncidentId = null;
+    let bannerExpanded = false;
+    let pipelineExpanded = false;
+
+    // State for Log & A2A Filter / Sort
+    let logSortFieldState = 'timestamp';
+    let logSortDirState = 'desc';
+
+    // State for Audit & Event Filter / Sort
+    let auditSortFieldState = 'occurred_at';
+    let auditSortDirState = 'desc';
+
+    function togglePipelineSteps() {
+      pipelineExpanded = !pipelineExpanded;
+      const drawer = document.getElementById('pipelineStepsDrawer');
+      const icon = document.getElementById('pipelineChevronIcon');
+      const txt = document.getElementById('pipelineToggleText');
+      if (drawer) {
+        if (pipelineExpanded) {
+          drawer.classList.remove('hidden');
+        } else {
+          drawer.classList.add('hidden');
+        }
+      }
+      if (icon) {
+        icon.className = pipelineExpanded ? 'fa-solid fa-chevron-up text-[9px]' : 'fa-solid fa-chevron-down text-[9px]';
+      }
+      if (txt) {
+        txt.textContent = pipelineExpanded ? 'Hide Step 1–3' : 'How It Works (Step 1–3)';
+      }
+    }
+
+    function toggleCapabilitiesBanner() {
+      bannerExpanded = !bannerExpanded;
+      const grid = document.getElementById('capabilitiesBannerGrid');
+      const icon = document.getElementById('bannerChevronIcon');
+      const txt = document.getElementById('bannerToggleText');
+      if (grid) {
+        if (bannerExpanded) {
+          grid.classList.remove('hidden');
+        } else {
+          grid.classList.add('hidden');
+        }
+      }
+      if (icon) {
+        icon.className = bannerExpanded ? 'fa-solid fa-chevron-up text-[9px]' : 'fa-solid fa-chevron-down text-[9px]';
+      }
+      if (txt) {
+        txt.textContent = bannerExpanded ? 'Hide Features' : 'Key Features';
+      }
+    }
+
+    function consultSpecialistInChat(specId) {
+      const prompts = {
+        'database-agent': 'Troubleshoot our live Cloud SQL database testdbinstance1 in agent-triad. What do the live instance state, Cloud Monitoring metrics, and PostgreSQL logs show?',
+        'infra-agent': 'What Compute Engine VMs are currently running in my project agent-triad, and what are the live CPU, uptime, and network metrics for testinstance1?',
+        'serverless-agent': 'My Cloud Run service has intermittent latency and cold-start timeouts. Give me a 1-line CLI fix.',
+        'networking-agent': 'How do I diagnose and fix VPC firewall egress rules and Serverless VPC Access connector timeouts in agent-triad?',
+        'data-analytics-agent': 'How do I inspect and recover a Vertex AI Reasoning Engine or BigQuery slot contention issue?',
+        'security-agent': 'How do I configure Workload Identity Federation (WIF) and least-privilege IAM roles in Google Cloud?',
+        'billing-agent': 'How do we enforce FinOps max-instance scaling ceilings and API quota guardrails across Cloud Run?'
+      };
+      openDirectAtlasChat();
+      const q = prompts[specId] || `Help me troubleshoot an issue with ${specId}.`;
+      setTimeout(() => {
+        askGeneralQuickQuestion(q);
+      }, 80);
+    }
+
+    function selectIncidentById(incId) {
+      selectedIncidentId = incId;
+      directChatMode = false;
+      if (latestState) {
+        renderDashboard(latestState, true);
+      }
+    }
+
+    function renderIncidentSwitcherBar(incidents, activeInc) {
+      const barEl = document.getElementById('incidentSwitcherBar');
+      if (!barEl) return;
+      if (!incidents || incidents.length <= 1) {
+        barEl.classList.add('hidden');
+        barEl.innerHTML = '';
+        return;
+      }
+      barEl.classList.remove('hidden');
+      const activeId = activeInc ? activeInc.incident_id : '';
+      barEl.innerHTML = `
+        <div class="glass border border-slate-800 rounded-2xl px-4 py-2.5 flex flex-wrap items-center justify-between gap-2 text-xs">
+          <span class="text-[11px] font-bold text-slate-300 flex items-center gap-1.5">
+            <i class="fa-solid fa-layer-group text-[#4285F4]"></i>
+            <span>Polled Incidents (${incidents.length}):</span>
+          </span>
+          <div class="flex flex-wrap items-center gap-1.5">
+            ${incidents.map((inc, idx) => {
+              const isCurrent = !directChatMode && inc.incident_id === activeId;
+              const statusDot = inc.status === 'RESOLVED'
+                ? 'bg-[#34A853]'
+                : (inc.status === 'SKIPPED_MANUAL' ? 'bg-[#FBBC04]' : 'bg-[#EA4335]');
+              const label = inc.service_label || inc.workload || `Incident #${idx + 1}`;
+              return `
+                <button type="button" onclick="selectIncidentById('${escapeHtml(inc.incident_id)}')"
+                  class="${isCurrent ? 'g-badge-blue font-semibold' : 'bg-slate-900 hover:bg-slate-800 text-slate-300 border border-slate-800'} px-3 py-1 rounded-full text-[11px] inline-flex items-center gap-1.5 transition cursor-pointer">
+                  <span class="w-1.5 h-1.5 rounded-full ${statusDot}"></span>
+                  <span>${escapeHtml(label)}</span>
+                </button>
+              `;
+            }).join('')}
+          </div>
+        </div>
+      `;
     }
 
     async function fetchState(forceRender = false) {
@@ -1041,8 +1340,13 @@
 
     function renderDashboard(data, forceRender = false) {
       const incidents = data.incidents || [];
-      const pending = incidents.find(i => i.status === 'AWAITING_HITL_APPROVAL');
-      const latestIncident = incidents[0];
+      const chosenIncident = selectedIncidentId
+        ? incidents.find(i => i.incident_id === selectedIncidentId)
+        : null;
+      const pending = (chosenIncident && chosenIncident.status === 'AWAITING_HITL_APPROVAL')
+        ? chosenIncident
+        : incidents.find(i => i.status === 'AWAITING_HITL_APPROVAL');
+      const latestIncident = chosenIncident || incidents[0];
 
       // Update Agent Cards visual state
       const watcherCard = document.getElementById('card-log-watcher-agent');
@@ -1055,7 +1359,8 @@
 
       const generalMsgs = data.general_chat_messages || [];
       const latestGeneralAssistant = [...generalMsgs].reverse().find(m => m.role === 'assistant' && m.specialist_worker && m.id !== 'atlas-welcome');
-      const activeInc = pending || latestIncident;
+      const activeInc = chosenIncident || pending || latestIncident;
+      renderIncidentSwitcherBar(incidents, activeInc);
       const activeSpecialist = (directChatMode && latestGeneralAssistant)
         ? latestGeneralAssistant.specialist_worker
         : ((activeInc && activeInc.specialist_worker) ? activeInc.specialist_worker : null);
@@ -1082,33 +1387,60 @@
         : (activeSpecialist ? `${activeSpecialist.name} Ready` : 'Specialist Ready');
 
       const navBadgeCommand = document.getElementById('navBadgeCommand');
+      const compactOrch = document.getElementById('compact-badge-orchestrator');
+      const compactWorker = document.getElementById('compact-badge-worker');
       if (directChatMode) {
         orchCard.classList.add('agent-active');
         document.getElementById('badge-orchestrator').textContent = 'Direct Chat • Active';
         document.getElementById('badge-orchestrator').className = 'g-badge-blue text-[10px] font-semibold px-2.5 py-0.5 rounded-full';
-        document.getElementById('badge-worker').textContent = coordinatedSpecialists.length > 1
+        const workerStatusText = coordinatedSpecialists.length > 1
           ? `${coordinatedSpecialists.length} Specialists Coordinated`
           : (activeSpecialist ? `${activeSpecialist.name} Consulted` : '7 Specialists Ready');
+        document.getElementById('badge-worker').textContent = workerStatusText;
         document.getElementById('badge-worker').className = 'g-badge-green text-[10px] font-semibold px-2.5 py-0.5 rounded-full';
+        if (compactOrch) {
+          compactOrch.textContent = '(Chatting)';
+          compactOrch.className = 'text-[10px] text-[#4285F4] font-semibold';
+        }
+        if (compactWorker) {
+          compactWorker.textContent = `(${workerStatusText})`;
+          compactWorker.className = 'text-[10px] text-[#34A853] font-medium';
+        }
         if (navBadgeCommand) {
           navBadgeCommand.textContent = pending ? '1 Alert' : 'Chatting';
           navBadgeCommand.className = 'g-badge-blue px-2 py-0.5 text-[10px] font-semibold rounded-full shrink-0';
         }
-      } else if (pending) {
+      } else if (activeInc && activeInc.status === 'AWAITING_HITL_APPROVAL') {
         orchCard.classList.add('agent-active');
         document.getElementById('badge-orchestrator').textContent = 'Awaiting Review';
         document.getElementById('badge-orchestrator').className = 'g-badge-yellow text-[10px] font-semibold px-2.5 py-0.5 rounded-full';
         document.getElementById('badge-worker').textContent = coordLabel;
         document.getElementById('badge-worker').className = 'g-badge-green text-[10px] font-semibold px-2.5 py-0.5 rounded-full';
+        if (compactOrch) {
+          compactOrch.textContent = '(Awaiting Approval)';
+          compactOrch.className = 'text-[10px] text-[#FBBC04] font-semibold';
+        }
+        if (compactWorker) {
+          compactWorker.textContent = `(${coordLabel})`;
+          compactWorker.className = 'text-[10px] text-[#34A853] font-medium';
+        }
         if (navBadgeCommand) {
-          navBadgeCommand.textContent = '1 Alert';
+          navBadgeCommand.textContent = `${incidents.filter(i => i.status === 'AWAITING_HITL_APPROVAL').length} Alert`;
           navBadgeCommand.className = 'g-badge-red px-2 py-0.5 text-[10px] font-semibold rounded-full shrink-0';
         }
-      } else if (latestIncident && latestIncident.status === 'SKIPPED_MANUAL') {
+      } else if (activeInc && activeInc.status === 'SKIPPED_MANUAL') {
         document.getElementById('badge-orchestrator').textContent = 'Manual Mode';
         document.getElementById('badge-orchestrator').className = 'g-badge-yellow text-[10px] font-semibold px-2.5 py-0.5 rounded-full';
         document.getElementById('badge-worker').textContent = 'Stood Down';
         document.getElementById('badge-worker').className = 'text-[10px] font-medium px-2.5 py-0.5 rounded-full bg-slate-900 text-slate-400 border border-slate-800';
+        if (compactOrch) {
+          compactOrch.textContent = '(Manual Mode)';
+          compactOrch.className = 'text-[10px] text-[#FBBC04] font-medium';
+        }
+        if (compactWorker) {
+          compactWorker.textContent = '(Stood Down)';
+          compactWorker.className = 'text-[10px] text-slate-400';
+        }
         if (navBadgeCommand) {
           navBadgeCommand.textContent = 'Manual';
           navBadgeCommand.className = 'g-badge-yellow px-2 py-0.5 text-[10px] font-semibold rounded-full shrink-0';
@@ -1118,6 +1450,14 @@
         document.getElementById('badge-orchestrator').className = 'g-badge-green text-[10px] font-semibold px-2.5 py-0.5 rounded-full';
         document.getElementById('badge-worker').textContent = activeSpecialist ? `${activeSpecialist.name} • Done` : '7 Specialists';
         document.getElementById('badge-worker').className = 'g-badge-blue text-[10px] font-semibold px-2.5 py-0.5 rounded-full';
+        if (compactOrch) {
+          compactOrch.textContent = '(All Clear)';
+          compactOrch.className = 'text-[10px] text-[#34A853] font-medium';
+        }
+        if (compactWorker) {
+          compactWorker.textContent = activeSpecialist ? `(${activeSpecialist.name} • Done)` : '(7 Ready)';
+          compactWorker.className = 'text-[10px] text-slate-400';
+        }
         if (navBadgeCommand) {
           navBadgeCommand.textContent = 'Healthy';
           navBadgeCommand.className = 'g-badge-green px-2 py-0.5 text-[10px] font-semibold rounded-full shrink-0';
@@ -1139,12 +1479,12 @@
 
         if (directChatMode) {
           stageEl.innerHTML = renderDirectAtlasChatCard(generalMsgs, pending);
-        } else if (pending) {
-          stageEl.innerHTML = renderCustomerApprovalCard(pending);
-        } else if (latestIncident && latestIncident.status === 'SKIPPED_MANUAL') {
-          stageEl.innerHTML = renderSkippedCard(latestIncident);
-        } else if (latestIncident && latestIncident.status === 'RESOLVED') {
-          stageEl.innerHTML = renderResolvedCard(latestIncident);
+        } else if (activeInc && activeInc.status === 'AWAITING_HITL_APPROVAL') {
+          stageEl.innerHTML = renderCustomerApprovalCard(activeInc);
+        } else if (activeInc && activeInc.status === 'SKIPPED_MANUAL') {
+          stageEl.innerHTML = renderSkippedCard(activeInc);
+        } else if (activeInc && activeInc.status === 'RESOLVED') {
+          stageEl.innerHTML = renderResolvedCard(activeInc);
         } else {
           stageEl.innerHTML = renderHealthyCard();
         }
@@ -1159,44 +1499,302 @@
         }
       }
 
-      // Render Live Logs & A2A Stream View
+      // Render Live Logs & A2A Stream View (with Search, Severity, Date/Time & Sort)
       const logs = data.logs || [];
       const ledger = data.a2a_ledger || [];
-      document.getElementById('techSummaryCount').textContent = `${logs.length} logs • ${ledger.length} A2A messages`;
       const navBadgeLogs = document.getElementById('navBadgeLogs');
       if (navBadgeLogs) {
         navBadgeLogs.textContent = `${logs.length + ledger.length}`;
       }
+      applyLogAndA2AFilters();
 
-      document.getElementById('logsContainer').innerHTML = logs.slice(0, 15).map(log => `
-        <div class="p-2.5 rounded-xl bg-slate-900/80 border border-slate-800 text-[11px] flex items-center justify-between gap-2">
-          <div class="truncate">
-            <span class="mono font-semibold ${log.severity === 'CRITICAL' || log.severity === 'ERROR' || log.severity === 'ALERT' ? 'text-[#EA4335]' : 'text-[#34A853]'} mr-1.5">[${escapeHtml(log.severity)}]</span>
-            <span class="text-slate-200">${escapeHtml(log.title || log.message)}</span>
-          </div>
-          <span class="mono text-[10px] text-slate-500 shrink-0">${new Date(log.timestamp).toLocaleTimeString()}</span>
-        </div>
-      `).join('');
-
-      document.getElementById('a2aContainer').innerHTML = ledger.slice(0, 15).map(item => `
-        <div class="p-2.5 rounded-xl bg-slate-900/80 border border-slate-800 text-[11px] flex items-center justify-between gap-2">
-          <div class="truncate">
-            <span class="text-[#4285F4] font-semibold">${escapeHtml(item.sender_name)}</span>
-            <span class="text-slate-500 mx-1">→</span>
-            <span class="text-[#34A853] font-semibold">${escapeHtml(item.recipient_name)}</span>
-            <span class="text-slate-400 mono text-[10px] ml-1">(${escapeHtml(item.skill_id)})</span>
-          </div>
-          <span class="mono text-[10px] text-slate-500 shrink-0">${new Date(item.timestamp).toLocaleTimeString()}</span>
-        </div>
-      `).join('');
-
-      // Render Audit & Event Tracker
+      // Render Audit & Event Tracker (with Search, Status, Date/Time & Sort)
       const auditEvents = data.audit_events || [];
       const navBadgeAudit = document.getElementById('navBadgeAudit');
       if (navBadgeAudit) {
         navBadgeAudit.textContent = `${auditEvents.length}`;
       }
-      renderAuditTracker(auditEvents);
+      applyAuditFilters();
+    }
+
+    function highlightSearchMatch(text, query) {
+      const safe = escapeHtml(text || '');
+      if (!query || !query.trim()) return safe;
+      const escapedQuery = query.trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      try {
+        const re = new RegExp(`(${escapedQuery})`, 'gi');
+        return safe.replace(re, '<mark class="bg-[#FBBC04]/35 text-white px-0.5 rounded font-semibold">$1</mark>');
+      } catch (e) {
+        return safe;
+      }
+    }
+
+    function isTimestampWithinRange(isoStr, preset, fromVal, toVal) {
+      if (!isoStr) return preset === 'all' && !fromVal && !toVal;
+      const ts = new Date(isoStr).getTime();
+      if (isNaN(ts)) return true;
+      const now = Date.now();
+      if (preset === '1h' && ts < now - 3600 * 1000) return false;
+      if (preset === '24h' && ts < now - 24 * 3600 * 1000) return false;
+      if (preset === '7d' && ts < now - 7 * 24 * 3600 * 1000) return false;
+      if (fromVal) {
+        const fromTs = new Date(fromVal).getTime();
+        if (!isNaN(fromTs) && ts < fromTs) return false;
+      }
+      if (toVal) {
+        const toTs = new Date(toVal).getTime();
+        if (!isNaN(toTs) && ts > toTs) return false;
+      }
+      return true;
+    }
+
+    function onLogTimePresetChange() {
+      const presetEl = document.getElementById('logTimePreset');
+      const fromEl = document.getElementById('logDateFrom');
+      const toEl = document.getElementById('logDateTo');
+      if (presetEl && presetEl.value !== 'custom') {
+        if (fromEl) fromEl.value = '';
+        if (toEl) toEl.value = '';
+      }
+      applyLogAndA2AFilters();
+    }
+
+    function onLogCustomDateChange() {
+      const presetEl = document.getElementById('logTimePreset');
+      if (presetEl) presetEl.value = 'custom';
+      applyLogAndA2AFilters();
+    }
+
+    function onLogSortSelectChange() {
+      const sel = document.getElementById('logSortField');
+      if (sel) logSortFieldState = sel.value;
+      updateLogSortHeaderIcons();
+      applyLogAndA2AFilters();
+    }
+
+    function toggleLogSortDirection() {
+      logSortDirState = logSortDirState === 'desc' ? 'asc' : 'desc';
+      const btn = document.getElementById('btnLogSortDir');
+      if (btn) btn.textContent = logSortDirState === 'desc' ? '↓ Desc' : '↑ Asc';
+      updateLogSortHeaderIcons();
+      applyLogAndA2AFilters();
+    }
+
+    function sortLogsByColumn(field) {
+      if (logSortFieldState === field) {
+        logSortDirState = logSortDirState === 'desc' ? 'asc' : 'desc';
+      } else {
+        logSortFieldState = field;
+        logSortDirState = field === 'timestamp' || field === 'severity' ? 'desc' : 'asc';
+      }
+      const sel = document.getElementById('logSortField');
+      if (sel) sel.value = logSortFieldState;
+      const btn = document.getElementById('btnLogSortDir');
+      if (btn) btn.textContent = logSortDirState === 'desc' ? '↓ Desc' : '↑ Asc';
+      updateLogSortHeaderIcons();
+      applyLogAndA2AFilters();
+    }
+
+    function updateLogSortHeaderIcons() {
+      ['severity', 'workload', 'message', 'timestamp'].forEach(col => {
+        const el = document.getElementById(`logSortIcon-${col}`);
+        if (!el) return;
+        if (col === logSortFieldState) {
+          el.textContent = logSortDirState === 'desc' ? '↓' : '↑';
+          el.className = 'text-[#4285F4] ml-0.5 font-bold';
+        } else {
+          el.textContent = '↕';
+          el.className = 'text-slate-500 ml-0.5';
+        }
+      });
+    }
+
+    function resetLogFilters() {
+      const searchEl = document.getElementById('logSearchInput');
+      const sevEl = document.getElementById('logSeverityFilter');
+      const presetEl = document.getElementById('logTimePreset');
+      const fromEl = document.getElementById('logDateFrom');
+      const toEl = document.getElementById('logDateTo');
+      if (searchEl) searchEl.value = '';
+      if (sevEl) sevEl.value = 'ALL';
+      if (presetEl) presetEl.value = 'all';
+      if (fromEl) fromEl.value = '';
+      if (toEl) toEl.value = '';
+      logSortFieldState = 'timestamp';
+      logSortDirState = 'desc';
+      const sel = document.getElementById('logSortField');
+      if (sel) sel.value = 'timestamp';
+      const btn = document.getElementById('btnLogSortDir');
+      if (btn) btn.textContent = '↓ Desc';
+      updateLogSortHeaderIcons();
+      applyLogAndA2AFilters();
+    }
+
+    function applyLogAndA2AFilters() {
+      const data = latestState || {};
+      const rawLogs = data.logs || [];
+      const rawLedger = data.a2a_ledger || [];
+
+      const searchQuery = ((document.getElementById('logSearchInput') || {}).value || '').trim().toLowerCase();
+      const sevFilter = ((document.getElementById('logSeverityFilter') || {}).value || 'ALL').toUpperCase();
+      const preset = ((document.getElementById('logTimePreset') || {}).value || 'all');
+      const fromVal = ((document.getElementById('logDateFrom') || {}).value || '');
+      const toVal = ((document.getElementById('logDateTo') || {}).value || '');
+
+      const sevRank = { CRITICAL: 5, ALERT: 5, ERROR: 4, WARNING: 3, NOTICE: 2, INFO: 1, OK: 1 };
+
+      // 1. Filter Cloud Logs
+      const filteredLogs = rawLogs.filter(log => {
+        const sev = String(log.severity || 'INFO').toUpperCase();
+        if (sevFilter === 'ERRORS_ONLY' && !['CRITICAL', 'ALERT', 'ERROR'].includes(sev)) return false;
+        if (sevFilter === 'CRITICAL' && !['CRITICAL', 'ALERT'].includes(sev)) return false;
+        if (['ERROR', 'WARNING', 'INFO'].includes(sevFilter) && sev !== sevFilter) return false;
+
+        if (!isTimestampWithinRange(log.timestamp, preset, fromVal, toVal)) return false;
+
+        if (searchQuery) {
+          const hay = [
+            log.severity,
+            log.workload,
+            log.cluster,
+            log.namespace,
+            log.pod,
+            log.error_code,
+            log.title,
+            log.message
+          ].map(x => String(x || '').toLowerCase()).join(' ');
+          if (!hay.includes(searchQuery)) return false;
+        }
+        return true;
+      });
+
+      // 2. Sort Cloud Logs
+      filteredLogs.sort((a, b) => {
+        let cmp = 0;
+        if (logSortFieldState === 'timestamp') {
+          cmp = (new Date(a.timestamp || 0).getTime() || 0) - (new Date(b.timestamp || 0).getTime() || 0);
+        } else if (logSortFieldState === 'severity') {
+          const rA = sevRank[String(a.severity || 'INFO').toUpperCase()] || 0;
+          const rB = sevRank[String(b.severity || 'INFO').toUpperCase()] || 0;
+          cmp = rA - rB;
+        } else if (logSortFieldState === 'workload') {
+          cmp = String(a.workload || a.cluster || '').localeCompare(String(b.workload || b.cluster || ''));
+        } else if (logSortFieldState === 'message') {
+          cmp = String(a.message || a.title || '').localeCompare(String(b.message || b.title || ''));
+        }
+        return logSortDirState === 'desc' ? -cmp : cmp;
+      });
+
+      // 3. Filter & Sort A2A Ledger
+      const filteredLedger = rawLedger.filter(item => {
+        if (!isTimestampWithinRange(item.timestamp, preset, fromVal, toVal)) return false;
+        if (searchQuery) {
+          const hay = [
+            item.sender_name,
+            item.recipient_name,
+            item.sender,
+            item.recipient,
+            item.skill_id,
+            item.summary,
+            item.status
+          ].map(x => String(x || '').toLowerCase()).join(' ');
+          if (!hay.includes(searchQuery)) return false;
+        }
+        return true;
+      });
+      filteredLedger.sort((a, b) => {
+        const cmp = (new Date(a.timestamp || 0).getTime() || 0) - (new Date(b.timestamp || 0).getTime() || 0);
+        return logSortDirState === 'desc' ? -cmp : cmp;
+      });
+
+      const summaryEl = document.getElementById('techSummaryCount');
+      if (summaryEl) {
+        summaryEl.textContent = `${filteredLogs.length}/${rawLogs.length} logs • ${filteredLedger.length}/${rawLedger.length} A2A`;
+      }
+      const logBadgeEl = document.getElementById('filteredLogsCountBadge');
+      if (logBadgeEl) {
+        logBadgeEl.textContent = `${filteredLogs.length} of ${rawLogs.length} logs`;
+      }
+      const a2aBadgeEl = document.getElementById('filteredA2ACountBadge');
+      if (a2aBadgeEl) {
+        a2aBadgeEl.textContent = `${filteredLedger.length} of ${rawLedger.length} messages`;
+      }
+
+      const logsContainer = document.getElementById('logsContainer');
+      if (logsContainer) {
+        if (!filteredLogs.length) {
+          logsContainer.innerHTML = `
+            <tr>
+              <td colspan="4" class="py-6 text-center text-slate-400 text-xs">
+                No Cloud Logs match your active search or date/time filter. Click <strong>"Clear Filters"</strong> to reset.
+              </td>
+            </tr>
+          `;
+        } else {
+          logsContainer.innerHTML = filteredLogs.slice(0, 50).map(log => {
+            const sev = String(log.severity || 'INFO').toUpperCase();
+            let sevClass = 'g-badge-green';
+            if (sev === 'CRITICAL' || sev === 'ERROR' || sev === 'ALERT') {
+              sevClass = 'g-badge-red';
+            } else if (sev === 'WARNING') {
+              sevClass = 'g-badge-yellow';
+            }
+            const svc = log.workload || log.cluster || 'gcp-service';
+            const fullMsg = log.message || log.title || '';
+            const shortTitle = log.title || fullMsg;
+            return `
+              <tr class="hover:bg-slate-900/60 transition align-top">
+                <td class="py-2.5 pr-2">
+                  <span class="${sevClass} inline-flex items-center px-2 py-0.5 rounded-full mono text-[10px] font-semibold">
+                    ${highlightSearchMatch(sev, searchQuery)}
+                  </span>
+                </td>
+                <td class="py-2.5 px-2 mono text-[10px] text-[#4285F4] break-all">
+                  ${highlightSearchMatch(svc, searchQuery)}
+                  ${log.cluster ? `<div class="text-[9px] text-slate-500">${highlightSearchMatch(log.cluster, searchQuery)}</div>` : ''}
+                </td>
+                <td class="py-2.5 px-2 text-slate-200">
+                  <details class="cursor-pointer">
+                    <summary class="leading-relaxed">${highlightSearchMatch(shortTitle, searchQuery)}</summary>
+                    <div class="mt-1.5 p-2 rounded-lg bg-slate-900 border border-slate-800 mono text-[10px] text-slate-300 break-all whitespace-pre-wrap">${highlightSearchMatch(fullMsg, searchQuery)}</div>
+                  </details>
+                </td>
+                <td class="py-2.5 pl-2 mono text-[10px] text-slate-400 text-right whitespace-nowrap">
+                  ${formatAuditTime(log.timestamp)}
+                </td>
+              </tr>
+            `;
+          }).join('');
+        }
+      }
+
+      const a2aContainer = document.getElementById('a2aContainer');
+      if (a2aContainer) {
+        if (!filteredLedger.length) {
+          a2aContainer.innerHTML = `
+            <div class="p-4 text-center text-slate-400 text-xs">
+              No A2A handshakes match your active filter.
+            </div>
+          `;
+        } else {
+          a2aContainer.innerHTML = filteredLedger.slice(0, 30).map(item => `
+            <div class="p-2.5 rounded-xl bg-slate-900/80 border border-slate-800 text-[11px] space-y-1">
+              <div class="flex items-center justify-between gap-2">
+                <div class="truncate">
+                  <span class="text-[#4285F4] font-semibold">${highlightSearchMatch(item.sender_name || item.sender, searchQuery)}</span>
+                  <span class="text-slate-500 mx-1">→</span>
+                  <span class="text-[#34A853] font-semibold">${highlightSearchMatch(item.recipient_name || item.recipient, searchQuery)}</span>
+                </div>
+                <span class="mono text-[9px] text-slate-500 shrink-0">${formatAuditTime(item.timestamp)}</span>
+              </div>
+              <div class="text-[10px] text-slate-400 flex items-center justify-between gap-2">
+                <span class="mono text-[#FBBC04]">${highlightSearchMatch(item.skill_id, searchQuery)}</span>
+                <span class="truncate">${highlightSearchMatch(item.summary || '', searchQuery)}</span>
+              </div>
+            </div>
+          `).join('');
+        }
+      }
     }
 
     function formatAuditTime(isoStr) {
@@ -1216,20 +1814,123 @@
       }
     }
 
-    function renderAuditTracker(auditEvents) {
+    function onAuditTimePresetChange() {
+      const presetEl = document.getElementById('auditTimePreset');
+      const fromEl = document.getElementById('auditDateFrom');
+      const toEl = document.getElementById('auditDateTo');
+      if (presetEl && presetEl.value !== 'custom') {
+        if (fromEl) fromEl.value = '';
+        if (toEl) toEl.value = '';
+      }
+      applyAuditFilters();
+    }
+
+    function onAuditCustomDateChange() {
+      const presetEl = document.getElementById('auditTimePreset');
+      if (presetEl) presetEl.value = 'custom';
+      applyAuditFilters();
+    }
+
+    function sortAuditBy(field) {
+      if (auditSortFieldState === field) {
+        auditSortDirState = auditSortDirState === 'desc' ? 'asc' : 'desc';
+      } else {
+        auditSortFieldState = field;
+        auditSortDirState = field.includes('_at') ? 'desc' : 'asc';
+      }
+      ['title', 'occurred_at', 'status', 'approved_by', 'approved_at'].forEach(col => {
+        const el = document.getElementById(`auditSortIcon-${col}`);
+        if (!el) return;
+        if (col === auditSortFieldState) {
+          el.textContent = auditSortDirState === 'desc' ? '↓' : '↑';
+          el.className = 'text-[#4285F4] ml-1 font-bold';
+        } else {
+          el.textContent = '↕';
+          el.className = 'text-slate-500 ml-1';
+        }
+      });
+      applyAuditFilters();
+    }
+
+    function resetAuditFilters() {
+      const searchEl = document.getElementById('auditSearchInput');
+      const statusEl = document.getElementById('auditStatusFilter');
+      const presetEl = document.getElementById('auditTimePreset');
+      const fromEl = document.getElementById('auditDateFrom');
+      const toEl = document.getElementById('auditDateTo');
+      if (searchEl) searchEl.value = '';
+      if (statusEl) statusEl.value = 'ALL';
+      if (presetEl) presetEl.value = 'all';
+      if (fromEl) fromEl.value = '';
+      if (toEl) toEl.value = '';
+      auditSortFieldState = 'occurred_at';
+      auditSortDirState = 'desc';
+      applyAuditFilters();
+    }
+
+    function applyAuditFilters() {
+      const rawEvents = (latestState && latestState.audit_events) || [];
+      const searchQuery = ((document.getElementById('auditSearchInput') || {}).value || '').trim().toLowerCase();
+      const statusFilter = ((document.getElementById('auditStatusFilter') || {}).value || 'ALL');
+      const preset = ((document.getElementById('auditTimePreset') || {}).value || 'all');
+      const fromVal = ((document.getElementById('auditDateFrom') || {}).value || '');
+      const toVal = ((document.getElementById('auditDateTo') || {}).value || '');
+
+      const filtered = rawEvents.filter(ev => {
+        const st = ev.status || 'AWAITING_HITL_APPROVAL';
+        if (statusFilter !== 'ALL' && st !== statusFilter) return false;
+        const refTime = ev.occurred_at || ev.detected_at;
+        if (!isTimestampWithinRange(refTime, preset, fromVal, toVal)) return false;
+        if (searchQuery) {
+          const hay = [
+            ev.incident_id,
+            ev.title,
+            ev.service_label,
+            ev.workload,
+            ev.specialist_agent_name,
+            ev.status,
+            ev.approved_by,
+            ev.jit_token_id
+          ].map(x => String(x || '').toLowerCase()).join(' ');
+          if (!hay.includes(searchQuery)) return false;
+        }
+        return true;
+      });
+
+      filtered.sort((a, b) => {
+        let cmp = 0;
+        if (auditSortFieldState === 'occurred_at' || auditSortFieldState === 'approved_at') {
+          const tA = new Date(a[auditSortFieldState] || 0).getTime() || 0;
+          const tB = new Date(b[auditSortFieldState] || 0).getTime() || 0;
+          cmp = tA - tB;
+        } else {
+          cmp = String(a[auditSortFieldState] || '').localeCompare(String(b[auditSortFieldState] || ''));
+        }
+        return auditSortDirState === 'desc' ? -cmp : cmp;
+      });
+
+      renderAuditTracker(filtered, rawEvents.length, searchQuery);
+    }
+
+    function renderAuditTracker(auditEvents, totalCount = null, searchQuery = '') {
       const badgeEl = document.getElementById('auditCountBadge');
       const tbodyEl = document.getElementById('auditTrackerBody');
       if (!tbodyEl) return;
 
+      const total = totalCount !== null ? totalCount : auditEvents.length;
       if (badgeEl) {
-        badgeEl.textContent = `${auditEvents.length} ${auditEvents.length === 1 ? 'Event' : 'Events'} Logged`;
+        badgeEl.textContent = total !== auditEvents.length
+          ? `${auditEvents.length} of ${total} Events`
+          : `${auditEvents.length} ${auditEvents.length === 1 ? 'Event' : 'Events'} Logged`;
       }
 
       if (!auditEvents.length) {
         tbodyEl.innerHTML = `
           <tr>
             <td colspan="5" class="px-4 py-6 text-center text-slate-400 text-xs">
-              No incidents recorded yet. Click <strong>"Poll Live Logs"</strong> to scan real GCP logs in <code>agent-triad</code>.
+              ${total > 0
+                ? 'No audit events match your active search or date/time filter. Click <strong>"Clear Filters"</strong> to reset.'
+                : 'No incidents recorded yet. Click <strong>"Poll Live Logs"</strong> to scan real GCP logs in <code>agent-triad</code>.'}
             </td>
           </tr>
         `;
@@ -1248,12 +1949,12 @@
         }
 
         const approvedByHtml = ev.approved_by
-          ? `<span class="inline-flex items-center gap-1.5 font-semibold text-white"><i class="fa-solid fa-user-check text-[#34A853] text-[10px]"></i> ${escapeHtml(ev.approved_by)}</span>`
+          ? `<span class="inline-flex items-center gap-1.5 font-semibold text-white"><i class="fa-solid fa-user-check text-[#34A853] text-[10px]"></i> ${highlightSearchMatch(ev.approved_by, searchQuery)}</span>`
           : `<span class="text-slate-400 italic">Pending Hari's review</span>`;
 
         const approvedAtHtml = ev.approved_at
           ? `<div class="mono text-[11px] text-slate-200">${formatAuditTime(ev.approved_at)}</div>
-             ${ev.jit_token_id ? `<div class="mono text-[10px] text-slate-500">JIT: ${escapeHtml(ev.jit_token_id)}</div>` : ''}`
+             ${ev.jit_token_id ? `<div class="mono text-[10px] text-slate-500">JIT: ${highlightSearchMatch(ev.jit_token_id, searchQuery)}</div>` : ''}`
           : `<span class="text-slate-500">—</span>`;
 
         const specName = ev.specialist_agent_name || 'Serverless Agent';
@@ -1261,12 +1962,12 @@
         return `
           <tr class="hover:bg-slate-900/50 transition">
             <td class="px-4 py-3">
-              <div class="font-semibold text-white text-xs">${escapeHtml(ev.title || 'GCP Service Issue')}</div>
+              <div class="font-semibold text-white text-xs">${highlightSearchMatch(ev.title || 'GCP Service Issue', searchQuery)}</div>
               <div class="text-[10px] text-slate-400 mono mt-0.5 flex flex-wrap items-center gap-1.5">
-                <span class="text-[#4285F4] font-medium">${escapeHtml(ev.incident_id)}</span>
+                <span class="text-[#4285F4] font-medium">${highlightSearchMatch(ev.incident_id, searchQuery)}</span>
                 <span>•</span>
-                <span>${escapeHtml(ev.service_label || ev.workload || 'gcp')}</span>
-                <span class="g-badge-green px-2 py-0.5 rounded-full font-sans font-semibold">${escapeHtml(specName)}</span>
+                <span>${highlightSearchMatch(ev.service_label || ev.workload || 'gcp', searchQuery)}</span>
+                <span class="g-badge-green px-2 py-0.5 rounded-full font-sans font-semibold">${highlightSearchMatch(specName, searchQuery)}</span>
               </div>
             </td>
             <td class="px-4 py-3">
@@ -1301,40 +2002,33 @@
       const harness = (inc && inc.agent_harness) || impact.agent_harness || {};
       const stateLock = harness.state_lock || {};
       const policyGate = harness.policy_gate || {};
-      const ragPlaybook = harness.rag_playbook || {};
       const watchdog = harness.watchdog_spec || {};
       const tfBundle = impact.terraform_bundle || harness.terraform_bundle || null;
 
       const lockId = stateLock.lock_id || '.tflock Ready';
       const opaVerdict = policyGate.opa_verdict || 'PASS';
-      const ragId = ragPlaybook.playbook_id || 'PB-RUN-401';
-      const ragScore = ragPlaybook.similarity_score ? `${Math.round(ragPlaybook.similarity_score * 100)}%` : '94%';
       const watchdogSec = watchdog.watchdog_window_seconds || 45;
+      const metricWindowMin = Math.round((watchdog.metric_stabilization_window_seconds || 180) / 60);
+      const isStateful = watchdog.rollback_mode === 'STATEFUL_SAFE_MODE_ISOLATION';
       const dryRunStatus = tfBundle && tfBundle.dry_run ? tfBundle.dry_run.dry_run_status : null;
 
       return `
-        <div class="flex flex-wrap items-center justify-between gap-1.5 px-3.5 py-2.5 rounded-2xl bg-slate-950/80 border border-slate-800 text-[10px]">
+        <div class="flex flex-wrap items-center justify-between gap-1.5 px-3.5 py-2 rounded-2xl bg-slate-950/80 border border-slate-800 text-[10px]">
           <div class="flex flex-wrap items-center gap-1.5">
-            <span class="font-bold uppercase tracking-wider text-[#4285F4] flex items-center gap-1 mr-1">
-              <i class="fa-solid fa-shield-halved"></i> Safety Guardrails:
+            <span class="g-badge-yellow inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full" title="Target locked for 10m (${escapeHtml(lockId)})">
+              <i class="fa-solid fa-lock text-[9px]"></i> 10m Lock
             </span>
-            <span class="g-badge-yellow inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full" title="Target service is locked for 10 minutes (${escapeHtml(lockId)}) so no conflicting changes can run at the same time">
-              <i class="fa-solid fa-lock text-[9px]"></i> Resource Locked (10m Lease)
-            </span>
-            <span class="g-badge-green inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full font-semibold" title="Pre-flight safety policy (${escapeHtml(opaVerdict)}): verified non-destructive and within <=2 services/hr limit">
-              <i class="fa-solid fa-check text-[9px]"></i> Safety Check: Verified Safe (${escapeHtml(opaVerdict)})
-            </span>
-            <span class="g-badge-blue inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full mono" title="Matched Golden Remediation Playbook">
-              <i class="fa-solid fa-book-bookmark text-[9px]"></i> Playbook ${escapeHtml(ragId)} (${escapeHtml(ragScore)})
+            <span class="g-badge-green inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full font-semibold" title="Pre-flight check (${escapeHtml(opaVerdict)}): blocks delete/drop actions">
+              <i class="fa-solid fa-check text-[9px]"></i> Verified Safe
             </span>
             ${dryRunStatus ? `
-              <span class="g-badge-blue inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full font-semibold" title="Speculative Terraform Dry-Run Sandbox Validation">
+              <span class="g-badge-blue inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full font-semibold">
                 <i class="fa-solid fa-code-branch text-[9px]"></i> TF Dry-Run: ${escapeHtml(dryRunStatus)}
               </span>
             ` : ''}
           </div>
-          <span class="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-slate-900 text-slate-300 border border-slate-800" title="Monitors live service logs and metrics for ${escapeHtml(watchdogSec)} seconds after fix and auto-reverts if errors spike">
-            <i class="fa-regular fa-clock text-[#FBBC04] text-[9px]"></i> ${escapeHtml(watchdogSec)}s Auto-Rollback Monitor
+          <span class="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-slate-900 text-slate-300 border border-slate-800" title="${escapeHtml(watchdog.rollback_description || '')}">
+            <i class="fa-regular fa-clock text-[#FBBC04] text-[9px]"></i> ${escapeHtml(watchdogSec)}s + ${escapeHtml(metricWindowMin)}m Verify • ${isStateful ? 'DB Safe-Mode' : 'Auto-Rollback'}
           </span>
         </div>
       `;
@@ -1482,29 +2176,29 @@
 
           <!-- Quick Question Chips -->
           <div class="flex flex-wrap items-center gap-1.5 pt-1">
-            <span class="text-[10px] font-semibold text-slate-400 mr-1">Ask Atlas:</span>
+            <span class="text-[10px] font-semibold text-slate-400 mr-1">Ask:</span>
             <button type="button" onclick="askQuickQuestion('${escapeHtml(inc.incident_id)}', 'Why did this happen and what is the root cause?')"
               class="px-3 py-1 rounded-full bg-slate-900 hover:bg-slate-800 border border-slate-800 text-[11px] text-slate-200 transition cursor-pointer">
-              Why did this happen?
+              Root cause?
             </button>
             <button type="button" onclick="askQuickQuestion('${escapeHtml(inc.incident_id)}', 'Is this fix safe? Will there be any downtime?')"
               class="px-3 py-1 rounded-full bg-slate-900 hover:bg-slate-800 border border-slate-800 text-[11px] text-slate-200 transition cursor-pointer">
-              Any downtime or risk?
+              Any downtime?
             </button>
             <button type="button" onclick="askQuickQuestion('${escapeHtml(inc.incident_id)}', 'Generate a coordinated Multi-Service Terraform (.tf) remediation bundle across IAM, VPC firewall, and database for this incident.')"
               class="g-badge-blue px-3 py-1 rounded-full text-[11px] font-semibold transition cursor-pointer">
-              Scenario 2: Multi-Service Terraform (.tf) Fix
+              Generate Terraform (.tf)
             </button>
             <button type="button" onclick="askQuickQuestion('${escapeHtml(inc.incident_id)}', 'Show me the raw log and exact command you will run.')"
               class="px-3 py-1 rounded-full bg-slate-900 hover:bg-slate-800 border border-slate-800 text-[11px] text-slate-200 transition cursor-pointer">
-              Show log &amp; command
+              Show command
             </button>
           </div>
 
           <!-- Free-text Chat Input -->
           <form onsubmit="sendIncidentChat(event, '${escapeHtml(inc.incident_id)}')" class="flex items-center gap-2">
             <input id="chatInput-${escapeHtml(inc.incident_id)}" type="text"
-              placeholder="Ask Atlas anything about this issue, request a Terraform (.tf) bundle, or type 'I accept'..."
+              placeholder="Ask Atlas about this alert or type 'I accept'..."
               class="flex-1 bg-slate-950/90 border border-slate-800 focus:border-[#4285F4] rounded-full px-4 py-2.5 text-xs sm:text-sm text-white placeholder-slate-500 focus:outline-none" />
             <button id="btnSendChat" type="submit"
               class="g-btn-blue px-5 py-2.5 rounded-full font-semibold text-xs transition cursor-pointer flex items-center gap-1.5 shrink-0">
@@ -1524,18 +2218,18 @@
             <button id="btnSkipMain" onclick="skipIncident('${escapeHtml(inc.incident_id)}')"
               class="py-3 px-5 rounded-full bg-slate-900 hover:bg-slate-800 text-slate-200 border border-slate-800 font-medium text-xs transition cursor-pointer flex items-center justify-center gap-2">
               <i class="fa-regular fa-clock"></i>
-              <span>Later / Ignore (Fix Manually)</span>
+              <span>Skip (Fix Manually)</span>
             </button>
           </div>
 
           <!-- Optional View More for command override & Terraform / Harness inspector -->
           <details class="pt-1">
             <summary class="text-[11px] text-slate-400 hover:text-slate-200 cursor-pointer flex items-center justify-between">
-              <span>View / edit exact remediation command &amp; Agent Harness details</span>
+              <span>View / edit exact remediation command</span>
               <i class="fa-solid fa-chevron-down text-[10px]"></i>
             </summary>
             <div class="mt-2 p-3.5 rounded-2xl bg-slate-950/90 border border-slate-800 space-y-2 text-xs text-slate-300">
-              <div class="text-[10px] text-slate-400">Primary CLI / API Command (Zero-Token Deterministic Specialist Execution):</div>
+              <div class="text-[10px] text-slate-400">Primary CLI / API Command:</div>
               <input id="kubectl-${escapeHtml(inc.incident_id)}" type="text" value="${escapeHtml(impact.recommended_kubectl || '')}"
                 class="w-full bg-slate-900 border border-slate-800 rounded-xl px-3 py-1.5 text-[11px] mono text-slate-200" />
               ${tfBundle && tfBundle.hcl_code ? `
@@ -1566,21 +2260,21 @@
       return `
         <div class="glass g-card-fourcolor border border-slate-800 rounded-3xl p-5 sm:p-6 space-y-4">
           <!-- Direct Chatbot Header -->
-          <div class="flex flex-wrap items-center justify-between gap-2 pb-3.5 border-b border-slate-800">
+          <div class="flex flex-wrap items-center justify-between gap-2 pb-3 border-b border-slate-800">
             <div class="flex items-center gap-3">
               <div class="w-10 h-10 rounded-2xl bg-slate-900 border border-slate-800 flex items-center justify-center p-1.5">
                 ${getAtlasGcpIconSvg()}
               </div>
               <div>
                 <div class="flex items-center gap-1.5 flex-wrap">
-                  <span class="text-sm sm:text-base font-bold text-white">Atlas • Google Cloud ADK Co-Pilot</span>
+                  <span class="text-sm sm:text-base font-bold text-white">Atlas • Cloud Co-Pilot</span>
                   <span class="g-badge-blue px-2.5 py-0.5 rounded-full text-[10px] font-semibold">
-                    Gemini 2.5 Root Agent
+                    Gemini 2.5
                   </span>
                   ${specPills}
                 </div>
                 <div class="text-xs text-slate-400">
-                  Connected to live Cloud Run <code class="mono text-[10px]">agent-triad-db-agent</code>, <code class="mono text-[10px]">agent-triad-infra-agent</code> &amp; 5 Domain Specialist Harnesses.
+                  Ask GCP questions, inspect Cloud SQL &amp; Compute VMs, or generate Terraform.
                 </div>
               </div>
             </div>
@@ -1596,7 +2290,7 @@
                 <button type="button" onclick="closeDirectAtlasChat()"
                   class="g-badge-red inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[11px] font-semibold transition cursor-pointer">
                   <i class="fa-solid fa-bell"></i>
-                  <span>Back to Active Alert</span>
+                  <span>Back to Alert</span>
                 </button>
               ` : `
                 <button type="button" onclick="closeDirectAtlasChat()"
@@ -1613,39 +2307,43 @@
             ${renderChatBubbles(messages)}
           </div>
 
-          <!-- Quick Starter Chips covering Live DB & Infra Agents & all 4 Customer Scenarios -->
+          <!-- Quick Starter Chips -->
           <div class="flex flex-wrap items-center gap-1.5 pt-1">
-            <span class="text-[10px] font-semibold text-slate-400 mr-1">Suggested:</span>
+            <span class="text-[10px] font-semibold text-slate-400 mr-1">Quick Actions:</span>
+            <button type="button" onclick="askGeneralQuickQuestion('What scenarios do you support?')"
+              class="g-badge-blue px-3 py-1 rounded-full text-[11px] font-semibold transition cursor-pointer">
+              What scenarios do you support?
+            </button>
             <button type="button" onclick="askGeneralQuickQuestion('Troubleshoot our live Cloud SQL database testdbinstance1 in agent-triad. Why are database connections failing and what do the live logs and instance state show?')"
               class="g-badge-green px-3 py-1 rounded-full text-[11px] font-semibold transition cursor-pointer">
-              <i class="fa-solid fa-database mr-1"></i>Live ADK DB Agent: Troubleshoot testdbinstance1
+              <i class="fa-solid fa-database mr-1"></i>Cloud SQL Check
             </button>
             <button type="button" onclick="askGeneralQuickQuestion('What Compute Engine VMs are currently running in my project agent-triad, and what are the live CPU, uptime, and network metrics for testinstance1?')"
               class="g-badge-green px-3 py-1 rounded-full text-[11px] font-semibold transition cursor-pointer">
-              <i class="fa-solid fa-server mr-1"></i>Live ADK Infra Agent: Inspect Compute VMs &amp; Metrics
+              <i class="fa-solid fa-server mr-1"></i>Compute VMs &amp; Metrics
             </button>
             <button type="button" onclick="askGeneralQuickQuestion('My Cloud Run service has intermittent latency and cold-start timeouts not showing in logs. Give me a 1-line CLI fix.')"
               class="px-3 py-1 rounded-full bg-slate-900 hover:bg-slate-800 border border-slate-800 text-[11px] text-slate-200 transition cursor-pointer">
-              Scenario 1: 1-Line CLI Fix
+              1-Line CLI Fix
             </button>
             <button type="button" onclick="askGeneralQuickQuestion('We have a multi-service failure: Cloud Run cannot reach Cloud SQL due to missing IAM roles, VPC firewall egress rules, and connection pool exhaustion. Generate a coordinated Multi-Service Terraform fix.')"
               class="g-badge-blue px-3 py-1 rounded-full text-[11px] font-semibold transition cursor-pointer">
-              Scenario 2: Multi-Service Terraform Fix
+              Multi-Service Terraform
             </button>
             <button type="button" onclick="askGeneralQuickQuestion('Generate a production-ready Terraform (.tf) script to deploy a new Cloud Run service with least-privilege IAM and Cloud SQL connectivity.')"
               class="px-3 py-1 rounded-full bg-slate-900 hover:bg-slate-800 border border-slate-800 text-[11px] text-slate-200 transition cursor-pointer">
-              Scenario 3: New Terraform (.tf) Stack
+              New Cloud Run (.tf)
             </button>
             <button type="button" onclick="askGeneralQuickQuestion('How do I configure Workload Identity Federation (WIF) and least-privilege IAM on Google Cloud?')"
               class="px-3 py-1 rounded-full bg-slate-900 hover:bg-slate-800 border border-slate-800 text-[11px] text-slate-200 transition cursor-pointer">
-              Scenario 4: GCP How-To
+              WIF &amp; IAM Guide
             </button>
           </div>
 
           <!-- Free-text Chat Input -->
           <form onsubmit="sendGeneralAtlasChat(event)" class="flex items-center gap-2">
             <input id="generalChatInput" type="text"
-              placeholder="Ask a GCP How-To, query the live Cloud Run DB Agent, or generate a Terraform (.tf) stack..."
+              placeholder="Ask a GCP question, inspect live Cloud SQL / VMs, or request Terraform..."
               class="flex-1 bg-slate-950/90 border border-slate-800 focus:border-[#4285F4] rounded-full px-4 py-2.5 text-xs sm:text-sm text-white placeholder-slate-500 focus:outline-none" />
             <button id="btnSendGeneralChat" type="submit"
               class="g-btn-blue px-5 py-2.5 rounded-full font-semibold text-xs transition cursor-pointer flex items-center gap-1.5 shrink-0">
@@ -1774,26 +2472,26 @@
 
     function renderHealthyCard() {
       return `
-        <div class="glass g-card-fourcolor border border-slate-800 rounded-3xl p-7 text-center space-y-3.5">
-          <div class="w-14 h-14 rounded-2xl bg-slate-900 border border-slate-800 flex items-center justify-center text-lg mx-auto p-2 shadow-sm">
+        <div class="glass g-card-fourcolor border border-slate-800 rounded-3xl p-6 sm:p-7 text-center space-y-3">
+          <div class="w-12 h-12 rounded-2xl bg-slate-900 border border-slate-800 flex items-center justify-center text-lg mx-auto p-1.5 shadow-sm">
             ${getAtlasGcpIconSvg()}
           </div>
           <div class="inline-flex items-center gap-1.5 g-badge-green px-3 py-0.5 rounded-full text-[11px] font-semibold">
             <i class="fa-solid fa-circle-check text-[10px]"></i>
-            <span>Google Cloud Environment Healthy</span>
+            <span>All Cloud Services Healthy</span>
           </div>
-          <h2 class="text-lg sm:text-xl font-bold text-white">Hey Hari — Atlas (AaaS Lead) is Holding Up Your Cloud</h2>
-          <p class="text-xs sm:text-sm text-slate-400 max-w-lg mx-auto leading-relaxed">
-            Use <strong>"Poll Live Logs"</strong> to scan real Google Cloud Logging anomalies in <code>agent-triad</code>, or click <strong>"Chat with Atlas"</strong> to query the live Cloud Run <code>Database Agent</code> &amp; <code>Infra Agent</code> and generate Terraform remediation bundles.
+          <h2 class="text-lg sm:text-xl font-bold text-white">Ready to Assist, Hari</h2>
+          <p class="text-xs sm:text-sm text-slate-400 max-w-md mx-auto">
+            Scan live GCP logs for alerts, or open chat to inspect Cloud SQL, Compute VMs, and Terraform fixes.
           </p>
           <div class="pt-1 flex flex-wrap items-center justify-center gap-2.5">
             <button type="button" onclick="pollLiveCloudLogging()" class="px-4 py-2 rounded-full bg-slate-900 hover:bg-slate-800 border border-slate-700 text-xs font-semibold text-white transition cursor-pointer inline-flex items-center gap-1.5">
               <i class="fa-solid fa-satellite-dish text-[#4285F4]"></i>
-              <span>Poll Live GCP Logs</span>
+              <span>Poll Live Logs</span>
             </button>
             <button type="button" onclick="openDirectAtlasChat()" class="g-btn-blue px-4 py-2 rounded-full text-xs font-semibold transition cursor-pointer inline-flex items-center gap-1.5">
               <i class="fa-regular fa-comment-dots"></i>
-              <span>Launch Atlas Co-Pilot Chat</span>
+              <span>Chat with Atlas</span>
             </button>
           </div>
         </div>
