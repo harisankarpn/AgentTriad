@@ -10,6 +10,8 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Google+Sans+Text:400,500,700|Google+Sans+Display:400,500,600,700|Google+Sans:400,500,700|Product+Sans:400|Roboto+Mono:400,500&display=swap&lang=en" />
+  <!-- Official Google Identity Services (OAuth 2.0 / OpenID Connect) -->
+  <script src="https://accounts.google.com/gsi/client" async defer></script>
   <style>
     /* =========================================================================
        GOOGLE VISUAL IDENTITY COLOR PALETTE & MATERIAL 3 THEME TOKENS
@@ -928,24 +930,49 @@
         </p>
       </div>
 
-      <!-- Optional Google Identity Services OAuth Button Container -->
-      <div id="gIdSigninContainer" class="hidden flex justify-center"></div>
+      <!-- Real Google OAuth 2.0 Sign-In Action -->
+      <div id="googleSsoForm" class="space-y-3">
+        <div id="gIdSigninContainer" class="hidden flex justify-center"></div>
 
-      <!-- Quick Google Workspace Account Picker -->
-      <div class="space-y-2">
-        <div class="text-[10px] font-bold uppercase tracking-wider text-slate-400">Choose a Google Workspace Account</div>
-        <button type="button" onclick="quickSignInGoogleAccount('Hari', 'harisankar@google.com')"
-          class="w-full p-3 rounded-2xl bg-slate-900 hover:bg-slate-800 border border-slate-800 flex items-center justify-between gap-3 transition cursor-pointer text-left">
-          <div class="flex items-center gap-3 min-w-0">
-            <span class="w-9 h-9 rounded-full bg-[#4285F4] text-white font-bold text-xs flex items-center justify-center btn-solid shrink-0">H</span>
-            <div class="min-w-0">
-              <div class="text-xs font-bold text-white truncate">Hari (Harisankar P N)</div>
-              <div class="text-[11px] text-slate-400 mono truncate">harisankar@google.com</div>
-            </div>
-          </div>
-          <span class="g-badge-green px-2.5 py-0.5 rounded-full text-[10px] font-semibold shrink-0">Cloud Architect</span>
+        <button id="btnSubmitGoogleSso" type="button" onclick="triggerRealGoogleOAuthSignIn()"
+          class="g-btn-blue w-full py-3 px-4 rounded-full font-semibold text-xs sm:text-sm transition cursor-pointer flex items-center justify-center gap-2.5 shadow-md">
+          <svg class="w-4 h-4 bg-white rounded-full p-0.5 shrink-0" viewBox="0 0 24 24" aria-hidden="true">
+            <path fill="#4285F4" d="M23.49 12.27c0-.79-.07-1.54-.19-2.27H12v4.51h6.47c-.29 1.48-1.14 2.73-2.4 3.58v3h3.86c2.26-2.09 3.56-5.17 3.56-8.82z"/>
+            <path fill="#34A853" d="M12 24c3.24 0 5.95-1.08 7.93-2.91l-3.86-3c-1.08.72-2.45 1.16-4.07 1.16-3.13 0-5.78-2.11-6.73-4.96H1.29v3.09C3.26 21.3 7.31 24 12 24z"/>
+            <path fill="#FBBC05" d="M5.27 14.29c-.25-.72-.38-1.49-.38-2.29s.14-1.57.38-2.29V6.62H1.29C.47 8.24 0 10.06 0 12s.47 3.76 1.29 5.38l3.98-3.09z"/>
+            <path fill="#EA4335" d="M12 4.75c1.77 0 3.35.61 4.6 1.8l3.42-3.42C17.95 1.19 15.24 0 12 0 7.31 0 3.26 2.7 1.29 6.62l3.98 3.09c.95-2.85 3.6-4.96 6.73-4.96z"/>
+          </svg>
+          <span>Continue with Google SSO</span>
         </button>
 
+        <!-- Error / OAuth Client ID Setup Notice (shown when real OAuth requires Client ID) -->
+        <div id="googleSsoStatusAlert" class="hidden p-3.5 rounded-2xl bg-slate-900/95 border border-[#FBBC04]/40 text-xs text-slate-200 space-y-2.5">
+          <div class="flex items-start gap-2 text-[#FBBC04] font-semibold">
+            <i class="fa-solid fa-key mt-0.5"></i>
+            <span id="googleSsoStatusMessage">Google OAuth 2.0 Web Client ID required to open accounts.google.com popup.</span>
+          </div>
+          <p class="text-[11px] text-slate-400 leading-relaxed">
+            Paste your GCP OAuth 2.0 Web Client ID (from <strong>GCP Console → APIs &amp; Services → Credentials</strong> with Authorized JS Origin <code id="oauthOriginHint" class="text-[#4285F4]"></code>):
+          </p>
+          <div class="flex items-center gap-2">
+            <input id="oauthClientIdInput" type="text" placeholder="xxxx-xxxx.apps.googleusercontent.com"
+              class="flex-1 bg-slate-950 border border-slate-800 focus:border-[#4285F4] rounded-xl px-3 py-1.5 text-[11px] mono text-white placeholder-slate-500 focus:outline-none" />
+            <button type="button" onclick="saveAndLaunchGoogleOAuth()"
+              class="g-btn-blue px-3.5 py-1.5 rounded-xl text-[11px] font-semibold cursor-pointer shrink-0">
+              Save &amp; Sign In
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <div class="flex items-center gap-3 text-[10px] text-slate-500 uppercase tracking-wider">
+        <div class="flex-1 h-px bg-slate-800"></div>
+        <span>Or continue with On-Call Role</span>
+        <div class="flex-1 h-px bg-slate-800"></div>
+      </div>
+
+      <!-- On-Call Google Workspace Account -->
+      <div class="space-y-2">
         <button type="button" onclick="quickSignInGoogleAccount('Cloud SRE Lead', 'sre-lead@google.com')"
           class="w-full p-3 rounded-2xl bg-slate-900 hover:bg-slate-800 border border-slate-800 flex items-center justify-between gap-3 transition cursor-pointer text-left">
           <div class="flex items-center gap-3 min-w-0">
@@ -958,36 +985,6 @@
           <span class="g-badge-blue px-2.5 py-0.5 rounded-full text-[10px] font-semibold shrink-0">SRE On-Call</span>
         </button>
       </div>
-
-      <div class="flex items-center gap-3 text-[10px] text-slate-500 uppercase tracking-wider">
-        <div class="flex-1 h-px bg-slate-800"></div>
-        <span>Or sign in with another Google account</span>
-        <div class="flex-1 h-px bg-slate-800"></div>
-      </div>
-
-      <!-- Custom Google Workspace SSO Sign-In Form -->
-      <form id="googleSsoForm" onsubmit="submitGoogleSsoSignIn(event)" class="space-y-3">
-        <div>
-          <label for="ssoUserNameInput" class="block text-[11px] font-semibold text-slate-300 mb-1">Full Name</label>
-          <input id="ssoUserNameInput" type="text" required placeholder="e.g. Priya Sharma"
-            class="w-full bg-slate-900 border border-slate-800 focus:border-[#4285F4] rounded-xl px-3.5 py-2 text-xs text-white placeholder-slate-500 focus:outline-none" />
-        </div>
-        <div>
-          <label for="ssoUserEmailInput" class="block text-[11px] font-semibold text-slate-300 mb-1">Google Workspace Email</label>
-          <input id="ssoUserEmailInput" type="email" required placeholder="e.g. priya@google.com"
-            class="w-full bg-slate-900 border border-slate-800 focus:border-[#4285F4] rounded-xl px-3.5 py-2 text-xs text-white placeholder-slate-500 focus:outline-none" />
-        </div>
-        <button id="btnSubmitGoogleSso" type="submit"
-          class="g-btn-blue w-full py-2.5 px-4 rounded-full font-semibold text-xs transition cursor-pointer flex items-center justify-center gap-2">
-          <svg class="w-4 h-4 bg-white rounded-full p-0.5 shrink-0" viewBox="0 0 24 24" aria-hidden="true">
-            <path fill="#4285F4" d="M23.49 12.27c0-.79-.07-1.54-.19-2.27H12v4.51h6.47c-.29 1.48-1.14 2.73-2.4 3.58v3h3.86c2.26-2.09 3.56-5.17 3.56-8.82z"/>
-            <path fill="#34A853" d="M12 24c3.24 0 5.95-1.08 7.93-2.91l-3.86-3c-1.08.72-2.45 1.16-4.07 1.16-3.13 0-5.78-2.11-6.73-4.96H1.29v3.09C3.26 21.3 7.31 24 12 24z"/>
-            <path fill="#FBBC05" d="M5.27 14.29c-.25-.72-.38-1.49-.38-2.29s.14-1.57.38-2.29V6.62H1.29C.47 8.24 0 10.06 0 12s.47 3.76 1.29 5.38l3.98-3.09z"/>
-            <path fill="#EA4335" d="M12 4.75c1.77 0 3.35.61 4.6 1.8l3.42-3.42C17.95 1.19 15.24 0 12 0 7.31 0 3.26 2.7 1.29 6.62l3.98 3.09c.95-2.85 3.6-4.96 6.73-4.96z"/>
-          </svg>
-          <span>Continue with Google SSO</span>
-        </button>
-      </form>
     </div>
   </div>
 
@@ -995,10 +992,24 @@
     let latestState = null;
 
     // =====================================================================
-    // GOOGLE SSO IDENTITY & SESSION MANAGEMENT
+    // GOOGLE SSO IDENTITY & SESSION MANAGEMENT (REAL OAUTH 2.0 + IAP)
     // =====================================================================
     const SSO_STORAGE_KEY = 'aaas_google_sso_user';
+    const OAUTH_CLIENT_ID_STORAGE_KEY = 'aaas_google_oauth_client_id';
     let currentSsoUser = null;
+    let googleOAuthClientId = '';
+
+    function getConfiguredOAuthClientId() {
+      if (googleOAuthClientId) return googleOAuthClientId;
+      try {
+        const saved = localStorage.getItem(OAUTH_CLIENT_ID_STORAGE_KEY);
+        if (saved && saved.includes('.apps.googleusercontent.com')) {
+          googleOAuthClientId = saved.trim();
+          return googleOAuthClientId;
+        }
+      } catch (e) {}
+      return '';
+    }
 
     function loadStoredSsoUser() {
       try {
@@ -1046,10 +1057,12 @@
 
     function openGoogleSsoModal() {
       const modal = document.getElementById('googleSsoModal');
-      const nameInput = document.getElementById('ssoUserNameInput');
-      const emailInput = document.getElementById('ssoUserEmailInput');
-      if (nameInput) nameInput.value = getCurrentUserName();
-      if (emailInput) emailInput.value = getCurrentUserEmail();
+      const originEl = document.getElementById('oauthOriginHint');
+      if (originEl) originEl.textContent = window.location.origin;
+      const clientInput = document.getElementById('oauthClientIdInput');
+      if (clientInput && getConfiguredOAuthClientId()) {
+        clientInput.value = getConfiguredOAuthClientId();
+      }
       if (modal) modal.classList.remove('hidden');
     }
 
@@ -1059,24 +1072,34 @@
     }
 
     async function completeGoogleSsoLogin(payload) {
+      const alertBox = document.getElementById('googleSsoStatusAlert');
+      const msgEl = document.getElementById('googleSsoStatusMessage');
       try {
         const res = await fetch('/api/auth/google', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(payload)
         });
-        if (res.ok) {
-          const data = await res.json();
-          if (data.user) {
-            currentSsoUser = data.user;
-            try {
-              localStorage.setItem(SSO_STORAGE_KEY, JSON.stringify(currentSsoUser));
-            } catch (e) {}
+        if (!res.ok) {
+          const errData = await res.json().catch(() => ({}));
+          if (alertBox && msgEl) {
+            msgEl.textContent = errData.detail || 'Google SSO authentication failed.';
+            alertBox.classList.remove('hidden');
           }
+          return;
+        }
+        const data = await res.json();
+        if (data.user) {
+          currentSsoUser = data.user;
+          try {
+            localStorage.setItem(SSO_STORAGE_KEY, JSON.stringify(currentSsoUser));
+          } catch (e) {}
         }
       } catch (err) {
         console.error('Google SSO login error:', err);
+        return;
       }
+      if (alertBox) alertBox.classList.add('hidden');
       updateHeaderUserBadge();
       closeGoogleSsoModal();
       lastStageSignature = '';
@@ -1087,34 +1110,78 @@
       await completeGoogleSsoLogin({ name, email });
     }
 
-    async function submitGoogleSsoSignIn(event) {
-      if (event) event.preventDefault();
-      const nameEl = document.getElementById('ssoUserNameInput');
-      const emailEl = document.getElementById('ssoUserEmailInput');
-      const name = (nameEl ? nameEl.value : '').trim();
-      const email = (emailEl ? emailEl.value : '').trim();
-      if (!name || !email) return;
-      await completeGoogleSsoLogin({ name, email });
+    async function saveAndLaunchGoogleOAuth() {
+      const inputEl = document.getElementById('oauthClientIdInput');
+      const cid = (inputEl ? inputEl.value : '').trim();
+      const msgEl = document.getElementById('googleSsoStatusMessage');
+      if (!cid || !cid.includes('.apps.googleusercontent.com')) {
+        if (msgEl) msgEl.textContent = 'Please enter a valid OAuth 2.0 Web Client ID ending in .apps.googleusercontent.com';
+        return;
+      }
+      googleOAuthClientId = cid;
+      try {
+        localStorage.setItem(OAUTH_CLIENT_ID_STORAGE_KEY, cid);
+        await fetch('/api/auth/config', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ client_id: cid })
+        });
+      } catch (e) {}
+      await triggerRealGoogleOAuthSignIn();
+    }
+
+    async function triggerRealGoogleOAuthSignIn() {
+      const clientId = getConfiguredOAuthClientId();
+      const alertBox = document.getElementById('googleSsoStatusAlert');
+      const msgEl = document.getElementById('googleSsoStatusMessage');
+
+      if (!clientId) {
+        if (alertBox) alertBox.classList.remove('hidden');
+        if (msgEl) {
+          msgEl.textContent = 'Configure your Google OAuth 2.0 Web Client ID to launch real accounts.google.com authentication:';
+        }
+        const inputEl = document.getElementById('oauthClientIdInput');
+        if (inputEl) inputEl.focus();
+        return;
+      }
+
+      if (!window.google || !window.google.accounts || !window.google.accounts.oauth2) {
+        if (alertBox) alertBox.classList.remove('hidden');
+        if (msgEl) {
+          msgEl.textContent = 'Google Identity Services SDK is still loading from accounts.google.com. Please try again in a moment.';
+        }
+        return;
+      }
+
+      const tokenClient = window.google.accounts.oauth2.initTokenClient({
+        client_id: clientId,
+        scope: 'openid email profile',
+        prompt: 'select_account',
+        callback: async (tokenResponse) => {
+          if (tokenResponse && tokenResponse.access_token) {
+            await completeGoogleSsoLogin({
+              access_token: tokenResponse.access_token,
+              client_id: clientId
+            });
+          } else if (tokenResponse && tokenResponse.error) {
+            if (alertBox) alertBox.classList.remove('hidden');
+            if (msgEl) {
+              msgEl.textContent = `Google OAuth Error: ${tokenResponse.error_description || tokenResponse.error}`;
+            }
+          }
+        }
+      });
+      tokenClient.requestAccessToken();
     }
 
     async function initGoogleSsoSession() {
-      const stored = loadStoredSsoUser();
-      if (stored) {
-        updateHeaderUserBadge();
-        // Sync stored Google SSO user to backend session
-        try {
-          await fetch('/api/auth/google', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ name: stored.name, email: stored.email })
-          });
-        } catch (e) {}
-        return;
-      }
       try {
         const res = await fetch('/api/auth/me');
         if (res.ok) {
           const info = await res.json();
+          if (info.google_oauth_client_id) {
+            googleOAuthClientId = info.google_oauth_client_id;
+          }
           if (info.iap_detected && info.user) {
             currentSsoUser = info.user;
             try {
@@ -1125,6 +1192,19 @@
           }
         }
       } catch (e) {}
+
+      const stored = loadStoredSsoUser();
+      if (stored) {
+        updateHeaderUserBadge();
+        try {
+          await fetch('/api/auth/google', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ name: stored.name, email: stored.email })
+          });
+        } catch (e) {}
+        return;
+      }
       // Show Google SSO Sign-In screen when no session exists yet in browser
       openGoogleSsoModal();
     }

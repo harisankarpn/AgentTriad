@@ -77,6 +77,36 @@ class GoogleSSOLoginRequest(BaseModel):
     email: Optional[str] = None
     picture: Optional[str] = None
     credential: Optional[str] = None
+    access_token: Optional[str] = None
+    client_id: Optional[str] = None
+
+
+class GoogleOAuthConfigRequest(BaseModel):
+    client_id: str
+
+
+_runtime_oauth_client_id: str = os.getenv("GOOGLE_OAUTH_CLIENT_ID", "").strip()
+
+
+def _get_effective_oauth_client_id() -> str:
+    return (_runtime_oauth_client_id or os.getenv("GOOGLE_OAUTH_CLIENT_ID", "")).strip()
+
+
+@app.post("/api/auth/config")
+async def configure_google_oauth_client(req: GoogleOAuthConfigRequest) -> Dict[str, Any]:
+    """Sets the Google OAuth 2.0 Web Client ID at runtime for Google Identity Services SSO."""
+    global _runtime_oauth_client_id
+    cid = (req.client_id or "").strip()
+    if not cid or ".apps.googleusercontent.com" not in cid:
+        raise HTTPException(
+            status_code=400,
+            detail="Valid Google OAuth 2.0 Client ID (*.apps.googleusercontent.com) is required.",
+        )
+    _runtime_oauth_client_id = cid
+    return {
+        "status": "OAUTH_CLIENT_CONFIGURED",
+        "google_oauth_client_id": _runtime_oauth_client_id,
+    }
 
 
 @app.get("/api/auth/me")
@@ -98,58 +128,76 @@ async def get_authenticated_user(request: Request) -> Dict[str, Any]:
             "authenticated": True,
             "iap_detected": True,
             "user": user,
-            "google_oauth_client_id": os.getenv("GOOGLE_OAUTH_CLIENT_ID", ""),
+            "google_oauth_client_id": _get_effective_oauth_client_id(),
         }
 
     return {
         "authenticated": True,
         "iap_detected": False,
         "user": lead_orchestrator.active_user,
-        "google_oauth_client_id": os.getenv("GOOGLE_OAUTH_CLIENT_ID", ""),
+        "google_oauth_client_id": _get_effective_oauth_client_id(),
     }
 
 
 @app.post("/api/auth/google")
 async def login_with_google_sso(req: GoogleSSOLoginRequest) -> Dict[str, Any]:
     """
-    Authenticates a user via Google Identity Services OAuth 2.0 JWT (`credential`)
-    or Google Workspace SSO profile (`name`, `email`, `picture`).
+    Authenticates a user via:
+      1. Real Google OAuth 2.0 Access Token (`access_token` verified against https://www.googleapis.com/oauth2/v3/userinfo)
+      2. Real Google Identity Services ID Token JWT (`credential` verified via google.oauth2.id_token)
+      3. Authorized Google Workspace / Sandbox SRE role (`name`, `email`)
     """
-    import base64
-    import json
+    import httpx
+
+    global _runtime_oauth_client_id
+    if req.client_id and ".apps.googleusercontent.com" in req.client_id:
+        _runtime_oauth_client_id = req.client_id.strip()
 
     name = (req.name or "").strip()
     email = (req.email or "").strip()
     picture = (req.picture or "").strip()
+    provider = "google-sso"
 
-    # Decode Google Identity Services ID token (JWT) if provided
-    if req.credential:
-        client_id = os.getenv("GOOGLE_OAUTH_CLIENT_ID", "").strip()
-        decoded_claims: Dict[str, Any] = {}
-        if client_id:
-            try:
-                from google.auth.transport import requests as google_requests
-                from google.oauth2 import id_token
+    # 1. Verify Real Google OAuth 2.0 Access Token against Google UserInfo API
+    if req.access_token:
+        async with httpx.AsyncClient(timeout=10.0) as http_client:
+            userinfo_res = await http_client.get(
+                "https://www.googleapis.com/oauth2/v3/userinfo",
+                headers={"Authorization": f"Bearer {req.access_token.strip()}"},
+            )
+        if userinfo_res.status_code != 200:
+            raise HTTPException(
+                status_code=401,
+                detail="Google OAuth 2.0 token verification failed against accounts.google.com.",
+            )
+        uinfo = userinfo_res.json()
+        email = uinfo.get("email") or email
+        name = uinfo.get("name") or uinfo.get("given_name") or name
+        picture = uinfo.get("picture") or picture
+        provider = "google-oauth2-verified"
 
-                decoded_claims = id_token.verify_oauth2_token(
-                    req.credential,
-                    google_requests.Request(),
-                    client_id,
-                )
-            except Exception:
-                decoded_claims = {}
-        if not decoded_claims:
-            try:
-                parts = req.credential.split(".")
-                if len(parts) >= 2:
-                    padded = parts[1] + "=" * (-len(parts[1]) % 4)
-                    decoded_claims = json.loads(base64.urlsafe_b64decode(padded).decode("utf-8"))
-            except Exception:
-                decoded_claims = {}
+    # 2. Verify Real Google Identity Services ID Token (JWT)
+    elif req.credential:
+        client_id = _get_effective_oauth_client_id()
+        try:
+            from google.auth.transport import requests as google_requests
+            from google.oauth2 import id_token
+
+            decoded_claims = id_token.verify_oauth2_token(
+                req.credential,
+                google_requests.Request(),
+                client_id or None,
+            )
+        except Exception as exc:
+            raise HTTPException(
+                status_code=401,
+                detail=f"Google ID token cryptographic verification failed: {exc}",
+            ) from exc
 
         email = decoded_claims.get("email") or email
         name = decoded_claims.get("name") or decoded_claims.get("given_name") or name
         picture = decoded_claims.get("picture") or picture
+        provider = "google-id-token-verified"
 
     if not name and email:
         name = email.split("@")[0].replace(".", " ").title()
@@ -163,7 +211,7 @@ async def login_with_google_sso(req: GoogleSSOLoginRequest) -> Dict[str, Any]:
         name=name,
         email=email,
         picture=picture,
-        provider="google-sso",
+        provider=provider,
     )
     return {
         "status": "AUTHENTICATED",
