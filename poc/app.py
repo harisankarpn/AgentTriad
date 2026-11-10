@@ -200,9 +200,13 @@ async def poll_cloud_logging() -> Dict[str, Any]:
     if not real_anomalies:
         real_anomalies = [entry for entry in logs if entry.get("is_anomaly")]
 
-    # Prioritize real Cloud SQL (`gcp-sql-...`) anomalies first so the live ADK Database Agent is showcased
+    # Sort real GCP anomalies by newest timestamp descending so newly occurring live errors are surfaced immediately
     real_anomalies.sort(
-        key=lambda e: (0 if str(e.get("log_id", "")).startswith("gcp-sql-") else 1)
+        key=lambda e: (
+            str(e.get("timestamp", "")),
+            1 if str(e.get("log_id", "")).startswith("gcp-sql-") else 0,
+        ),
+        reverse=True,
     )
 
     target_entry = None

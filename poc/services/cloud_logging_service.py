@@ -85,6 +85,10 @@ class CloudLoggingService:
             "Shutting down",
             "Started server process",
             "Uvicorn running on",
+            "logging.googleapis.com/diagnostic",
+            "LogPingOpsAgent",
+            "Invalid user \"",
+            "The request was not authenticated. Either allow unauthenticated invocations",
         )
         for token in noisy_substrings:
             if token in raw_text:
@@ -279,19 +283,28 @@ class CloudLoggingService:
                 "persisted_to_gcp": True,
             }
 
-        # Real Cloud SQL logs (`cloudsql_database`)
-        if res_type == "cloudsql_database":
+        # Real Cloud SQL logs (`cloudsql_database`) or Cloud SQL Auth Proxy / DB connectivity errors (`cloud-sql-proxy`)
+        if res_type == "cloudsql_database" or "cloud-sql-proxy" in log_name:
             db_id = labels.get("database_id") or "agent-triad:testdbinstance1"
             instance_short = db_id.split(":")[-1]
-            region = labels.get("region") or "us-west1"
+            raw_region = labels.get("region") or labels.get("zone") or "us-west1"
+            region = raw_region.split("/")[-1]
             clean_msg = " ".join(raw_msg.strip().split())
             if not clean_msg or clean_msg == "None":
                 self.suppressed_routine_logs_count += 1
                 return None
-            is_anom = severity in ("ERROR", "CRITICAL", "ALERT", "EMERGENCY") or "FATAL:" in clean_msg
+            is_proxy_log = "cloud-sql-proxy" in log_name
+            is_anom = (
+                severity in ("ERROR", "CRITICAL", "ALERT", "EMERGENCY")
+                or "FATAL:" in clean_msg
+                or "Re-occured" in clean_msg
+                or "Connection Refused" in clean_msg
+                or "timeout expired" in clean_msg
+            )
+            sig_suffix = clean_msg[:48] if is_proxy_log else "FATAL_OR_ERROR"
             return {
                 "log_id": f"gcp-sql-{entry.insert_id or uuid.uuid4().hex[:8]}",
-                "signature_key": f"cloudsql:{db_id}:FATAL_OR_ERROR",
+                "signature_key": f"cloudsql:{db_id}:{sig_suffix}",
                 "timestamp": ts_iso,
                 "severity": severity if severity in ("ERROR", "CRITICAL", "ALERT") else "ERROR",
                 "scenario_id": "cloudsql_anomaly" if is_anom else "info",
@@ -302,10 +315,10 @@ class CloudLoggingService:
                 "namespace": "cloud-sql",
                 "workload": f"cloudsql/{instance_short}",
                 "pod": instance_short,
-                "container": "postgres",
-                "error_code": "CLOUDSQL_POSTGRES_FATAL" if is_anom else "POSTGRES_TELEMETRY",
+                "container": "cloud-sql-proxy" if is_proxy_log else "postgres",
+                "error_code": "CLOUDSQL_PROXY_CONNECTION_TIMEOUT" if is_proxy_log else ("CLOUDSQL_POSTGRES_FATAL" if is_anom else "POSTGRES_TELEMETRY"),
                 "message": clean_msg,
-                "metrics_snapshot": {"database_id": db_id, "region": region},
+                "metrics_snapshot": {"database_id": db_id, "region": region, "log_source": log_name.split("/")[-1]},
                 "recommended_kubectl": (
                     f"gcloud sql instances patch {instance_short} --activation-policy=ALWAYS --project={self.project_id}"
                 ),
@@ -433,21 +446,27 @@ class CloudLoggingService:
         if should_poll:
             self._last_poll_time = now_ts
             try:
-                # 0. Prioritize real Cloud SQL (`testdbinstance1`) FATAL/ALERT/ERROR logs
+                # 0. Prioritize real Cloud SQL (`testdbinstance1`) and Cloud SQL Auth Proxy FATAL/ALERT/ERROR logs
                 cloudsql_anomaly_filter = (
-                    'resource.type="cloudsql_database" AND (severity>=WARNING OR textPayload:"FATAL")'
+                    '(resource.type="cloudsql_database" AND (severity>=WARNING OR textPayload:"FATAL")) '
+                    'OR (logName:"cloud-sql-proxy" AND severity>=WARNING)'
                 )
-                # 1. Query real project-wide warnings/errors (Cloud Run, ReasoningEngine, CloudSQL, GKE, etc.)
+                # 1. Query real warnings/errors across Cloud SQL, GCE VMs, Cloud Run, Cloud Functions & ReasoningEngine
                 anomaly_filter = (
-                    'severity>=WARNING '
+                    '(resource.type="cloudsql_database" OR resource.type="gce_instance" '
+                    'OR resource.type="cloud_run_revision" OR resource.type="cloud_function" '
+                    'OR resource.type="aiplatform.googleapis.com/ReasoningEngine") '
+                    'AND severity>=WARNING '
                     'AND NOT protoPayload.@type="type.googleapis.com/google.cloud.audit.AuditLog" '
+                    'AND NOT logName:"GCEGuestAgent" '
                     f'AND NOT logName="projects/{self.project_id}/logs/{self.log_name}"'
                 )
                 # 2. Query recent general operational logs (Cloud SQL, Cloud Run startup/system, GCE)
                 telemetry_filter = (
                     '(resource.type="cloudsql_database" OR resource.type="cloud_run_revision" '
                     'OR resource.type="gce_instance" OR resource.type="aiplatform.googleapis.com/ReasoningEngine") '
-                    'AND NOT protoPayload.@type="type.googleapis.com/google.cloud.audit.AuditLog"'
+                    'AND NOT protoPayload.@type="type.googleapis.com/google.cloud.audit.AuditLog" '
+                    'AND NOT logName:"ops-agent-health"'
                 )
 
                 raw_entries = []
@@ -457,7 +476,7 @@ class CloudLoggingService:
                             self._client.list_entries(
                                 filter_=cloudsql_anomaly_filter,
                                 order_by=gcp_logging.DESCENDING,
-                                max_results=10,
+                                max_results=15,
                             )
                         )
                     )
@@ -470,7 +489,7 @@ class CloudLoggingService:
                             self._client.list_entries(
                                 filter_=anomaly_filter,
                                 order_by=gcp_logging.DESCENDING,
-                                max_results=20,
+                                max_results=25,
                             )
                         )
                     )
@@ -491,11 +510,12 @@ class CloudLoggingService:
                     pass
 
                 known_ids = {item.get("log_id") for item in self._local_logs}
-                known_sigs = {
-                    item.get("signature_key")
+                existing_sig_ts = {
+                    item.get("signature_key"): str(item.get("timestamp", ""))
                     for item in self._local_logs
                     if item.get("signature_key") and item.get("is_anomaly")
                 }
+                batch_sigs: set[str] = set()
 
                 new_items: List[Dict[str, Any]] = []
                 for entry in raw_entries:
@@ -504,15 +524,21 @@ class CloudLoggingService:
                         continue
                     lid = norm["log_id"]
                     sig = norm.get("signature_key")
+                    norm_ts = str(norm.get("timestamp", ""))
                     if lid in known_ids:
                         continue
-                    if norm.get("is_anomaly") and sig and sig in known_sigs:
-                        # Deduplicate multi-line stack traces from the same real anomaly
-                        self.suppressed_routine_logs_count += 1
-                        continue
-                    known_ids.add(lid)
                     if norm.get("is_anomaly") and sig:
-                        known_sigs.add(sig)
+                        if sig in batch_sigs:
+                            # Deduplicate multi-line stack traces or identical burst lines within the same poll batch
+                            self.suppressed_routine_logs_count += 1
+                            continue
+                        prev_ts = existing_sig_ts.get(sig)
+                        if prev_ts and norm_ts <= prev_ts:
+                            self.suppressed_routine_logs_count += 1
+                            continue
+                        batch_sigs.add(sig)
+                        existing_sig_ts[sig] = norm_ts
+                    known_ids.add(lid)
                     new_items.append(norm)
 
                 if new_items:

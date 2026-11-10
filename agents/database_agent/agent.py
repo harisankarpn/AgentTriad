@@ -348,9 +348,9 @@ def analyze_db_logs_and_connections(
             {
                 "resourceNames": [f"projects/{project_id}"],
                 "filter": (
-                    f'resource.type="cloudsql_database" AND '
-                    f'resource.labels.database_id="{database_id}" AND '
-                    f'(severity>=WARNING OR textPayload:"FATAL" OR textPayload:"ERROR" OR textPayload:"shutting down")'
+                    f'((resource.type="cloudsql_database" AND resource.labels.database_id="{database_id}") '
+                    f'OR logName:"cloud-sql-proxy") AND '
+                    f'(severity>=WARNING OR textPayload:"FATAL" OR textPayload:"ERROR" OR textPayload:"shutting down" OR textPayload:"Re-occured")'
                 ),
                 "orderBy": "timestamp desc",
                 "pageSize": 15,
@@ -393,6 +393,7 @@ def analyze_db_logs_and_connections(
 
     # Dynamically classify the actual live logs returned by Cloud Logging
     categories: Dict[str, int] = {
+        "direct_ip_or_proxy_connection_timeouts": 0,
         "unencrypted_ssl_rejections": 0,
         "password_auth_failures": 0,
         "connection_pool_exhaustion": 0,
@@ -402,7 +403,9 @@ def analyze_db_logs_and_connections(
     }
     for line in live_log_messages:
         low = line.lower()
-        if "pg_hba.conf rejects connection" in low and "no encryption" in low:
+        if "re-occured" in low or "connection refused" in low or "timeout expired" in low or "port 3306" in low:
+            categories["direct_ip_or_proxy_connection_timeouts"] += 1
+        elif "pg_hba.conf rejects connection" in low and "no encryption" in low:
             categories["unencrypted_ssl_rejections"] += 1
         elif "password authentication failed" in low:
             categories["password_auth_failures"] += 1
