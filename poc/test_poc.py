@@ -48,6 +48,9 @@ def run_e2e_tests() -> None:
     ):
         assert nav_id in res_ui.text, f"Missing sidebar/view/theme element {nav_id} in Dashboard UI"
     assert "prefers-color-scheme: dark" in res_ui.text
+    assert res_ui.text.count("Chat with Atlas") == 1, "Expected 'Chat with Atlas' only once in Dashboard UI"
+    assert "Gemini 2.5" not in res_ui.text, "Expected 'Gemini 2.5' to be removed from Dashboard UI"
+    assert "Gemini latest" in res_ui.text, "Expected 'Gemini latest' in Dashboard UI"
     for google_token in ("#4285F4", "#EA4335", "#FBBC04", "#34A853", "Google+Sans", "google-brand-bar", "g-card-fourcolor"):
         assert google_token in res_ui.text, f"Missing Google Visual Identity token {google_token} in Dashboard UI"
     for loud_color in ("purple-", "amber-", "violet-", "orange-"):

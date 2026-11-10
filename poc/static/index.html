@@ -344,7 +344,7 @@
 
       <!-- Bottom Sidebar Clean Footer Metadata -->
       <div class="hidden lg:flex items-center justify-between pt-3 mt-4 border-t border-slate-800 text-[10px] text-slate-400 mono px-1">
-        <span>Google ADK • Gemini 2.5</span>
+        <span>Gemini latest</span>
         <span>A2A v1.0</span>
       </div>
     </aside>
@@ -370,30 +370,22 @@
           </div>
         </div>
         <div class="flex flex-wrap items-center gap-2.5 shrink-0">
-          <!-- Theme Mode Segmented Control: Auto (System) / Dark / Light -->
-          <div class="inline-flex items-center p-1 rounded-full bg-slate-900 border border-slate-800 text-[11px]" role="group" aria-label="Theme Mode">
-            <button type="button" id="themeBtnAuto" onclick="setThemeMode('auto')" title="Auto (Match OS System Theme)" class="px-2.5 py-1 rounded-full text-slate-400 hover:text-white transition cursor-pointer flex items-center gap-1">
-              <i class="fa-solid fa-circle-half-stroke text-[10px]"></i>
-              <span>Auto</span>
+          <!-- Theme Mode Segmented Control: Simplified Icon-Only Auto / Dark / Light -->
+          <div class="inline-flex items-center p-0.5 rounded-full bg-slate-900 border border-slate-800" role="group" aria-label="Theme Mode">
+            <button type="button" id="themeBtnAuto" onclick="setThemeMode('auto')" title="Auto (System)" aria-label="Auto Theme" class="w-7 h-7 rounded-full text-slate-400 hover:text-white transition cursor-pointer flex items-center justify-center">
+              <i class="fa-solid fa-circle-half-stroke text-[11px]"></i>
             </button>
-            <button type="button" id="themeBtnDark" onclick="setThemeMode('dark')" title="Dark Mode" class="px-2.5 py-1 rounded-full text-slate-400 hover:text-white transition cursor-pointer flex items-center gap-1">
-              <i class="fa-regular fa-moon text-[10px]"></i>
-              <span>Dark</span>
+            <button type="button" id="themeBtnDark" onclick="setThemeMode('dark')" title="Dark" aria-label="Dark Mode" class="w-7 h-7 rounded-full text-slate-400 hover:text-white transition cursor-pointer flex items-center justify-center">
+              <i class="fa-regular fa-moon text-[11px]"></i>
             </button>
-            <button type="button" id="themeBtnLight" onclick="setThemeMode('light')" title="Light Mode" class="px-2.5 py-1 rounded-full text-slate-400 hover:text-white transition cursor-pointer flex items-center gap-1">
-              <i class="fa-regular fa-sun text-[10px]"></i>
-              <span>Light</span>
+            <button type="button" id="themeBtnLight" onclick="setThemeMode('light')" title="Light" aria-label="Light Mode" class="w-7 h-7 rounded-full text-slate-400 hover:text-white transition cursor-pointer flex items-center justify-center">
+              <i class="fa-regular fa-sun text-[11px]"></i>
             </button>
           </div>
 
           <button id="btnPollLiveLogs" type="button" onclick="pollLiveCloudLogging()" title="Poll Real GCP Cloud Logging via Heartbeat &amp; Telemetry" class="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-full bg-slate-900 hover:bg-slate-800 text-slate-200 border border-slate-700 text-xs font-medium transition cursor-pointer">
             <i class="fa-solid fa-satellite-dish text-[#4285F4]" id="livePollIcon"></i>
             <span id="livePollText">Poll Live Logs</span>
-          </button>
-
-          <button id="btnOpenDirectChat" type="button" onclick="openDirectAtlasChat()" title="Manually invoke Atlas Chatbot for How-To questions or unlogged troubleshooting" class="g-btn-blue inline-flex items-center gap-1.5 px-4 py-2 rounded-full text-xs font-medium transition cursor-pointer">
-            <i class="fa-solid fa-sparkles fa-wand-magic-sparkles"></i>
-            <span>Chat with Atlas</span>
           </button>
 
           <span class="hidden sm:inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-slate-900 border border-slate-800 text-xs text-slate-300">
@@ -2269,7 +2261,7 @@
                 <div class="flex items-center gap-1.5 flex-wrap">
                   <span class="text-sm sm:text-base font-bold text-white">Atlas • Cloud Co-Pilot</span>
                   <span class="g-badge-blue px-2.5 py-0.5 rounded-full text-[10px] font-semibold">
-                    Gemini 2.5
+                    Gemini latest
                   </span>
                   ${specPills}
                 </div>
@@ -2489,7 +2481,7 @@
               <i class="fa-solid fa-satellite-dish text-[#4285F4]"></i>
               <span>Poll Live Logs</span>
             </button>
-            <button type="button" onclick="openDirectAtlasChat()" class="g-btn-blue px-4 py-2 rounded-full text-xs font-semibold transition cursor-pointer inline-flex items-center gap-1.5">
+            <button id="btnOpenDirectChat" type="button" onclick="openDirectAtlasChat()" class="g-btn-blue px-4 py-2 rounded-full text-xs font-semibold transition cursor-pointer inline-flex items-center gap-1.5">
               <i class="fa-regular fa-comment-dots"></i>
               <span>Chat with Atlas</span>
             </button>
