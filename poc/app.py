@@ -17,7 +17,7 @@ import os
 from pathlib import Path
 from typing import Any, Dict, Optional
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
@@ -57,13 +57,126 @@ gke_assist_bot = GKEAssistAgent(a2a_hub=a2a_hub, remediator=remediator)
 
 
 class ApproveRemedyRequest(BaseModel):
-    approved_by: str = "Hari"
+    approved_by: Optional[str] = None
     execution_mode: str = "live"
     custom_kubectl: Optional[str] = None
 
 
 class IncidentChatRequest(BaseModel):
     message: str
+    user_name: Optional[str] = None
+
+
+class DeployChatTerraformRequest(BaseModel):
+    approved_by: Optional[str] = None
+    hcl_code: Optional[str] = None
+
+
+class GoogleSSOLoginRequest(BaseModel):
+    name: Optional[str] = None
+    email: Optional[str] = None
+    picture: Optional[str] = None
+    credential: Optional[str] = None
+
+
+@app.get("/api/auth/me")
+async def get_authenticated_user(request: Request) -> Dict[str, Any]:
+    """
+    Returns the active Google SSO / IAP identity for the AaaS Command Center.
+    Automatically detects Google Cloud Identity-Aware Proxy (IAP) headers if present.
+    """
+    iap_email = request.headers.get("X-Goog-Authenticated-User-Email", "")
+    if iap_email:
+        clean_email = iap_email.split(":")[-1].strip()
+        derived_name = clean_email.split("@")[0].replace(".", " ").title() if clean_email else "Cloud Operator"
+        user = lead_orchestrator.set_active_user(
+            name=derived_name,
+            email=clean_email,
+            provider="gcp-iap",
+        )
+        return {
+            "authenticated": True,
+            "iap_detected": True,
+            "user": user,
+            "google_oauth_client_id": os.getenv("GOOGLE_OAUTH_CLIENT_ID", ""),
+        }
+
+    return {
+        "authenticated": True,
+        "iap_detected": False,
+        "user": lead_orchestrator.active_user,
+        "google_oauth_client_id": os.getenv("GOOGLE_OAUTH_CLIENT_ID", ""),
+    }
+
+
+@app.post("/api/auth/google")
+async def login_with_google_sso(req: GoogleSSOLoginRequest) -> Dict[str, Any]:
+    """
+    Authenticates a user via Google Identity Services OAuth 2.0 JWT (`credential`)
+    or Google Workspace SSO profile (`name`, `email`, `picture`).
+    """
+    import base64
+    import json
+
+    name = (req.name or "").strip()
+    email = (req.email or "").strip()
+    picture = (req.picture or "").strip()
+
+    # Decode Google Identity Services ID token (JWT) if provided
+    if req.credential:
+        client_id = os.getenv("GOOGLE_OAUTH_CLIENT_ID", "").strip()
+        decoded_claims: Dict[str, Any] = {}
+        if client_id:
+            try:
+                from google.auth.transport import requests as google_requests
+                from google.oauth2 import id_token
+
+                decoded_claims = id_token.verify_oauth2_token(
+                    req.credential,
+                    google_requests.Request(),
+                    client_id,
+                )
+            except Exception:
+                decoded_claims = {}
+        if not decoded_claims:
+            try:
+                parts = req.credential.split(".")
+                if len(parts) >= 2:
+                    padded = parts[1] + "=" * (-len(parts[1]) % 4)
+                    decoded_claims = json.loads(base64.urlsafe_b64decode(padded).decode("utf-8"))
+            except Exception:
+                decoded_claims = {}
+
+        email = decoded_claims.get("email") or email
+        name = decoded_claims.get("name") or decoded_claims.get("given_name") or name
+        picture = decoded_claims.get("picture") or picture
+
+    if not name and email:
+        name = email.split("@")[0].replace(".", " ").title()
+    if not name:
+        raise HTTPException(status_code=400, detail="Google SSO user name or email is required")
+    if not email:
+        slug = "".join(ch for ch in name.lower() if ch.isalnum() or ch == ".") or "operator"
+        email = f"{slug}@google.com"
+
+    user = lead_orchestrator.set_active_user(
+        name=name,
+        email=email,
+        picture=picture,
+        provider="google-sso",
+    )
+    return {
+        "status": "AUTHENTICATED",
+        "user": user,
+    }
+
+
+@app.post("/api/auth/logout")
+async def logout_google_sso() -> Dict[str, Any]:
+    """Signs out the current Google SSO session."""
+    return {
+        "status": "SIGNED_OUT",
+    }
 
 
 @app.get("/")
@@ -162,6 +275,7 @@ async def get_system_state() -> Dict[str, Any]:
         "audit_events": lead_orchestrator.list_audit_events(),
         "general_chat_messages": lead_orchestrator.list_general_chat_messages(),
         "a2a_ledger": a2a_hub.message_ledger[:30],
+        "active_user": lead_orchestrator.active_user,
     }
 
 
@@ -253,9 +367,10 @@ async def approve_incident_remedy(incident_id: str, req: ApproveRemedyRequest) -
     if incident_id not in lead_orchestrator.incidents:
         raise HTTPException(status_code=404, detail=f"Incident {incident_id} not found")
 
+    approver = (req.approved_by or lead_orchestrator.active_user.get("name") or "Hari").strip()
     updated_incident = await lead_orchestrator.approve_and_delegate_to_gke_assist(
         incident_id=incident_id,
-        approved_by=req.approved_by,
+        approved_by=approver,
         execution_mode=req.execution_mode,
         custom_kubectl=req.custom_kubectl,
     )
@@ -292,7 +407,7 @@ async def reopen_incident_remedy(incident_id: str) -> Dict[str, Any]:
 @app.post("/api/incidents/{incident_id}/chat")
 async def chat_about_incident(incident_id: str, req: IncidentChatRequest) -> Dict[str, Any]:
     """
-    Interactive chatbot endpoint for Hari to ask the AaaS Lead Orchestrator (`Atlas`)
+    Interactive chatbot endpoint for the signed-in user to ask the AaaS Lead Orchestrator (`Atlas`)
     questions about root cause, downtime, blast radius, or instruct it to proceed with the fix.
     """
     if incident_id not in lead_orchestrator.incidents:
@@ -300,6 +415,7 @@ async def chat_about_incident(incident_id: str, req: IncidentChatRequest) -> Dic
     result = await lead_orchestrator.chat_with_incident(
         incident_id=incident_id,
         user_message=req.message,
+        user_name=req.user_name,
     )
     return {
         "status": "CHAT_UPDATED",
@@ -310,7 +426,7 @@ async def chat_about_incident(incident_id: str, req: IncidentChatRequest) -> Dic
 @app.post("/api/atlas/chat")
 async def chat_general_atlas(req: IncidentChatRequest) -> Dict[str, Any]:
     """
-    Direct on-demand chatbot endpoint for Hari to manually invoke Atlas across all 4 scenarios:
+    Direct on-demand chatbot endpoint to manually invoke Atlas across all 4 scenarios:
       - Scenario 1: Simple CLI/API troubleshooting
       - Scenario 2: Multi-service IAM + VPC + API Terraform remediation
       - Scenario 3: Custom Terraform deployment generation & validation
@@ -318,7 +434,10 @@ async def chat_general_atlas(req: IncidentChatRequest) -> Dict[str, Any]:
     """
     if not req.message or not req.message.strip():
         raise HTTPException(status_code=400, detail="Message cannot be empty")
-    result = await lead_orchestrator.chat_general_with_atlas(user_message=req.message)
+    result = await lead_orchestrator.chat_general_with_atlas(
+        user_message=req.message,
+        user_name=req.user_name,
+    )
     return {
         "status": "CHAT_UPDATED",
         **result,
@@ -326,12 +445,16 @@ async def chat_general_atlas(req: IncidentChatRequest) -> Dict[str, Any]:
 
 
 @app.post("/api/atlas/chat/deploy-terraform")
-async def deploy_chat_terraform() -> Dict[str, Any]:
+async def deploy_chat_terraform(req: Optional[DeployChatTerraformRequest] = None) -> Dict[str, Any]:
     """
     Approves and executes the most recent Scenario 2 / Scenario 3 Terraform bundle from
     Direct Atlas Chat via the Agent Harness Sandbox and Specialist Roster.
     """
-    result = await lead_orchestrator.execute_chat_terraform_deployment(approved_by="Hari (via Chat)")
+    uname = (
+        (req.approved_by if req and req.approved_by else None)
+        or f"{lead_orchestrator.active_user.get('name', 'Hari')} (via Chat)"
+    )
+    result = await lead_orchestrator.execute_chat_terraform_deployment(approved_by=uname)
     return {
         "status": "TERRAFORM_EXECUTED_VIA_HARNESS",
         **result,

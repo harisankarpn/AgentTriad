@@ -157,6 +157,12 @@ class LeadOrchestratorAgent:
         self.logging_service = logging_service
         self.incidents: Dict[str, Dict[str, Any]] = {}
         self.audit_events: Dict[str, Dict[str, Any]] = {}
+        self.active_user: Dict[str, str] = {
+            "name": "Hari",
+            "email": "harisankar@google.com",
+            "picture": "",
+            "provider": "google-sso",
+        }
         self.adk_agent = self._build_adk_agent()
         self.adk_session_service = InMemorySessionService() if InMemorySessionService is not None else None
         self.adk_runner = (
@@ -662,8 +668,9 @@ class LeadOrchestratorAgent:
             if w_spec.get("rollback_mode") == "STATEFUL_SAFE_MODE_ISOLATION"
             else "Stateless Canary Auto-Rollback"
         )
+        uname = self.active_user.get("name", "Hari")
         opening_text = (
-            f"Hey Hari 👋 There's an issue I just found with **{service_label}**.\n\n"
+            f"Hey {uname} 👋 There's an issue I just found with **{service_label}**.\n\n"
             f"• **Classification**: `{impact.get('scenario_badge', 'Scenario 1 • 1-Line CLI/API Fix')}` (Playbook Match: `{int(rag_score * 100)}%`)\n"
             f"• **Severity**: `{severity}` — {blast}\n"
             f"• **What happened**: {what_happened}\n"
@@ -888,21 +895,23 @@ class LeadOrchestratorAgent:
         self,
         incident_id: str,
         user_message: str,
+        user_name: Optional[str] = None,
     ) -> Dict[str, Any]:
         """
-        Interactive conversational handler for Hari to ask questions about an active incident,
+        Interactive conversational handler for the signed-in user to ask questions about an active incident,
         request a multi-service Terraform remediation bundle (Scenario 2), or instruct Atlas to proceed.
         """
         incident = self.incidents.get(incident_id)
         if not incident:
             raise ValueError(f"Incident {incident_id} not found")
 
+        uname = (user_name or self.active_user.get("name") or "Hari").strip()
         now_iso = datetime.datetime.now(datetime.timezone.utc).isoformat()
         clean_msg = user_message.strip()
         incident.setdefault("chat_messages", []).append(
             {
                 "role": "user",
-                "sender": "Hari",
+                "sender": uname,
                 "text": clean_msg,
                 "timestamp": now_iso,
             }
@@ -977,7 +986,7 @@ class LeadOrchestratorAgent:
         if incident["status"] == "AWAITING_HITL_APPROVAL" and any(p in lower_msg for p in approve_phrases) and "?" not in lower_msg:
             updated = await self.approve_and_delegate_to_gke_assist(
                 incident_id=incident_id,
-                approved_by="Hari (via Chat)",
+                approved_by=f"{uname} (via Chat)",
                 execution_mode="live",
             )
             return {
@@ -986,10 +995,10 @@ class LeadOrchestratorAgent:
                 "incident": updated,
             }
 
-        # Check if Hari wants to skip / ignore / handle manually later
+        # Check if user wants to skip / ignore / handle manually later
         skip_phrases = ("skip", "ignore", "later", "fix manually", "do it myself", "not now", "hold off")
         if incident["status"] == "AWAITING_HITL_APPROVAL" and any(p in lower_msg for p in skip_phrases) and "?" not in lower_msg:
-            updated = self.skip_incident_manual(incident_id=incident_id, skipped_by="Hari (via Chat)")
+            updated = self.skip_incident_manual(incident_id=incident_id, skipped_by=f"{uname} (via Chat)")
             return {
                 "action_taken": "SKIPPED_MANUAL",
                 "reply": updated["chat_messages"][-1]["text"],
@@ -1193,12 +1202,13 @@ class LeadOrchestratorAgent:
             }
         )
 
+        uname = self.active_user.get("name") or "Hari"
         incident.setdefault("chat_messages", []).append(
             {
                 "role": "assistant",
                 "sender": "Atlas • AaaS Lead",
                 "text": (
-                    f"✅ All done, Hari! As the authorizing orchestrator, I minted a single-use JIT token (`{jit_token['token_id'][:18]}...`), "
+                    f"✅ All done, {uname}! As the authorizing orchestrator, I minted a single-use JIT token (`{jit_token['token_id'][:18]}...`), "
                     f"logged your approval (`{approved_by}` at `{approved_at}`) in the **Audit Event Tracker**, "
                     f"and dispatched **{coord_names}** via our **Agent Harness Sandbox**.\n"
                     f"• **Executed**: `{kubectl_cmd}`\n"
@@ -1214,16 +1224,17 @@ class LeadOrchestratorAgent:
     def skip_incident_manual(
         self,
         incident_id: str,
-        skipped_by: str = "Hari",
+        skipped_by: Optional[str] = None,
     ) -> Dict[str, Any]:
         """Marks an incident as skipped so the user can handle it manually or review later."""
         incident = self.incidents.get(incident_id)
         if not incident:
             raise ValueError(f"Incident {incident_id} not found")
 
+        uname = (skipped_by or self.active_user.get("name") or "Hari").strip()
         now_iso = datetime.datetime.now(datetime.timezone.utc).isoformat()
         incident["status"] = "SKIPPED_MANUAL"
-        incident["approved_by"] = f"{skipped_by} (Manual Skip)"
+        incident["approved_by"] = f"{uname} (Manual Skip)"
         incident["approved_at"] = now_iso
         incident["updated_at"] = now_iso
         agent_harness.release_state_lock(
@@ -1236,7 +1247,7 @@ class LeadOrchestratorAgent:
                 "timestamp": now_iso,
                 "agent": "Atlas • Lead Orchestrator",
                 "event": (
-                    f"User ({skipped_by}) chose 'Skip / Handle Manually' at {now_iso}. "
+                    f"User ({uname}) chose 'Skip / Handle Manually' at {now_iso}. "
                     "Released `.tflock` lease; Specialist Agent stood down with no automated changes made."
                 ),
             }
@@ -1246,7 +1257,7 @@ class LeadOrchestratorAgent:
                 "role": "assistant",
                 "sender": "Atlas • AaaS Lead",
                 "text": (
-                    "Got it, Hari — I've released the `.tflock` state lock, stood down the **Specialist Agent**, and made **no changes** "
+                    f"Got it, {uname} — I've released the `.tflock` state lock, stood down the **Specialist Agent**, and made **no changes** "
                     f"so you can handle `{incident['workload']}` manually. If you change your mind later, just click **Reopen** below!"
                 ),
                 "timestamp": now_iso,
@@ -1261,6 +1272,7 @@ class LeadOrchestratorAgent:
         if not incident:
             raise ValueError(f"Incident {incident_id} not found")
 
+        uname = self.active_user.get("name") or "Hari"
         now_iso = datetime.datetime.now(datetime.timezone.utc).isoformat()
         incident["status"] = "AWAITING_HITL_APPROVAL"
         incident["approved_by"] = None
@@ -1276,7 +1288,7 @@ class LeadOrchestratorAgent:
             {
                 "timestamp": now_iso,
                 "agent": "Atlas • Lead Orchestrator",
-                "event": "User re-opened incident and re-acquired `.tflock` lease for Specialist Agent remediation.",
+                "event": f"User ({uname}) re-opened incident and re-acquired `.tflock` lease for Specialist Agent remediation.",
             }
         )
         incident.setdefault("chat_messages", []).append(
@@ -1284,7 +1296,7 @@ class LeadOrchestratorAgent:
                 "role": "assistant",
                 "sender": "Atlas • AaaS Lead",
                 "text": (
-                    f"Welcome back, Hari! I've re-opened the issue on **{incident['workload']}** and re-locked `.tflock`. "
+                    f"Welcome back, {uname}! I've re-opened the issue on **{incident['workload']}** and re-locked `.tflock`. "
                     "Ask me any follow-up questions or click **I accept** whenever you're ready."
                 ),
                 "timestamp": now_iso,
@@ -1309,6 +1321,7 @@ class LeadOrchestratorAgent:
 
     def _default_general_chat_greeting(self) -> List[Dict[str, Any]]:
         now_iso = datetime.datetime.now(datetime.timezone.utc).isoformat()
+        uname = self.active_user.get("name", "Hari")
         return [
             {
                 "id": "atlas-welcome",
@@ -1318,10 +1331,31 @@ class LeadOrchestratorAgent:
                 "specialist_worker": WORKER_AGENT_BOUTIQUE[0],
                 "coordinated_specialists": [WORKER_AGENT_BOUTIQUE[0]],
                 "scenario_badge": "Orchestrator of AaaS",
-                "text": "Hey Hari, you are now interacting with **Atlas (Orchestrator of AaaS)**. What would you like to do?",
+                "text": f"Hey {uname}, you are now interacting with **Atlas (Orchestrator of AaaS)**. What would you like to do?",
                 "timestamp": now_iso,
             }
         ]
+
+    def set_active_user(
+        self,
+        name: str,
+        email: str = "",
+        picture: str = "",
+        provider: str = "google-sso",
+    ) -> Dict[str, str]:
+        clean_name = (name or "Hari").strip()
+        clean_email = (email or "").strip()
+        self.active_user = {
+            "name": clean_name,
+            "email": clean_email,
+            "picture": (picture or "").strip(),
+            "provider": provider or "google-sso",
+        }
+        if self.general_chat_messages and self.general_chat_messages[0].get("id") == "atlas-welcome":
+            self.general_chat_messages[0]["text"] = (
+                f"Hey {clean_name}, you are now interacting with **Atlas (Orchestrator of AaaS)**. What would you like to do?"
+            )
+        return self.active_user
 
     def _select_specialist_for_query(self, query_text: str) -> Dict[str, str]:
         lower = query_text.lower()
@@ -1611,7 +1645,11 @@ class LeadOrchestratorAgent:
             "messages": list(self.general_chat_messages),
         }
 
-    async def chat_general_with_atlas(self, user_message: str) -> Dict[str, Any]:
+    async def chat_general_with_atlas(
+        self,
+        user_message: str,
+        user_name: Optional[str] = None,
+    ) -> Dict[str, Any]:
         """
         Handles manual/direct user conversations with Atlas across all 4 Customer Scenarios:
           - Scenario 1: Simple 1-line CLI/API troubleshooting
@@ -1623,20 +1661,21 @@ class LeadOrchestratorAgent:
         if not clean_msg:
             raise ValueError("Message cannot be empty")
 
+        uname = (user_name or self.active_user.get("name") or "Hari").strip()
         now_iso = datetime.datetime.now(datetime.timezone.utc).isoformat()
         self.general_chat_messages.append(
             {
                 "role": "user",
-                "sender": "Hari",
+                "sender": uname,
                 "text": clean_msg,
                 "timestamp": now_iso,
             }
         )
 
         lower_msg = clean_msg.lower()
-        # If Hari says "I accept" or "deploy terraform" after a Terraform bundle was generated in chat
+        # If user says "I accept" or "deploy terraform" after a Terraform bundle was generated in chat
         if any(p in lower_msg for p in ("i accept", "deploy terraform", "apply terraform", "execute terraform")) and "?" not in lower_msg:
-            return await self.execute_chat_terraform_deployment(approved_by="Hari (via Chat)")
+            return await self.execute_chat_terraform_deployment(approved_by=f"{uname} (via Chat)")
 
         # If Hari asks about the scenarios / capabilities Atlas supports
         if any(

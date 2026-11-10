@@ -388,10 +388,14 @@
             <span id="livePollText">Poll Live Logs</span>
           </button>
 
-          <span class="hidden sm:inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-slate-900 border border-slate-800 text-xs text-slate-300">
-            <span class="w-5 h-5 rounded-full bg-[#4285F4] text-white font-bold text-[10px] flex items-center justify-center btn-solid">H</span>
-            <span>User: <strong class="text-white font-semibold">Hari</strong></span>
-          </span>
+          <!-- Google SSO User Profile Pill + Switch / Sign Out Action -->
+          <div id="userProfileBadge" class="inline-flex items-center gap-2 pl-2.5 pr-2 py-1 rounded-full bg-slate-900 border border-slate-800 text-xs text-slate-300">
+            <span id="headerUserAvatar" class="w-5 h-5 rounded-full bg-[#4285F4] text-white font-bold text-[10px] flex items-center justify-center btn-solid shrink-0">H</span>
+            <span class="truncate max-w-[140px]">User: <strong id="headerUserName" class="text-white font-semibold">Hari</strong></span>
+            <button id="btnGoogleSignOut" type="button" onclick="openGoogleSsoModal()" title="Switch Google Account or Sign Out" class="w-6 h-6 rounded-full hover:bg-slate-800 text-slate-400 hover:text-white flex items-center justify-center transition cursor-pointer">
+              <i class="fa-solid fa-right-from-bracket text-[10px]"></i>
+            </button>
+          </div>
         </div>
       </header>
 
@@ -895,8 +899,235 @@
     </div>
   </div>
 
+  <!-- ===================================================================== -->
+  <!-- GOOGLE SSO SIGN-IN PAGE / OVERLAY (Material 3 Google Workspace Style) -->
+  <!-- ===================================================================== -->
+  <div id="googleSsoModal" class="hidden fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/90 backdrop-blur-md">
+    <div class="glass g-card-fourcolor border border-slate-800 rounded-3xl max-w-md w-full p-6 sm:p-8 space-y-5 shadow-2xl">
+      <!-- Google Brand Header -->
+      <div class="text-center space-y-2">
+        <div class="w-14 h-14 rounded-2xl bg-slate-900 border border-slate-700/80 flex items-center justify-center mx-auto p-2 shadow-sm">
+          <svg viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg" class="w-full h-full" aria-label="Atlas Holding GCP Cloud">
+            <path d="M20 28C15.58 28 12 24.42 12 20C12 15.93 15.05 12.57 19 12.06C20.88 7.89 25.09 5 30 5C36.05 5 41.06 9.48 41.88 15.3C46.46 15.74 50 19.59 50 24.25C50 26.32 49.3 28.22 48.12 29.74" stroke="#4285F4" stroke-width="3.6" stroke-linecap="round"/>
+            <path d="M19 12.06C20.88 7.89 25.09 5 30 5C34.25 5 37.98 7.21 40.08 10.56" stroke="#EA4335" stroke-width="3.6" stroke-linecap="round"/>
+            <path d="M12.5 22.5C13.6 25.7 16.55 28 20 28H33" stroke="#FBBC04" stroke-width="3.6" stroke-linecap="round"/>
+            <path d="M33 28H44C47.31 28 50 25.31 50 22C50 18.88 47.62 16.32 44.58 16.03" stroke="#34A853" stroke-width="3.6" stroke-linecap="round"/>
+            <text x="32" y="21.5" text-anchor="middle" fill="currentColor" font-size="7.5" font-weight="700" font-family="Google Sans, sans-serif">GCP</text>
+            <circle cx="32" cy="36.5" r="4" fill="#FBBC04"/>
+            <path d="M16.5 29L22 39.5L27.5 42.5H36.5L42 39.5L47.5 29" stroke="#4285F4" stroke-width="3.4" stroke-linecap="round" stroke-linejoin="round"/>
+            <path d="M27 42.5L25 55H39L37 42.5H27Z" fill="#4285F4" fill-opacity="0.25" stroke="#4285F4" stroke-width="1.5" stroke-linejoin="round"/>
+          </svg>
+        </div>
+        <div class="inline-flex items-center gap-1.5 g-badge-blue px-3 py-0.5 rounded-full text-[10px] font-semibold">
+          <i class="fa-solid fa-shield-halved"></i>
+          <span>Google Cloud Identity &amp; Workspace SSO</span>
+        </div>
+        <h2 class="text-lg sm:text-xl font-bold text-white">Sign in to AaaS Command Center</h2>
+        <p class="text-xs text-slate-400">
+          Authenticate with your Google Workspace identity to authorize HITL approvals and 15-minute WIF JIT tokens.
+        </p>
+      </div>
+
+      <!-- Optional Google Identity Services OAuth Button Container -->
+      <div id="gIdSigninContainer" class="hidden flex justify-center"></div>
+
+      <!-- Quick Google Workspace Account Picker -->
+      <div class="space-y-2">
+        <div class="text-[10px] font-bold uppercase tracking-wider text-slate-400">Choose a Google Workspace Account</div>
+        <button type="button" onclick="quickSignInGoogleAccount('Hari', 'harisankar@google.com')"
+          class="w-full p-3 rounded-2xl bg-slate-900 hover:bg-slate-800 border border-slate-800 flex items-center justify-between gap-3 transition cursor-pointer text-left">
+          <div class="flex items-center gap-3 min-w-0">
+            <span class="w-9 h-9 rounded-full bg-[#4285F4] text-white font-bold text-xs flex items-center justify-center btn-solid shrink-0">H</span>
+            <div class="min-w-0">
+              <div class="text-xs font-bold text-white truncate">Hari (Harisankar P N)</div>
+              <div class="text-[11px] text-slate-400 mono truncate">harisankar@google.com</div>
+            </div>
+          </div>
+          <span class="g-badge-green px-2.5 py-0.5 rounded-full text-[10px] font-semibold shrink-0">Cloud Architect</span>
+        </button>
+
+        <button type="button" onclick="quickSignInGoogleAccount('Cloud SRE Lead', 'sre-lead@google.com')"
+          class="w-full p-3 rounded-2xl bg-slate-900 hover:bg-slate-800 border border-slate-800 flex items-center justify-between gap-3 transition cursor-pointer text-left">
+          <div class="flex items-center gap-3 min-w-0">
+            <span class="w-9 h-9 rounded-full bg-[#34A853] text-white font-bold text-xs flex items-center justify-center btn-solid shrink-0">S</span>
+            <div class="min-w-0">
+              <div class="text-xs font-bold text-white truncate">Cloud SRE Lead</div>
+              <div class="text-[11px] text-slate-400 mono truncate">sre-lead@google.com</div>
+            </div>
+          </div>
+          <span class="g-badge-blue px-2.5 py-0.5 rounded-full text-[10px] font-semibold shrink-0">SRE On-Call</span>
+        </button>
+      </div>
+
+      <div class="flex items-center gap-3 text-[10px] text-slate-500 uppercase tracking-wider">
+        <div class="flex-1 h-px bg-slate-800"></div>
+        <span>Or sign in with another Google account</span>
+        <div class="flex-1 h-px bg-slate-800"></div>
+      </div>
+
+      <!-- Custom Google Workspace SSO Sign-In Form -->
+      <form id="googleSsoForm" onsubmit="submitGoogleSsoSignIn(event)" class="space-y-3">
+        <div>
+          <label for="ssoUserNameInput" class="block text-[11px] font-semibold text-slate-300 mb-1">Full Name</label>
+          <input id="ssoUserNameInput" type="text" required placeholder="e.g. Priya Sharma"
+            class="w-full bg-slate-900 border border-slate-800 focus:border-[#4285F4] rounded-xl px-3.5 py-2 text-xs text-white placeholder-slate-500 focus:outline-none" />
+        </div>
+        <div>
+          <label for="ssoUserEmailInput" class="block text-[11px] font-semibold text-slate-300 mb-1">Google Workspace Email</label>
+          <input id="ssoUserEmailInput" type="email" required placeholder="e.g. priya@google.com"
+            class="w-full bg-slate-900 border border-slate-800 focus:border-[#4285F4] rounded-xl px-3.5 py-2 text-xs text-white placeholder-slate-500 focus:outline-none" />
+        </div>
+        <button id="btnSubmitGoogleSso" type="submit"
+          class="g-btn-blue w-full py-2.5 px-4 rounded-full font-semibold text-xs transition cursor-pointer flex items-center justify-center gap-2">
+          <svg class="w-4 h-4 bg-white rounded-full p-0.5 shrink-0" viewBox="0 0 24 24" aria-hidden="true">
+            <path fill="#4285F4" d="M23.49 12.27c0-.79-.07-1.54-.19-2.27H12v4.51h6.47c-.29 1.48-1.14 2.73-2.4 3.58v3h3.86c2.26-2.09 3.56-5.17 3.56-8.82z"/>
+            <path fill="#34A853" d="M12 24c3.24 0 5.95-1.08 7.93-2.91l-3.86-3c-1.08.72-2.45 1.16-4.07 1.16-3.13 0-5.78-2.11-6.73-4.96H1.29v3.09C3.26 21.3 7.31 24 12 24z"/>
+            <path fill="#FBBC05" d="M5.27 14.29c-.25-.72-.38-1.49-.38-2.29s.14-1.57.38-2.29V6.62H1.29C.47 8.24 0 10.06 0 12s.47 3.76 1.29 5.38l3.98-3.09z"/>
+            <path fill="#EA4335" d="M12 4.75c1.77 0 3.35.61 4.6 1.8l3.42-3.42C17.95 1.19 15.24 0 12 0 7.31 0 3.26 2.7 1.29 6.62l3.98 3.09c.95-2.85 3.6-4.96 6.73-4.96z"/>
+          </svg>
+          <span>Continue with Google SSO</span>
+        </button>
+      </form>
+    </div>
+  </div>
+
   <script>
     let latestState = null;
+
+    // =====================================================================
+    // GOOGLE SSO IDENTITY & SESSION MANAGEMENT
+    // =====================================================================
+    const SSO_STORAGE_KEY = 'aaas_google_sso_user';
+    let currentSsoUser = null;
+
+    function loadStoredSsoUser() {
+      try {
+        const raw = localStorage.getItem(SSO_STORAGE_KEY);
+        if (raw) {
+          const parsed = JSON.parse(raw);
+          if (parsed && parsed.name) {
+            currentSsoUser = parsed;
+            return parsed;
+          }
+        }
+      } catch (e) {
+        // Ignore storage errors
+      }
+      return null;
+    }
+
+    function getCurrentUserName() {
+      if (currentSsoUser && currentSsoUser.name) return currentSsoUser.name;
+      if (latestState && latestState.active_user && latestState.active_user.name) {
+        return latestState.active_user.name;
+      }
+      return 'Hari';
+    }
+
+    function getCurrentUserEmail() {
+      if (currentSsoUser && currentSsoUser.email) return currentSsoUser.email;
+      if (latestState && latestState.active_user && latestState.active_user.email) {
+        return latestState.active_user.email;
+      }
+      return 'harisankar@google.com';
+    }
+
+    function updateHeaderUserBadge() {
+      const name = getCurrentUserName();
+      const email = getCurrentUserEmail();
+      const initial = (name.trim()[0] || 'U').toUpperCase();
+      const nameEl = document.getElementById('headerUserName');
+      const avatarEl = document.getElementById('headerUserAvatar');
+      const badgeEl = document.getElementById('userProfileBadge');
+      if (nameEl) nameEl.textContent = name;
+      if (avatarEl) avatarEl.textContent = initial;
+      if (badgeEl) badgeEl.title = `Signed in via Google SSO as ${name} (${email})`;
+    }
+
+    function openGoogleSsoModal() {
+      const modal = document.getElementById('googleSsoModal');
+      const nameInput = document.getElementById('ssoUserNameInput');
+      const emailInput = document.getElementById('ssoUserEmailInput');
+      if (nameInput) nameInput.value = getCurrentUserName();
+      if (emailInput) emailInput.value = getCurrentUserEmail();
+      if (modal) modal.classList.remove('hidden');
+    }
+
+    function closeGoogleSsoModal() {
+      const modal = document.getElementById('googleSsoModal');
+      if (modal) modal.classList.add('hidden');
+    }
+
+    async function completeGoogleSsoLogin(payload) {
+      try {
+        const res = await fetch('/api/auth/google', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        });
+        if (res.ok) {
+          const data = await res.json();
+          if (data.user) {
+            currentSsoUser = data.user;
+            try {
+              localStorage.setItem(SSO_STORAGE_KEY, JSON.stringify(currentSsoUser));
+            } catch (e) {}
+          }
+        }
+      } catch (err) {
+        console.error('Google SSO login error:', err);
+      }
+      updateHeaderUserBadge();
+      closeGoogleSsoModal();
+      lastStageSignature = '';
+      await fetchState(true);
+    }
+
+    async function quickSignInGoogleAccount(name, email) {
+      await completeGoogleSsoLogin({ name, email });
+    }
+
+    async function submitGoogleSsoSignIn(event) {
+      if (event) event.preventDefault();
+      const nameEl = document.getElementById('ssoUserNameInput');
+      const emailEl = document.getElementById('ssoUserEmailInput');
+      const name = (nameEl ? nameEl.value : '').trim();
+      const email = (emailEl ? emailEl.value : '').trim();
+      if (!name || !email) return;
+      await completeGoogleSsoLogin({ name, email });
+    }
+
+    async function initGoogleSsoSession() {
+      const stored = loadStoredSsoUser();
+      if (stored) {
+        updateHeaderUserBadge();
+        // Sync stored Google SSO user to backend session
+        try {
+          await fetch('/api/auth/google', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ name: stored.name, email: stored.email })
+          });
+        } catch (e) {}
+        return;
+      }
+      try {
+        const res = await fetch('/api/auth/me');
+        if (res.ok) {
+          const info = await res.json();
+          if (info.iap_detected && info.user) {
+            currentSsoUser = info.user;
+            try {
+              localStorage.setItem(SSO_STORAGE_KEY, JSON.stringify(currentSsoUser));
+            } catch (e) {}
+            updateHeaderUserBadge();
+            return;
+          }
+        }
+      } catch (e) {}
+      // Show Google SSO Sign-In screen when no session exists yet in browser
+      openGoogleSsoModal();
+    }
 
     // Friendly non-technical translations for real GCP anomalies
     const FRIENDLY_COPY = {
@@ -1331,6 +1562,10 @@
     }
 
     function renderDashboard(data, forceRender = false) {
+      if (data && data.active_user && !currentSsoUser) {
+        currentSsoUser = data.active_user;
+      }
+      updateHeaderUserBadge();
       const incidents = data.incidents || [];
       const chosenIncident = selectedIncidentId
         ? incidents.find(i => i.incident_id === selectedIncidentId)
@@ -1942,7 +2177,7 @@
 
         const approvedByHtml = ev.approved_by
           ? `<span class="inline-flex items-center gap-1.5 font-semibold text-white"><i class="fa-solid fa-user-check text-[#34A853] text-[10px]"></i> ${highlightSearchMatch(ev.approved_by, searchQuery)}</span>`
-          : `<span class="text-slate-400 italic">Pending Hari's review</span>`;
+          : `<span class="text-slate-400 italic">Pending ${escapeHtml(getCurrentUserName())}'s review</span>`;
 
         const approvedAtHtml = ev.approved_at
           ? `<div class="mono text-[11px] text-slate-200">${formatAuditTime(ev.approved_at)}</div>
@@ -2076,7 +2311,7 @@
           return `
             <div class="flex justify-end">
               <div class="g-btn-blue max-w-[85%] rounded-2xl rounded-tr-sm px-4 py-2.5 text-xs sm:text-sm leading-relaxed">
-                <div class="text-[10px] font-semibold opacity-90 mb-0.5">Hari (You)</div>
+                <div class="text-[10px] font-semibold opacity-90 mb-0.5">${escapeHtml(msg.sender || getCurrentUserName())} (You)</div>
                 <div>${formatChatText(msg.text)}</div>
               </div>
             </div>
@@ -2372,7 +2607,7 @@
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            approved_by: 'Hari',
+            approved_by: `${getCurrentUserName()} (${getCurrentUserEmail()})`,
             hcl_code: hclCode
           })
         });
@@ -2391,6 +2626,7 @@
       const copy = getCustomerCopy(inc);
       const impact = inc.impact_analysis || {};
       const spec = inc.specialist_worker || { name: 'Worker Agent' };
+      const uname = getCurrentUserName();
 
       return `
         <div class="glass g-card-yellow border border-slate-800 rounded-3xl p-6 text-center space-y-4">
@@ -2401,7 +2637,7 @@
             <span class="text-[11px] font-bold uppercase tracking-wider text-[#F9AB00]">Skipped — Manual Mode</span>
             <h2 class="text-lg font-bold text-white">${escapeHtml(copy.headline)}</h2>
             <p class="text-xs text-slate-300 max-w-md mx-auto leading-relaxed">
-              Got it, Hari — Atlas stood down the <strong>${escapeHtml(spec.name)}</strong>, released the <code>.tflock</code> lease, and made <strong>no changes</strong> so you can handle this manually.
+              Got it, ${escapeHtml(uname)} — Atlas stood down the <strong>${escapeHtml(spec.name)}</strong>, released the <code>.tflock</code> lease, and made <strong>no changes</strong> so you can handle this manually.
             </p>
           </div>
 
@@ -2433,6 +2669,7 @@
       const spec = inc.specialist_worker || { name: 'Serverless Agent' };
       const execRes = inc.execution_result || {};
       const harnessExec = execRes.agent_harness_execution || {};
+      const uname = getCurrentUserName();
 
       return `
         <div class="glass g-card-green border border-slate-800 rounded-3xl p-6 text-center space-y-4">
@@ -2443,7 +2680,7 @@
             <span class="text-[11px] font-bold uppercase tracking-wider text-[#34A853]">Issue Resolved via Agent Harness</span>
             <h2 class="text-lg font-bold text-white">${escapeHtml(copy.headline)} — Fixed!</h2>
             <p class="text-xs text-slate-300 max-w-md mx-auto leading-relaxed">
-              Thanks, Hari! Following your approval, <strong>Atlas (AaaS Lead)</strong> dispatched the <strong>${escapeHtml(spec.name)}</strong> harness, verified the 45s Telemetry Watchdog, and released the <code>.tflock</code> state lease.
+              Thanks, ${escapeHtml(uname)}! Following your approval, <strong>Atlas (AaaS Lead)</strong> dispatched the <strong>${escapeHtml(spec.name)}</strong> harness, verified the 45s Telemetry Watchdog, and released the <code>.tflock</code> state lease.
             </p>
           </div>
 
@@ -2463,6 +2700,7 @@
     }
 
     function renderHealthyCard() {
+      const uname = getCurrentUserName();
       return `
         <div class="glass g-card-fourcolor border border-slate-800 rounded-3xl p-6 sm:p-7 text-center space-y-3">
           <div class="w-12 h-12 rounded-2xl bg-slate-900 border border-slate-800 flex items-center justify-center text-lg mx-auto p-1.5 shadow-sm">
@@ -2472,7 +2710,7 @@
             <i class="fa-solid fa-circle-check text-[10px]"></i>
             <span>All Cloud Services Healthy</span>
           </div>
-          <h2 class="text-lg sm:text-xl font-bold text-white">Ready to Assist, Hari</h2>
+          <h2 class="text-lg sm:text-xl font-bold text-white">Ready to Assist, ${escapeHtml(uname)}</h2>
           <p class="text-xs sm:text-sm text-slate-400 max-w-md mx-auto">
             Scan live GCP logs for alerts, or open chat to inspect Cloud SQL, Compute VMs, and Terraform fixes.
           </p>
@@ -2507,7 +2745,7 @@
         await fetch('/api/atlas/chat', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ message: userText })
+          body: JSON.stringify({ message: userText, user_name: getCurrentUserName() })
         });
         await fetchState(true);
       } catch (err) {
@@ -2552,7 +2790,7 @@
         await fetch(`/api/incidents/${encodeURIComponent(incidentId)}/chat`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ message: userText })
+          body: JSON.stringify({ message: userText, user_name: getCurrentUserName() })
         });
         await fetchState(true);
       } catch (err) {
@@ -2586,7 +2824,7 @@
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            approved_by: 'Hari',
+            approved_by: `${getCurrentUserName()} (${getCurrentUserEmail()})`,
             execution_mode: 'live',
             custom_kubectl: kubectlInput ? kubectlInput.value : null
           })
@@ -2649,6 +2887,7 @@
       }
     }
 
+    initGoogleSsoSession();
     fetchState();
     setInterval(fetchState, 5000);
   </script>

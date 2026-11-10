@@ -45,8 +45,13 @@ def run_e2e_tests() -> None:
         "themeBtnAuto",
         "themeBtnDark",
         "themeBtnLight",
+        "userProfileBadge",
+        "googleSsoModal",
+        "googleSsoForm",
     ):
-        assert nav_id in res_ui.text, f"Missing sidebar/view/theme element {nav_id} in Dashboard UI"
+        assert nav_id in res_ui.text, f"Missing sidebar/view/theme/SSO element {nav_id} in Dashboard UI"
+    assert "Sign in to AaaS Command Center" in res_ui.text
+    assert "Continue with Google SSO" in res_ui.text
     assert "prefers-color-scheme: dark" in res_ui.text
     assert res_ui.text.count("Chat with Atlas") == 1, "Expected 'Chat with Atlas' only once in Dashboard UI"
     assert "Gemini 2.5" not in res_ui.text, "Expected 'Gemini 2.5' to be removed from Dashboard UI"
@@ -68,7 +73,34 @@ def run_e2e_tests() -> None:
         assert specialist_label in res_ui.text, f"Missing {specialist_label} in Dashboard UI"
     assert "Simulate Issue" not in res_ui.text
     assert "scenarioSelect" not in res_ui.text
-    print("[PASS] Dashboard UI verified: Official Google Visual Identity 4-Color Palette, Google Sans Typography, Auto/Dark/Light Theme Switcher, and 7 Specialists present")
+    print("[PASS] Dashboard UI verified: Official Google Visual Identity 4-Color Palette, Google SSO Sign-In Modal, Auto/Dark/Light Theme Switcher, and 7 Specialists present")
+
+    # 1a. Verify Google SSO Authentication Endpoints (/api/auth/me, /api/auth/google)
+    auth_me_res = client.get("/api/auth/me")
+    assert auth_me_res.status_code == 200
+    assert auth_me_res.json()["user"]["name"] == "Hari"
+
+    sso_login_res = client.post(
+        "/api/auth/google",
+        json={"name": "Priya Nair", "email": "priya.nair@google.com"},
+    )
+    assert sso_login_res.status_code == 200
+    sso_json = sso_login_res.json()
+    assert sso_json["status"] == "AUTHENTICATED"
+    assert sso_json["user"]["name"] == "Priya Nair"
+    assert sso_json["user"]["email"] == "priya.nair@google.com"
+    state_after_sso = client.get("/api/state").json()
+    assert state_after_sso["active_user"]["name"] == "Priya Nair"
+    assert "Hey Priya Nair" in state_after_sso["general_chat_messages"][0]["text"]
+
+    # Switch back to Hari for subsequent baseline assertions
+    sso_reset_res = client.post(
+        "/api/auth/google",
+        json={"name": "Hari", "email": "harisankar@google.com"},
+    )
+    assert sso_reset_res.status_code == 200
+    assert sso_reset_res.json()["user"]["name"] == "Hari"
+    print("[PASS] Google SSO Sign-In (/api/auth/me & /api/auth/google) and dynamic Atlas identity verified!")
 
     # 1b. Verify Manual Invocation of Atlas Chatbot across all 4 Customer Scenarios
     # Scenario 4: Simple GCP "How-To" ($0 Sandbox Overhead)
