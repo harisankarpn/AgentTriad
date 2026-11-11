@@ -36,6 +36,7 @@ from services.playbook_rag import (
     playbook_rag_service,
     query_playbook_rag_tool,
 )
+from services.session_store_service import session_store_service
 
 try:
     from google.adk.agents import Agent as AdkAgent
@@ -176,6 +177,8 @@ class LeadOrchestratorAgent:
         )
         self._genai_client = self._build_genai_client()
         self.general_chat_messages: List[Dict[str, Any]] = self._default_general_chat_greeting()
+        self.active_session_id: str = f"sess-{uuid.uuid4().hex[:8]}"
+        self._init_or_restore_user_sessions(sync_from_firestore=True)
         self.card = AgentCard(
             id=self.AGENT_ID,
             name="Atlas • Lead Orchestrator",
@@ -1336,6 +1339,41 @@ class LeadOrchestratorAgent:
             }
         ]
 
+    def _init_or_restore_user_sessions(self, sync_from_firestore: bool = True) -> Dict[str, Any]:
+        u_email = self.active_user.get("email") or "harisankar@google.com"
+        u_name = self.active_user.get("name") or "Hari"
+        default_msgs = self._default_general_chat_greeting()
+        record = session_store_service.get_or_init_user_sessions(
+            user_email=u_email,
+            user_name=u_name,
+            default_messages=default_msgs,
+            sync_from_firestore=sync_from_firestore,
+        )
+        self.active_session_id = record.get("active_session_id") or f"sess-{uuid.uuid4().hex[:8]}"
+        active_sess = next(
+            (s for s in record.get("sessions", []) if s.get("session_id") == self.active_session_id),
+            record["sessions"][0] if record.get("sessions") else None,
+        )
+        if active_sess and active_sess.get("messages"):
+            self.general_chat_messages = list(active_sess["messages"])
+            if len(self.general_chat_messages) == 1 and self.general_chat_messages[0].get("id") == "atlas-welcome":
+                self.general_chat_messages[0]["text"] = (
+                    f"Hey {u_name}, you are now interacting with **Atlas (Orchestrator of AaaS)**. What would you like to do?"
+                )
+        else:
+            self.general_chat_messages = default_msgs
+        return record
+
+    def _persist_active_session(self) -> Dict[str, Any]:
+        u_email = self.active_user.get("email") or "harisankar@google.com"
+        u_name = self.active_user.get("name") or "Hari"
+        return session_store_service.save_active_session_messages(
+            user_email=u_email,
+            user_name=u_name,
+            session_id=self.active_session_id,
+            messages=self.general_chat_messages,
+        )
+
     def set_active_user(
         self,
         name: str,
@@ -1344,17 +1382,19 @@ class LeadOrchestratorAgent:
         provider: str = "google-sso",
     ) -> Dict[str, str]:
         clean_name = (name or "Hari").strip()
-        clean_email = (email or "").strip()
+        clean_email = (email or "harisankar@google.com").strip()
         self.active_user = {
             "name": clean_name,
             "email": clean_email,
             "picture": (picture or "").strip(),
             "provider": provider or "google-sso",
         }
+        self._init_or_restore_user_sessions(sync_from_firestore=True)
         if self.general_chat_messages and self.general_chat_messages[0].get("id") == "atlas-welcome":
             self.general_chat_messages[0]["text"] = (
                 f"Hey {clean_name}, you are now interacting with **Atlas (Orchestrator of AaaS)**. What would you like to do?"
             )
+            self._persist_active_session()
         return self.active_user
 
     def _select_specialist_for_query(self, query_text: str) -> Dict[str, str]:
@@ -1478,8 +1518,107 @@ class LeadOrchestratorAgent:
     def list_general_chat_messages(self) -> List[Dict[str, Any]]:
         return list(self.general_chat_messages)
 
+    def list_chat_sessions(self) -> List[Dict[str, Any]]:
+        u_email = self.active_user.get("email") or "harisankar@google.com"
+        u_name = self.active_user.get("name") or "Hari"
+        record = session_store_service.get_or_init_user_sessions(
+            user_email=u_email,
+            user_name=u_name,
+            default_messages=self.general_chat_messages,
+            sync_from_firestore=False,
+        )
+        return [
+            {
+                "session_id": s.get("session_id"),
+                "title": s.get("title", "New Chat Session"),
+                "user_email": s.get("user_email", u_email),
+                "user_name": s.get("user_name", u_name),
+                "created_at": s.get("created_at"),
+                "updated_at": s.get("updated_at"),
+                "message_count": s.get("message_count", len(s.get("messages", []))),
+                "user_message_count": s.get("user_message_count", 0),
+                "last_specialist": s.get("last_specialist", "Atlas • Lead Orchestrator"),
+                "is_active": s.get("session_id") == self.active_session_id,
+            }
+            for s in record.get("sessions", [])
+        ]
+
+    def create_new_chat_session(self, title: Optional[str] = None) -> Dict[str, Any]:
+        u_email = self.active_user.get("email") or "harisankar@google.com"
+        u_name = self.active_user.get("name") or "Hari"
+        default_msgs = self._default_general_chat_greeting()
+        record = session_store_service.create_new_session(
+            user_email=u_email,
+            user_name=u_name,
+            default_messages=default_msgs,
+            title=title,
+        )
+        self.active_session_id = record["active_session_id"]
+        self.general_chat_messages = default_msgs
+        return {
+            "active_session_id": self.active_session_id,
+            "messages": list(self.general_chat_messages),
+            "sessions": self.list_chat_sessions(),
+        }
+
+    def select_chat_session(self, session_id: str) -> Dict[str, Any]:
+        u_email = self.active_user.get("email") or "harisankar@google.com"
+        u_name = self.active_user.get("name") or "Hari"
+        target = session_store_service.select_session(
+            user_email=u_email,
+            user_name=u_name,
+            session_id=session_id,
+            default_messages=self._default_general_chat_greeting(),
+        )
+        self.active_session_id = target["session_id"]
+        self.general_chat_messages = list(target.get("messages", self._default_general_chat_greeting()))
+        return {
+            "active_session_id": self.active_session_id,
+            "messages": list(self.general_chat_messages),
+            "sessions": self.list_chat_sessions(),
+        }
+
+    def delete_chat_session(self, session_id: str) -> Dict[str, Any]:
+        u_email = self.active_user.get("email") or "harisankar@google.com"
+        u_name = self.active_user.get("name") or "Hari"
+        record = session_store_service.delete_session(
+            user_email=u_email,
+            user_name=u_name,
+            session_id=session_id,
+            default_messages=self._default_general_chat_greeting(),
+        )
+        self.active_session_id = record["active_session_id"]
+        active_sess = next(
+            (s for s in record.get("sessions", []) if s.get("session_id") == self.active_session_id),
+            record["sessions"][0],
+        )
+        self.general_chat_messages = list(active_sess.get("messages", self._default_general_chat_greeting()))
+        return {
+            "active_session_id": self.active_session_id,
+            "messages": list(self.general_chat_messages),
+            "sessions": self.list_chat_sessions(),
+        }
+
+    def clear_all_chat_sessions(self) -> Dict[str, Any]:
+        u_email = self.active_user.get("email") or "harisankar@google.com"
+        u_name = self.active_user.get("name") or "Hari"
+        default_msgs = self._default_general_chat_greeting()
+        record = session_store_service.clear_all_sessions(
+            user_email=u_email,
+            user_name=u_name,
+            default_messages=default_msgs,
+        )
+        self.active_session_id = record["active_session_id"]
+        self.general_chat_messages = default_msgs
+        return {
+            "active_session_id": self.active_session_id,
+            "messages": list(self.general_chat_messages),
+            "sessions": self.list_chat_sessions(),
+        }
+
     def reset_general_chat(self) -> List[Dict[str, Any]]:
         self.general_chat_messages = self._default_general_chat_greeting()
+        self._persist_active_session()
         return list(self.general_chat_messages)
 
     async def execute_chat_terraform_deployment(
@@ -1634,6 +1773,7 @@ class LeadOrchestratorAgent:
         }
         self.incidents[incident_id] = synthetic_inc
         self._upsert_audit_event(synthetic_inc, event_type="TERRAFORM_APPROVED_AND_EXECUTED")
+        self._persist_active_session()
 
         return {
             "deployment_id": incident_id,
@@ -1642,6 +1782,7 @@ class LeadOrchestratorAgent:
             "specialist_worker": primary_spec,
             "coordinated_specialists": coord_specs,
             "execution_result": exec_result,
+            "active_session_id": self.active_session_id,
             "messages": list(self.general_chat_messages),
         }
 
@@ -1717,6 +1858,7 @@ class LeadOrchestratorAgent:
                 "timestamp": datetime.datetime.now(datetime.timezone.utc).isoformat(),
             }
             self.general_chat_messages.append(reply_msg)
+            self._persist_active_session()
             return {
                 "action_taken": "DIRECT_ATLAS_CHAT_REPLY",
                 "scenario_type": "SCENARIO_4_HOW_TO",
@@ -1727,6 +1869,7 @@ class LeadOrchestratorAgent:
                 "consulted_specialist": primary_spec,
                 "terraform_bundle": None,
                 "live_database_agent_diagnosis": None,
+                "active_session_id": self.active_session_id,
                 "messages": list(self.general_chat_messages),
             }
 
@@ -1979,6 +2122,7 @@ class LeadOrchestratorAgent:
             "timestamp": datetime.datetime.now(datetime.timezone.utc).isoformat(),
         }
         self.general_chat_messages.append(reply_msg)
+        self._persist_active_session()
         return {
             "action_taken": "DIRECT_ATLAS_CHAT_REPLY",
             "scenario_type": scenario_type,
@@ -1989,5 +2133,6 @@ class LeadOrchestratorAgent:
             "consulted_specialist": specialist,
             "terraform_bundle": terraform_bundle,
             "live_database_agent_diagnosis": live_db_diagnosis,
+            "active_session_id": self.active_session_id,
             "messages": list(self.general_chat_messages),
         }

@@ -29,6 +29,7 @@ from agents.watcher_agent import CloudLoggingWatcherAgent
 from services.agent_harness import agent_harness
 from services.cloud_logging_service import CloudLoggingService
 from services.gke_remediator import GKERemediator
+from services.session_store_service import session_store_service
 
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -85,11 +86,20 @@ class GoogleOAuthConfigRequest(BaseModel):
     client_id: str
 
 
-_runtime_oauth_client_id: str = os.getenv("GOOGLE_OAUTH_CLIENT_ID", "").strip()
+class CreateChatSessionRequest(BaseModel):
+    title: Optional[str] = None
+
+
+DEFAULT_GOOGLE_OAUTH_CLIENT_ID = "1041190629307-vfatcreibv4a82lcj0v6t11vlic9rivn.apps.googleusercontent.com"
+_runtime_oauth_client_id: str = os.getenv("GOOGLE_OAUTH_CLIENT_ID", DEFAULT_GOOGLE_OAUTH_CLIENT_ID).strip()
 
 
 def _get_effective_oauth_client_id() -> str:
-    return (_runtime_oauth_client_id or os.getenv("GOOGLE_OAUTH_CLIENT_ID", "")).strip()
+    return (
+        _runtime_oauth_client_id
+        or os.getenv("GOOGLE_OAUTH_CLIENT_ID", "")
+        or DEFAULT_GOOGLE_OAUTH_CLIENT_ID
+    ).strip()
 
 
 @app.post("/api/auth/config")
@@ -322,6 +332,9 @@ async def get_system_state() -> Dict[str, Any]:
         "incidents": lead_orchestrator.list_incidents(),
         "audit_events": lead_orchestrator.list_audit_events(),
         "general_chat_messages": lead_orchestrator.list_general_chat_messages(),
+        "active_session_id": lead_orchestrator.active_session_id,
+        "chat_sessions": lead_orchestrator.list_chat_sessions(),
+        "session_store": session_store_service.get_status(),
         "a2a_ledger": a2a_hub.message_ledger[:30],
         "active_user": lead_orchestrator.active_user,
     }
@@ -515,7 +528,66 @@ async def reset_general_atlas_chat() -> Dict[str, Any]:
     messages = lead_orchestrator.reset_general_chat()
     return {
         "status": "CHAT_RESET",
+        "active_session_id": lead_orchestrator.active_session_id,
         "messages": messages,
+        "sessions": lead_orchestrator.list_chat_sessions(),
+    }
+
+
+@app.get("/api/atlas/sessions")
+async def list_atlas_chat_sessions() -> Dict[str, Any]:
+    """Lists all stored chat sessions for the signed-in Google SSO user from Cloud Firestore."""
+    return {
+        "status": "OK",
+        "user": lead_orchestrator.active_user,
+        "active_session_id": lead_orchestrator.active_session_id,
+        "sessions": lead_orchestrator.list_chat_sessions(),
+        "messages": lead_orchestrator.list_general_chat_messages(),
+        "session_store": session_store_service.get_status(),
+    }
+
+
+@app.post("/api/atlas/sessions/new")
+async def create_new_atlas_chat_session(req: Optional[CreateChatSessionRequest] = None) -> Dict[str, Any]:
+    """Starts a new Atlas chat session while preserving previous conversations in Firestore history."""
+    result = lead_orchestrator.create_new_chat_session(title=req.title if req else None)
+    return {
+        "status": "SESSION_CREATED",
+        **result,
+    }
+
+
+@app.post("/api/atlas/sessions/{session_id}/select")
+async def select_atlas_chat_session(session_id: str) -> Dict[str, Any]:
+    """Switches to and restores a past Atlas chat session from Cloud Firestore history."""
+    try:
+        result = lead_orchestrator.select_chat_session(session_id=session_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    return {
+        "status": "SESSION_SELECTED",
+        **result,
+    }
+
+
+@app.delete("/api/atlas/sessions/{session_id}")
+async def delete_atlas_chat_session(session_id: str) -> Dict[str, Any]:
+    """Deletes a specific chat session from the user's Cloud Firestore history."""
+    result = lead_orchestrator.delete_chat_session(session_id=session_id)
+    return {
+        "status": "SESSION_DELETED",
+        **result,
+    }
+
+
+@app.delete("/api/atlas/sessions")
+@app.post("/api/atlas/sessions/clear")
+async def clear_all_atlas_chat_sessions() -> Dict[str, Any]:
+    """Clears all stored chat sessions for the active user in Cloud Firestore."""
+    result = lead_orchestrator.clear_all_chat_sessions()
+    return {
+        "status": "ALL_SESSIONS_CLEARED",
+        **result,
     }
 
 

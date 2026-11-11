@@ -996,8 +996,10 @@
     // =====================================================================
     const SSO_STORAGE_KEY = 'aaas_google_sso_user';
     const OAUTH_CLIENT_ID_STORAGE_KEY = 'aaas_google_oauth_client_id';
+    const DEFAULT_GOOGLE_OAUTH_CLIENT_ID = '1041190629307-vfatcreibv4a82lcj0v6t11vlic9rivn.apps.googleusercontent.com';
     let currentSsoUser = null;
-    let googleOAuthClientId = '';
+    let googleOAuthClientId = DEFAULT_GOOGLE_OAUTH_CLIENT_ID;
+    let sessionHistoryOpen = false;
 
     function getConfiguredOAuthClientId() {
       if (googleOAuthClientId) return googleOAuthClientId;
@@ -1008,7 +1010,7 @@
           return googleOAuthClientId;
         }
       } catch (e) {}
-      return '';
+      return DEFAULT_GOOGLE_OAUTH_CLIENT_ID;
     }
 
     function loadStoredSsoUser() {
@@ -1772,8 +1774,10 @@
       }
 
       // Render Center Stage only when state signature changes so typing in chat is never interrupted
+      const chatSessions = data.chat_sessions || [];
+      const activeSessId = data.active_session_id || 'default';
       const stageSig = directChatMode
-        ? `direct:${generalMsgs.length}:${pending ? pending.incident_id : 'none'}`
+        ? `direct:${activeSessId}:${generalMsgs.length}:${chatSessions.length}:${sessionHistoryOpen}:${pending ? pending.incident_id : 'none'}`
         : (activeInc
             ? `${activeInc.incident_id}:${activeInc.status}:${(activeInc.chat_messages || []).length}`
             : `healthy:${generalMsgs.length}`);
@@ -2564,6 +2568,45 @@
         </span>
       `).join('');
 
+      const sessions = (latestState && latestState.chat_sessions) || [];
+      const activeSessionId = (latestState && latestState.active_session_id) || '';
+      const activeSessionObj = sessions.find(s => s.session_id === activeSessionId) || sessions[0] || { title: 'New Chat Session' };
+      const storeInfo = (latestState && latestState.session_store) || { status: 'CLOUD_FIRESTORE_SYNCED' };
+
+      const sessionRowsHtml = sessions.map(s => {
+        const isCurrent = s.session_id === activeSessionId || s.is_active;
+        const msgCount = s.message_count || 1;
+        const specBadge = s.last_specialist || 'Atlas • Lead Orchestrator';
+        return `
+          <div onclick="selectAtlasChatSession('${escapeHtml(s.session_id)}')"
+            class="p-2.5 rounded-2xl border transition cursor-pointer flex items-center justify-between gap-2 ${
+              isCurrent
+                ? 'bg-[#4285F4]/15 border-[#4285F4]'
+                : 'bg-slate-900/90 hover:bg-slate-800/80 border-slate-800'
+            }">
+            <div class="min-w-0 flex-1">
+              <div class="flex items-center gap-1.5">
+                <i class="fa-regular fa-message text-[10px] ${isCurrent ? 'text-[#4285F4]' : 'text-slate-400'}"></i>
+                <span class="text-xs font-semibold text-white truncate">${escapeHtml(s.title || 'New Chat Session')}</span>
+                ${isCurrent ? '<span class="g-badge-blue px-2 py-0.5 rounded-full text-[9px] font-bold shrink-0">Active</span>' : ''}
+              </div>
+              <div class="text-[10px] text-slate-400 mt-0.5 flex flex-wrap items-center gap-1.5">
+                <span class="mono">${formatAuditTime(s.updated_at)}</span>
+                <span>•</span>
+                <span>${msgCount} ${msgCount === 1 ? 'msg' : 'msgs'}</span>
+                <span>•</span>
+                <span class="text-[#34A853] font-medium">${escapeHtml(specBadge)}</span>
+              </div>
+            </div>
+            <button type="button" onclick="deleteAtlasChatSession(event, '${escapeHtml(s.session_id)}')"
+              class="px-2 py-1 rounded-lg bg-slate-950/80 hover:bg-[#EA4335]/20 text-slate-400 hover:text-[#EA4335] border border-slate-800 text-[10px] transition cursor-pointer shrink-0"
+              title="Delete this session">
+              <i class="fa-regular fa-trash-can"></i>
+            </button>
+          </div>
+        `;
+      }).join('');
+
       return `
         <div class="glass g-card-fourcolor border border-slate-800 rounded-3xl p-5 sm:p-6 space-y-4">
           <!-- Direct Chatbot Header -->
@@ -2580,18 +2623,38 @@
                   </span>
                   ${specPills}
                 </div>
-                <div class="text-xs text-slate-400">
-                  Ask GCP questions, inspect Cloud SQL &amp; Compute VMs, or generate Terraform.
+                <div class="text-xs text-slate-400 flex items-center gap-1.5 flex-wrap">
+                  <span>Session: <strong class="text-white">${escapeHtml(activeSessionObj.title || 'New Chat Session')}</strong></span>
+                  <span>•</span>
+                  <span class="text-[10px] mono text-[#34A853]"><i class="fa-solid fa-database mr-1"></i>Firestore (${escapeHtml(storeInfo.status || 'SYNCED')})</span>
                 </div>
               </div>
             </div>
 
-            <div class="flex items-center gap-1.5">
+            <div class="flex flex-wrap items-center gap-1.5">
+              <button id="btnNewChatSession" type="button" onclick="createNewAtlasChatSession()"
+                class="g-btn-blue inline-flex items-center gap-1 px-3 py-1.5 rounded-full text-[11px] font-semibold transition cursor-pointer"
+                title="Start a new chat session (keeps current thread in History)">
+                <i class="fa-solid fa-plus text-[10px]"></i>
+                <span>New Chat</span>
+              </button>
+              <button id="btnToggleSessionHistory" type="button" onclick="toggleAtlasSessionHistory()"
+                class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-slate-900 hover:bg-slate-800 border border-slate-800 text-[11px] text-slate-200 font-semibold transition cursor-pointer"
+                title="View and switch between stored Cloud Firestore chat sessions">
+                <i class="fa-solid fa-clock-rotate-left text-[#4285F4] text-[10px]"></i>
+                <span>History (${sessions.length})</span>
+              </button>
               <button type="button" onclick="resetGeneralAtlasChat()"
                 class="inline-flex items-center gap-1 px-3 py-1.5 rounded-full bg-slate-900 hover:bg-slate-800 border border-slate-800 text-[11px] text-slate-300 transition cursor-pointer"
-                title="Clear conversation history">
+                title="Reset current session messages">
                 <i class="fa-solid fa-rotate-left text-[10px]"></i>
                 <span>Reset</span>
+              </button>
+              <button id="btnClearAllSessions" type="button" onclick="clearAllAtlasChatSessions()"
+                class="inline-flex items-center gap-1 px-3 py-1.5 rounded-full bg-slate-900 hover:bg-[#EA4335]/20 border border-slate-800 text-[11px] text-slate-300 hover:text-[#EA4335] transition cursor-pointer"
+                title="Clear all stored chat sessions for ${escapeHtml(getCurrentUserName())}">
+                <i class="fa-regular fa-trash-can text-[10px]"></i>
+                <span>Clear History</span>
               </button>
               ${pendingIncident ? `
                 <button type="button" onclick="closeDirectAtlasChat()"
@@ -2606,6 +2669,22 @@
                   <span>Close</span>
                 </button>
               `}
+            </div>
+          </div>
+
+          <!-- Collapsible Session History Drawer (Cloud Firestore Backed) -->
+          <div id="atlasSessionHistoryPanel" class="${sessionHistoryOpen ? '' : 'hidden'} p-3.5 rounded-2xl bg-slate-950/90 border border-slate-800 space-y-2.5">
+            <div class="flex flex-wrap items-center justify-between gap-2">
+              <div class="text-xs font-bold text-white flex items-center gap-2">
+                <i class="fa-solid fa-clock-rotate-left text-[#4285F4]"></i>
+                <span>Saved Chat Sessions for ${escapeHtml(getCurrentUserName())} (${escapeHtml(getCurrentUserEmail())})</span>
+              </div>
+              <span class="g-badge-green px-2.5 py-0.5 rounded-full text-[10px] font-semibold mono">
+                Cloud Firestore • (default)
+              </span>
+            </div>
+            <div class="space-y-1.5 max-h-48 overflow-y-auto pr-1">
+              ${sessionRowsHtml || '<div class="text-xs text-slate-400 py-2 text-center">No saved sessions yet.</div>'}
             </div>
           </div>
 
@@ -2850,6 +2929,64 @@
         await fetchState(true);
       } catch (err) {
         console.error('Reset Atlas chat failed:', err);
+      }
+    }
+
+    function toggleAtlasSessionHistory() {
+      sessionHistoryOpen = !sessionHistoryOpen;
+      lastStageSignature = '';
+      if (latestState) {
+        renderDashboard(latestState, true);
+      }
+    }
+
+    async function createNewAtlasChatSession() {
+      try {
+        await fetch('/api/atlas/sessions/new', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({})
+        });
+        sessionHistoryOpen = false;
+        await fetchState(true);
+      } catch (err) {
+        console.error('Create new chat session failed:', err);
+      }
+    }
+
+    async function selectAtlasChatSession(sessionId) {
+      if (!sessionId) return;
+      try {
+        await fetch(`/api/atlas/sessions/${encodeURIComponent(sessionId)}/select`, {
+          method: 'POST'
+        });
+        sessionHistoryOpen = false;
+        await fetchState(true);
+      } catch (err) {
+        console.error('Select chat session failed:', err);
+      }
+    }
+
+    async function deleteAtlasChatSession(event, sessionId) {
+      if (event) event.stopPropagation();
+      if (!sessionId) return;
+      try {
+        await fetch(`/api/atlas/sessions/${encodeURIComponent(sessionId)}`, {
+          method: 'DELETE'
+        });
+        await fetchState(true);
+      } catch (err) {
+        console.error('Delete chat session failed:', err);
+      }
+    }
+
+    async function clearAllAtlasChatSessions() {
+      try {
+        await fetch('/api/atlas/sessions', { method: 'DELETE' });
+        sessionHistoryOpen = false;
+        await fetchState(true);
+      } catch (err) {
+        console.error('Clear all chat sessions failed:', err);
       }
     }
 

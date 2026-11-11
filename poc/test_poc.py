@@ -48,8 +48,12 @@ def run_e2e_tests() -> None:
         "userProfileBadge",
         "googleSsoModal",
         "googleSsoForm",
+        "btnNewChatSession",
+        "btnToggleSessionHistory",
+        "btnClearAllSessions",
+        "atlasSessionHistoryPanel",
     ):
-        assert nav_id in res_ui.text, f"Missing sidebar/view/theme/SSO element {nav_id} in Dashboard UI"
+        assert nav_id in res_ui.text, f"Missing sidebar/view/theme/SSO/session element {nav_id} in Dashboard UI"
     assert "Sign in to AaaS Command Center" in res_ui.text
     assert "Continue with Google SSO" in res_ui.text
     assert "accounts.google.com/gsi/client" in res_ui.text
@@ -192,6 +196,48 @@ def run_e2e_tests() -> None:
     assert reset_chat_res.status_code == 200
     assert len(reset_chat_res.json()["messages"]) == 1
     print("[PASS] Direct Atlas Chat Reset verified!")
+
+    # 1b-ii. Verify Cloud Firestore Multi-Session Chat Manager (New Session, History List, Switch, Delete, Clear All)
+    sess_list_1 = client.get("/api/atlas/sessions")
+    assert sess_list_1.status_code == 200
+    first_session_id = sess_list_1.json()["active_session_id"]
+
+    # Send a message in Session 1 so it gets a custom title
+    client.post(
+        "/api/atlas/chat",
+        json={"message": "How do I configure Cloud Armor rate limiting for Cloud Run?"},
+    )
+
+    # Create Session 2
+    new_sess_res = client.post("/api/atlas/sessions/new", json={"title": "Database Audit Session"})
+    assert new_sess_res.status_code == 200
+    second_session_id = new_sess_res.json()["active_session_id"]
+    assert second_session_id != first_session_id
+    assert len(new_sess_res.json()["messages"]) == 1
+    assert len(new_sess_res.json()["sessions"]) >= 2
+
+    # Switch back to Session 1 and verify conversation history was preserved
+    select_sess_res = client.post(f"/api/atlas/sessions/{first_session_id}/select")
+    assert select_sess_res.status_code == 200
+    assert select_sess_res.json()["active_session_id"] == first_session_id
+    assert len(select_sess_res.json()["messages"]) >= 3
+
+    # Delete Session 2
+    del_sess_res = client.delete(f"/api/atlas/sessions/{second_session_id}")
+    assert del_sess_res.status_code == 200
+    remaining_ids = [s["session_id"] for s in del_sess_res.json()["sessions"]]
+    assert second_session_id not in remaining_ids
+
+    # Clear all chat sessions for current user
+    clear_all_res = client.delete("/api/atlas/sessions")
+    assert clear_all_res.status_code == 200
+    assert clear_all_res.json()["status"] == "ALL_SESSIONS_CLEARED"
+    assert len(clear_all_res.json()["sessions"]) == 1
+    assert len(clear_all_res.json()["messages"]) == 1
+    print(
+        f"[PASS] Cloud Firestore Multi-Session Manager verified: create/switch/delete/clear "
+        f"(store={sess_list_1.json()['session_store']['status']})"
+    )
 
     # 1c. Verify Agent Harness Policy Gate blocks mutations to protected teammate resources (testdbconnect & us-west1 Reasoning Engines)
     from services.agent_harness import agent_harness
