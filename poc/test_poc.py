@@ -59,6 +59,8 @@ def run_e2e_tests() -> None:
     assert "accounts.google.com/gsi/client" in res_ui.text
     assert "Harisankar P N" not in res_ui.text
     assert "sre-lead@google.com" in res_ui.text
+    assert "Firestore (" not in res_ui.text
+    assert "fa-gear" in res_ui.text
     assert "prefers-color-scheme: dark" in res_ui.text
     assert res_ui.text.count("Chat with Atlas") == 1, "Expected 'Chat with Atlas' only once in Dashboard UI"
     assert "Gemini 2.5" not in res_ui.text, "Expected 'Gemini 2.5' to be removed from Dashboard UI"

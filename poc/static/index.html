@@ -372,16 +372,26 @@
           </div>
         </div>
         <div class="flex flex-wrap items-center gap-2.5 shrink-0">
-          <!-- Theme Mode Segmented Control: Simplified Icon-Only Auto / Dark / Light -->
+          <!-- Theme Mode Segmented Control: Simplified Icon-Only Auto (Gear) / Dark (Moon) / Light (Sun) -->
           <div class="inline-flex items-center p-0.5 rounded-full bg-slate-900 border border-slate-800" role="group" aria-label="Theme Mode">
-            <button type="button" id="themeBtnAuto" onclick="setThemeMode('auto')" title="Auto (System)" aria-label="Auto Theme" class="w-7 h-7 rounded-full text-slate-400 hover:text-white transition cursor-pointer flex items-center justify-center">
-              <i class="fa-solid fa-circle-half-stroke text-[11px]"></i>
+            <button type="button" id="themeBtnAuto" onclick="setThemeMode('auto')" title="Auto (System)" aria-label="Auto System Theme" class="w-7 h-7 rounded-full text-slate-400 hover:text-white transition cursor-pointer flex items-center justify-center">
+              <i class="fa-solid fa-gear text-[11px]"></i>
             </button>
             <button type="button" id="themeBtnDark" onclick="setThemeMode('dark')" title="Dark" aria-label="Dark Mode" class="w-7 h-7 rounded-full text-slate-400 hover:text-white transition cursor-pointer flex items-center justify-center">
-              <i class="fa-regular fa-moon text-[11px]"></i>
+              <i class="fa-solid fa-moon text-[11px]"></i>
             </button>
             <button type="button" id="themeBtnLight" onclick="setThemeMode('light')" title="Light" aria-label="Light Mode" class="w-7 h-7 rounded-full text-slate-400 hover:text-white transition cursor-pointer flex items-center justify-center">
-              <i class="fa-regular fa-sun text-[11px]"></i>
+              <svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <circle cx="12" cy="12" r="4"></circle>
+                <line x1="12" y1="2" x2="12" y2="5"></line>
+                <line x1="12" y1="19" x2="12" y2="22"></line>
+                <line x1="4.93" y1="4.93" x2="7.05" y2="7.05"></line>
+                <line x1="16.95" y1="16.95" x2="19.07" y2="19.07"></line>
+                <line x1="2" y1="12" x2="5" y2="12"></line>
+                <line x1="19" y1="12" x2="22" y2="12"></line>
+                <line x1="4.93" y1="19.07" x2="7.05" y2="16.95"></line>
+                <line x1="16.95" y1="7.05" x2="19.07" y2="4.93"></line>
+              </svg>
             </button>
           </div>
 
@@ -2625,8 +2635,6 @@
                 </div>
                 <div class="text-xs text-slate-400 flex items-center gap-1.5 flex-wrap">
                   <span>Session: <strong class="text-white">${escapeHtml(activeSessionObj.title || 'New Chat Session')}</strong></span>
-                  <span>•</span>
-                  <span class="text-[10px] mono text-[#34A853]"><i class="fa-solid fa-database mr-1"></i>Firestore (${escapeHtml(storeInfo.status || 'SYNCED')})</span>
                 </div>
               </div>
             </div>
@@ -2640,7 +2648,7 @@
               </button>
               <button id="btnToggleSessionHistory" type="button" onclick="toggleAtlasSessionHistory()"
                 class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-slate-900 hover:bg-slate-800 border border-slate-800 text-[11px] text-slate-200 font-semibold transition cursor-pointer"
-                title="View and switch between stored Cloud Firestore chat sessions">
+                title="View and switch between saved chat sessions">
                 <i class="fa-solid fa-clock-rotate-left text-[#4285F4] text-[10px]"></i>
                 <span>History (${sessions.length})</span>
               </button>
@@ -2672,15 +2680,15 @@
             </div>
           </div>
 
-          <!-- Collapsible Session History Drawer (Cloud Firestore Backed) -->
+          <!-- Collapsible Session History Drawer -->
           <div id="atlasSessionHistoryPanel" class="${sessionHistoryOpen ? '' : 'hidden'} p-3.5 rounded-2xl bg-slate-950/90 border border-slate-800 space-y-2.5">
             <div class="flex flex-wrap items-center justify-between gap-2">
               <div class="text-xs font-bold text-white flex items-center gap-2">
                 <i class="fa-solid fa-clock-rotate-left text-[#4285F4]"></i>
                 <span>Saved Chat Sessions for ${escapeHtml(getCurrentUserName())} (${escapeHtml(getCurrentUserEmail())})</span>
               </div>
-              <span class="g-badge-green px-2.5 py-0.5 rounded-full text-[10px] font-semibold mono">
-                Cloud Firestore • (default)
+              <span class="g-badge-blue px-2.5 py-0.5 rounded-full text-[10px] font-semibold">
+                ${sessions.length} ${sessions.length === 1 ? 'Session' : 'Sessions'}
               </span>
             </div>
             <div class="space-y-1.5 max-h-48 overflow-y-auto pr-1">
