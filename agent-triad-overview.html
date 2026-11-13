@@ -1,0 +1,1874 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Agent-Triad (AaaS) — Autonomous Cloud Operations Workflow & Architecture</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
+  <style>
+    :root {
+      --g-blue: #4285F4;
+      --g-red: #EA4335;
+      --g-yellow: #FBBC04;
+      --g-green: #34A853;
+      --g-purple: #A142F4;
+      --g-cyan: #24C1E0;
+
+      /* Dark theme default */
+      --bg: #0c1018;
+      --bg-elev: #121826;
+      --bg-card: #161d2e;
+      --bg-card-hover: #1b2438;
+      --bg-code: #0b0f19;
+      --border: rgba(148, 163, 184, 0.16);
+      --border-strong: rgba(148, 163, 184, 0.28);
+      --text: #f1f5f9;
+      --text-muted: #94a3b8;
+      --text-subtle: #64748b;
+      --nav-bg: rgba(12, 16, 24, 0.84);
+      --shadow: 0 12px 32px rgba(0, 0, 0, 0.35);
+      --pill-bg: rgba(66, 133, 244, 0.12);
+      --pill-border: rgba(66, 133, 244, 0.32);
+    }
+
+    [data-theme="light"] {
+      --bg: #f8fafc;
+      --bg-elev: #ffffff;
+      --bg-card: #ffffff;
+      --bg-card-hover: #f1f5f9;
+      --bg-code: #0f172a;
+      --border: rgba(15, 23, 42, 0.10);
+      --border-strong: rgba(15, 23, 42, 0.20);
+      --text: #0f172a;
+      --text-muted: #475569;
+      --text-subtle: #64748b;
+      --nav-bg: rgba(248, 250, 252, 0.88);
+      --shadow: 0 10px 28px rgba(15, 23, 42, 0.08);
+      --pill-bg: rgba(66, 133, 244, 0.09);
+      --pill-border: rgba(66, 133, 244, 0.26);
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    html { scroll-behavior: smooth; }
+    body {
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      line-height: 1.6;
+      overflow-x: hidden;
+      transition: background 0.2s ease, color 0.2s ease;
+    }
+
+    code, pre, .mono {
+      font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+    }
+
+    /* Ambient top glow */
+    .bg-glow {
+      position: fixed;
+      inset: 0 0 auto 0;
+      height: 520px;
+      pointer-events: none;
+      z-index: -1;
+      background:
+        radial-gradient(600px 280px at 15% 0%, rgba(66, 133, 244, 0.16), transparent 70%),
+        radial-gradient(520px 260px at 85% 5%, rgba(52, 168, 83, 0.12), transparent 70%),
+        radial-gradient(420px 220px at 50% 10%, rgba(251, 188, 4, 0.07), transparent 70%);
+    }
+
+    /* Sticky Navbar */
+    .navbar {
+      position: sticky;
+      top: 0;
+      z-index: 50;
+      backdrop-filter: blur(14px);
+      -webkit-backdrop-filter: blur(14px);
+      background: var(--nav-bg);
+      border-bottom: 1px solid var(--border);
+    }
+    .nav-inner {
+      max-width: 1240px;
+      margin: 0 auto;
+      padding: 0.75rem 1.25rem;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 1rem;
+      flex-wrap: wrap;
+    }
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 0.65rem;
+      text-decoration: none;
+      color: var(--text);
+      font-weight: 800;
+      font-size: 1.02rem;
+      letter-spacing: -0.02em;
+    }
+    .brand-dots {
+      display: grid;
+      grid-template-columns: repeat(2, 8px);
+      gap: 3px;
+    }
+    .brand-dots span {
+      width: 8px;
+      height: 8px;
+      border-radius: 2.5px;
+      display: block;
+    }
+    .nav-links {
+      display: flex;
+      align-items: center;
+      gap: 0.35rem;
+      flex-wrap: wrap;
+    }
+    .nav-links a {
+      text-decoration: none;
+      color: var(--text-muted);
+      font-size: 0.83rem;
+      font-weight: 500;
+      padding: 0.4rem 0.65rem;
+      border-radius: 8px;
+      transition: color 0.15s, background 0.15s;
+    }
+    .nav-links a:hover {
+      color: var(--text);
+      background: var(--bg-card);
+    }
+    .nav-actions {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+    .theme-switch {
+      display: inline-flex;
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: 999px;
+      padding: 3px;
+      gap: 2px;
+    }
+    .theme-btn {
+      border: none;
+      background: transparent;
+      color: var(--text-muted);
+      width: 28px;
+      height: 28px;
+      border-radius: 999px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      transition: all 0.15s;
+    }
+    .theme-btn.active {
+      background: var(--g-blue);
+      color: #fff;
+    }
+
+    /* Layout Containers */
+    .container {
+      max-width: 1240px;
+      margin: 0 auto;
+      padding: 0 1.25rem;
+    }
+    section {
+      padding: 3.5rem 0;
+      border-bottom: 1px solid var(--border);
+    }
+    section:last-of-type { border-bottom: none; }
+
+    /* Hero */
+    .hero {
+      padding: 3.8rem 0 3rem;
+      text-align: center;
+    }
+    .hero-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.5rem;
+      padding: 0.35rem 0.85rem;
+      border-radius: 999px;
+      background: var(--pill-bg);
+      border: 1px solid var(--pill-border);
+      color: var(--g-blue);
+      font-size: 0.78rem;
+      font-weight: 600;
+      letter-spacing: 0.02em;
+      margin-bottom: 1.1rem;
+    }
+    .pulse-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: var(--g-green);
+      box-shadow: 0 0 0 0 rgba(52, 168, 83, 0.7);
+      animation: pulse 2s infinite;
+    }
+    @keyframes pulse {
+      0% { box-shadow: 0 0 0 0 rgba(52, 168, 83, 0.7); }
+      70% { box-shadow: 0 0 0 8px rgba(52, 168, 83, 0); }
+      100% { box-shadow: 0 0 0 0 rgba(52, 168, 83, 0); }
+    }
+    .hero h1 {
+      font-size: clamp(2rem, 4.4vw, 3.25rem);
+      font-weight: 800;
+      letter-spacing: -0.03em;
+      line-height: 1.12;
+      max-width: 920px;
+      margin: 0 auto 1rem;
+    }
+    .hero h1 .grad {
+      background: linear-gradient(90deg, var(--g-blue), var(--g-cyan), var(--g-green));
+      -webkit-background-clip: text;
+      background-clip: text;
+      color: transparent;
+    }
+    .hero-sub {
+      max-width: 780px;
+      margin: 0 auto 1.8rem;
+      color: var(--text-muted);
+      font-size: 1.03rem;
+    }
+    .hero-cta {
+      display: flex;
+      justify-content: center;
+      gap: 0.75rem;
+      flex-wrap: wrap;
+      margin-bottom: 2.4rem;
+    }
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.5rem;
+      padding: 0.68rem 1.2rem;
+      border-radius: 10px;
+      font-weight: 600;
+      font-size: 0.88rem;
+      cursor: pointer;
+      border: 1px solid transparent;
+      text-decoration: none;
+      transition: transform 0.15s, box-shadow 0.15s, background 0.15s;
+      font-family: inherit;
+    }
+    .btn:active { transform: translateY(1px); }
+    .btn-primary {
+      background: var(--g-blue);
+      color: #fff;
+      box-shadow: 0 6px 20px rgba(66, 133, 244, 0.32);
+    }
+    .btn-primary:hover { background: #3374e0; }
+    .btn-secondary {
+      background: var(--bg-card);
+      color: var(--text);
+      border-color: var(--border-strong);
+    }
+    .btn-secondary:hover { background: var(--bg-card-hover); }
+    .btn-danger {
+      background: rgba(234, 67, 53, 0.14);
+      color: #f87171;
+      border-color: rgba(234, 67, 53, 0.4);
+    }
+    .btn-danger.active, .btn-danger:hover {
+      background: var(--g-red);
+      color: #fff;
+    }
+    .btn-sm {
+      padding: 0.44rem 0.85rem;
+      font-size: 0.8rem;
+      border-radius: 8px;
+    }
+
+    /* KPI Strip */
+    .kpi-grid {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 1rem;
+      text-align: left;
+    }
+    .kpi-card {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      padding: 1.1rem 1.2rem;
+      box-shadow: var(--shadow);
+      position: relative;
+      overflow: hidden;
+    }
+    .kpi-card::before {
+      content: "";
+      position: absolute;
+      inset: 0 0 auto 0;
+      height: 3px;
+      background: var(--accent, var(--g-blue));
+    }
+    .kpi-label {
+      font-size: 0.73rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      color: var(--text-muted);
+      margin-bottom: 0.3rem;
+    }
+    .kpi-val {
+      font-size: 1.2rem;
+      font-weight: 800;
+      margin-bottom: 0.25rem;
+    }
+    .kpi-desc {
+      font-size: 0.8rem;
+      color: var(--text-muted);
+    }
+
+    /* Section Headings */
+    .sec-head {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-end;
+      gap: 1rem;
+      flex-wrap: wrap;
+      margin-bottom: 1.75rem;
+    }
+    .sec-eyebrow {
+      font-size: 0.74rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: var(--g-blue);
+      margin-bottom: 0.35rem;
+    }
+    .sec-title {
+      font-size: clamp(1.45rem, 2.6vw, 2rem);
+      font-weight: 800;
+      letter-spacing: -0.02em;
+    }
+    .sec-desc {
+      color: var(--text-muted);
+      max-width: 700px;
+      font-size: 0.93rem;
+      margin-top: 0.35rem;
+    }
+
+    /* Interactive Workflow Pipeline */
+    .workflow-toolbar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 0.75rem;
+      flex-wrap: wrap;
+      margin-bottom: 1.25rem;
+      padding: 0.85rem 1rem;
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+    }
+    .toolbar-group {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      flex-wrap: wrap;
+    }
+    .pipeline-grid {
+      display: grid;
+      grid-template-columns: repeat(5, 1fr);
+      gap: 0.85rem;
+      position: relative;
+      margin-bottom: 1.25rem;
+    }
+    .step-card {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      padding: 1rem;
+      cursor: pointer;
+      transition: all 0.2s ease;
+      position: relative;
+      display: flex;
+      flex-direction: column;
+      gap: 0.55rem;
+    }
+    .step-card:hover {
+      border-color: var(--border-strong);
+      transform: translateY(-2px);
+    }
+    .step-card.active {
+      border-color: var(--g-blue);
+      box-shadow: 0 0 0 2px rgba(66, 133, 244, 0.25), var(--shadow);
+      background: var(--bg-card-hover);
+    }
+    .step-card.done {
+      border-color: rgba(52, 168, 83, 0.55);
+    }
+    .step-card.blocked {
+      border-color: var(--g-red);
+      box-shadow: 0 0 0 2px rgba(234, 67, 53, 0.28), var(--shadow);
+    }
+    .step-card.skipped {
+      opacity: 0.45;
+      border-style: dashed;
+    }
+    .step-top {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 0.4rem;
+    }
+    .step-num {
+      font-size: 0.7rem;
+      font-weight: 800;
+      padding: 0.18rem 0.5rem;
+      border-radius: 6px;
+      background: rgba(66, 133, 244, 0.16);
+      color: var(--g-blue);
+    }
+    .step-card.done .step-num {
+      background: rgba(52, 168, 83, 0.18);
+      color: var(--g-green);
+    }
+    .step-card.blocked .step-num {
+      background: rgba(234, 67, 53, 0.2);
+      color: var(--g-red);
+    }
+    .step-tag {
+      font-size: 0.67rem;
+      color: var(--text-muted);
+      font-weight: 600;
+    }
+    .step-title {
+      font-size: 0.94rem;
+      font-weight: 700;
+      line-height: 1.3;
+    }
+    .step-summary {
+      font-size: 0.78rem;
+      color: var(--text-muted);
+      flex: 1;
+    }
+    .step-chips {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.3rem;
+      margin-top: 0.2rem;
+    }
+    .chip {
+      font-size: 0.67rem;
+      font-weight: 600;
+      padding: 0.15rem 0.45rem;
+      border-radius: 6px;
+      background: rgba(148, 163, 184, 0.12);
+      color: var(--text-muted);
+      border: 1px solid var(--border);
+    }
+
+    /* Inspector Panel */
+    .inspector {
+      display: grid;
+      grid-template-columns: 1.05fr 1.15fr;
+      gap: 1rem;
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      padding: 1.25rem;
+      box-shadow: var(--shadow);
+    }
+    .inspector-meta h3 {
+      font-size: 1.08rem;
+      font-weight: 800;
+      margin-bottom: 0.4rem;
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      flex-wrap: wrap;
+    }
+    .status-pill {
+      font-size: 0.68rem;
+      font-weight: 700;
+      padding: 0.2rem 0.55rem;
+      border-radius: 999px;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+    }
+    .status-ok { background: rgba(52, 168, 83, 0.18); color: #34d399; border: 1px solid rgba(52, 168, 83, 0.4); }
+    .status-blue { background: rgba(66, 133, 244, 0.18); color: #60a5fa; border: 1px solid rgba(66, 133, 244, 0.4); }
+    .status-warn { background: rgba(251, 188, 4, 0.16); color: #fbbf24; border: 1px solid rgba(251, 188, 4, 0.4); }
+    .status-err { background: rgba(234, 67, 53, 0.2); color: #f87171; border: 1px solid rgba(234, 67, 53, 0.45); }
+
+    .inspector-list {
+      list-style: none;
+      margin-top: 0.85rem;
+      display: flex;
+      flex-direction: column;
+      gap: 0.55rem;
+    }
+    .inspector-list li {
+      font-size: 0.85rem;
+      color: var(--text-muted);
+      padding-left: 1.25rem;
+      position: relative;
+    }
+    .inspector-list li::before {
+      content: "→";
+      position: absolute;
+      left: 0;
+      color: var(--g-blue);
+      font-weight: 700;
+    }
+    .inspector-list strong { color: var(--text); }
+
+    .code-box {
+      background: var(--bg-code);
+      color: #e2e8f0;
+      border: 1px solid rgba(148, 163, 184, 0.18);
+      border-radius: 12px;
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+    }
+    .code-head {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 0.5rem 0.85rem;
+      background: rgba(255, 255, 255, 0.04);
+      border-bottom: 1px solid rgba(148, 163, 184, 0.14);
+      font-size: 0.74rem;
+      color: #94a3b8;
+    }
+    .code-body {
+      padding: 0.9rem;
+      font-size: 0.77rem;
+      line-height: 1.55;
+      overflow-x: auto;
+      white-space: pre;
+      color: #cbd5e1;
+      max-height: 280px;
+      overflow-y: auto;
+    }
+
+    /* Cloud-Agnostic Interactive Configurator */
+    .tab-bar {
+      display: flex;
+      gap: 0.45rem;
+      flex-wrap: wrap;
+      margin-bottom: 1.25rem;
+    }
+    .tab-btn {
+      background: var(--bg-card);
+      color: var(--text-muted);
+      border: 1px solid var(--border);
+      padding: 0.55rem 0.95rem;
+      border-radius: 10px;
+      font-size: 0.83rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.15s;
+      font-family: inherit;
+    }
+    .tab-btn:hover { color: var(--text); border-color: var(--border-strong); }
+    .tab-btn.active {
+      background: var(--g-blue);
+      color: #fff;
+      border-color: var(--g-blue);
+      box-shadow: 0 4px 14px rgba(66, 133, 244, 0.3);
+    }
+
+    .arch-layout {
+      display: grid;
+      grid-template-columns: 1.35fr 0.95fr;
+      gap: 1.15rem;
+    }
+    .ports-grid {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 0.85rem;
+    }
+    .port-card {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: 13px;
+      padding: 1rem;
+      transition: border-color 0.2s;
+    }
+    .port-card .port-name {
+      font-size: 0.72rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      color: var(--text-subtle);
+      margin-bottom: 0.25rem;
+    }
+    .port-card .adapter-val {
+      font-size: 0.95rem;
+      font-weight: 700;
+      color: var(--text);
+      margin-bottom: 0.3rem;
+    }
+    .port-card .adapter-detail {
+      font-size: 0.78rem;
+      color: var(--text-muted);
+    }
+    .port-card .adapter-file {
+      margin-top: 0.45rem;
+      font-size: 0.71rem;
+      color: var(--g-blue);
+    }
+
+    /* 5-Phase Evolution */
+    .phases-grid {
+      display: grid;
+      grid-template-columns: repeat(5, 1fr);
+      gap: 0.85rem;
+    }
+    .phase-card {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      padding: 1.1rem;
+      display: flex;
+      flex-direction: column;
+      gap: 0.5rem;
+      position: relative;
+      overflow: hidden;
+    }
+    .phase-card::before {
+      content: "";
+      position: absolute;
+      inset: 0 0 auto 0;
+      height: 3px;
+      background: var(--pcolor, var(--g-blue));
+    }
+    .phase-badge {
+      font-size: 0.7rem;
+      font-weight: 800;
+      color: var(--pcolor, var(--g-blue));
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+    }
+    .phase-card h3 {
+      font-size: 0.94rem;
+      font-weight: 700;
+      line-height: 1.3;
+    }
+    .phase-card ul {
+      list-style: none;
+      display: flex;
+      flex-direction: column;
+      gap: 0.4rem;
+      margin-top: 0.25rem;
+    }
+    .phase-card li {
+      font-size: 0.78rem;
+      color: var(--text-muted);
+      padding-left: 0.9rem;
+      position: relative;
+    }
+    .phase-card li::before {
+      content: "•";
+      position: absolute;
+      left: 0;
+      color: var(--pcolor, var(--g-blue));
+      font-weight: 800;
+    }
+
+    /* Proactive SRE & Safety Guardrails */
+    .cards-3 {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 1rem;
+      margin-bottom: 1.4rem;
+    }
+    .cards-2 {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 1rem;
+    }
+    .feature-card {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      padding: 1.2rem;
+      box-shadow: var(--shadow);
+    }
+    .feature-icon {
+      width: 38px;
+      height: 38px;
+      border-radius: 10px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      margin-bottom: 0.75rem;
+      font-size: 1rem;
+      font-weight: 800;
+    }
+    .feature-card h3 {
+      font-size: 1rem;
+      font-weight: 700;
+      margin-bottom: 0.4rem;
+    }
+    .feature-card p {
+      font-size: 0.84rem;
+      color: var(--text-muted);
+      margin-bottom: 0.65rem;
+    }
+    .guardrail-strip {
+      display: grid;
+      grid-template-columns: repeat(5, 1fr);
+      gap: 0.75rem;
+    }
+    .guardrail-item {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 0.95rem;
+    }
+    .guardrail-num {
+      font-size: 0.7rem;
+      font-weight: 800;
+      color: var(--g-green);
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      margin-bottom: 0.25rem;
+    }
+    .guardrail-item h4 {
+      font-size: 0.88rem;
+      font-weight: 700;
+      margin-bottom: 0.3rem;
+    }
+    .guardrail-item p {
+      font-size: 0.77rem;
+      color: var(--text-muted);
+    }
+
+    /* Roster & Scenarios */
+    .roster-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+      gap: 0.85rem;
+      margin-bottom: 1.5rem;
+    }
+    .agent-card {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: 13px;
+      padding: 1rem;
+    }
+    .agent-card.live {
+      border-color: rgba(66, 133, 244, 0.45);
+      background: linear-gradient(180deg, rgba(66, 133, 244, 0.08), var(--bg-card) 55%);
+    }
+    .agent-top {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 0.4rem;
+      gap: 0.5rem;
+    }
+    .agent-card h4 { font-size: 0.92rem; font-weight: 700; }
+    .agent-card p { font-size: 0.78rem; color: var(--text-muted); }
+
+    .scenarios-grid {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 0.85rem;
+    }
+    .scenario-card {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: 13px;
+      padding: 1rem;
+    }
+    .scenario-card h4 {
+      font-size: 0.9rem;
+      font-weight: 700;
+      margin: 0.35rem 0;
+    }
+    .scenario-card p {
+      font-size: 0.79rem;
+      color: var(--text-muted);
+    }
+
+    /* Deploy & API Reference */
+    .copy-btn {
+      background: rgba(66, 133, 244, 0.16);
+      color: #93c5fd;
+      border: 1px solid rgba(66, 133, 244, 0.35);
+      border-radius: 6px;
+      padding: 0.2rem 0.55rem;
+      font-size: 0.7rem;
+      font-weight: 600;
+      cursor: pointer;
+      font-family: inherit;
+    }
+    .copy-btn:hover { background: var(--g-blue); color: #fff; }
+
+    .table-wrap {
+      overflow-x: auto;
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      margin-top: 1.4rem;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.82rem;
+    }
+    th, td {
+      text-align: left;
+      padding: 0.72rem 0.95rem;
+      border-bottom: 1px solid var(--border);
+      vertical-align: top;
+    }
+    th {
+      font-size: 0.73rem;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: var(--text-muted);
+      background: rgba(148, 163, 184, 0.05);
+    }
+    tr:last-child td { border-bottom: none; }
+    td code {
+      font-size: 0.76rem;
+      padding: 0.12rem 0.35rem;
+      border-radius: 5px;
+      background: rgba(66, 133, 244, 0.12);
+      color: var(--g-blue);
+    }
+
+    footer {
+      padding: 2rem 0 3rem;
+      text-align: center;
+      color: var(--text-muted);
+      font-size: 0.82rem;
+    }
+
+    /* Responsive Breakpoints */
+    @media (max-width: 1100px) {
+      .pipeline-grid, .phases-grid, .guardrail-strip { grid-template-columns: repeat(2, 1fr); }
+      .kpi-grid, .scenarios-grid { grid-template-columns: repeat(2, 1fr); }
+      .arch-layout, .inspector { grid-template-columns: 1fr; }
+      .cards-3 { grid-template-columns: 1fr; }
+    }
+    @media (max-width: 680px) {
+      .pipeline-grid, .phases-grid, .guardrail-strip, .kpi-grid, .scenarios-grid, .ports-grid, .cards-2 {
+        grid-template-columns: 1fr;
+      }
+      .nav-links { display: none; }
+    }
+  </style>
+</head>
+<body>
+  <div class="bg-glow"></div>
+
+  <!-- Sticky Navigation -->
+  <nav class="navbar">
+    <div class="nav-inner">
+      <a href="#top" class="brand">
+        <span class="brand-dots" aria-hidden="true">
+          <span style="background:var(--g-blue)"></span>
+          <span style="background:var(--g-red)"></span>
+          <span style="background:var(--g-yellow)"></span>
+          <span style="background:var(--g-green)"></span>
+        </span>
+        <span>Agent-Triad <span style="font-weight:500;color:var(--text-muted)">AaaS</span></span>
+      </a>
+
+      <div class="nav-links">
+        <a href="#workflow">Workflow</a>
+        <a href="#architecture">Ports &amp; Adapters</a>
+        <a href="#phases">5 Phases</a>
+        <a href="#sre-guardrails">SRE &amp; Safety</a>
+        <a href="#roster">Specialists</a>
+        <a href="#deploy">Deploy &amp; APIs</a>
+      </div>
+
+      <div class="nav-actions">
+        <a href="#workflow" class="btn btn-primary btn-sm" onclick="startSimulation(false)">▶ Simulate Flow</a>
+        <div class="theme-switch" role="group" aria-label="Theme Switcher">
+          <button class="theme-btn" id="themeAuto" title="System Auto" onclick="setTheme('auto')">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33h.09a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82v.09a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+          </button>
+          <button class="theme-btn active" id="themeDark" title="Dark Mode" onclick="setTheme('dark')">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
+          </button>
+          <button class="theme-btn" id="themeLight" title="Light Mode" onclick="setTheme('light')">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"/></svg>
+          </button>
+        </div>
+      </div>
+    </div>
+  </nav>
+
+  <!-- Hero Section -->
+  <header id="top" class="hero">
+    <div class="container">
+      <div class="hero-badge">
+        <span class="pulse-dot"></span>
+        <span>Agent as a Service (AaaS) • ADK • A2A v1.0 • Cloud-Agnostic Ports &amp; Adapters</span>
+      </div>
+      <h1>Autonomous Cloud Operations Across <span class="grad">GCP, AWS, Azure &amp; Kubernetes</span></h1>
+      <p class="hero-sub">
+        <strong>Agent-Triad</strong> transforms reactive cloud SRE into a closed-loop
+        <strong>Observe → Reason &amp; Gate → Remediate &amp; Verify</strong> platform. Powered by
+        <strong>Atlas</strong> (model-agnostic orchestrator), live <strong>ADK Specialist Agents</strong>,
+        <strong>Proactive SRE Intelligence</strong>, and <strong>5-layer zero-trust guardrails</strong> —
+        100% GCP Cloud Run compatible by default and portable to any cloud or local Docker stack.
+      </p>
+      <div class="hero-cta">
+        <a href="#workflow" class="btn btn-primary" onclick="startSimulation(false)">▶ Interactive Workflow Walkthrough</a>
+        <a href="#architecture" class="btn btn-secondary">Explore Multi-Cloud Adapters</a>
+        <a href="#deploy" class="btn btn-secondary">One-Click Deploy Commands</a>
+      </div>
+
+      <div class="kpi-grid">
+        <div class="kpi-card" style="--accent:var(--g-blue)">
+          <div class="kpi-label">Closed-Loop Architecture</div>
+          <div class="kpi-val">3-Stage Triad + A2A</div>
+          <div class="kpi-desc">Observe, Reason &amp; Gate, Remediate &amp; Verify over JSON-RPC 2.0 A2A with zero-standing privilege.</div>
+        </div>
+        <div class="kpi-card" style="--accent:var(--g-green)">
+          <div class="kpi-label">Multi-Cloud Specialists</div>
+          <div class="kpi-val">7-Agent Roster</div>
+          <div class="kpi-desc">2 live ADK microservices (DB &amp; Infra across GCP/AWS/Azure) + 5 deterministic domain harnesses.</div>
+        </div>
+        <div class="kpi-card" style="--accent:var(--g-yellow)">
+          <div class="kpi-label">Proactive SRE &amp; Safety</div>
+          <div class="kpi-val">5-Layer Guardrails</div>
+          <div class="kpi-desc">Outage pre-flight gate, OPA policy, Redis/.tflock lease, 15m JIT token &amp; 45s+3m watchdog rollback.</div>
+        </div>
+        <div class="kpi-card" style="--accent:var(--g-red)">
+          <div class="kpi-label">Run Anywhere</div>
+          <div class="kpi-val">Cloud-Agnostic Stack</div>
+          <div class="kpi-desc">GCP Cloud Run Terraform, 5-service zero-cloud Docker Compose, and EKS/AKS/GKE/OpenShift Helm chart.</div>
+        </div>
+      </div>
+    </div>
+  </header>
+
+  <main>
+    <!-- SECTION 1: INTERACTIVE WORKFLOW -->
+    <section id="workflow">
+      <div class="container">
+        <div class="sec-head">
+          <div>
+            <div class="sec-eyebrow">Section 1 • End-to-End Lifecycle</div>
+            <h2 class="sec-title">Interactive Autonomous Triad Workflow</h2>
+            <p class="sec-desc">Click any stage or run the live simulator to see how Agent-Triad detects an anomaly, performs read-only A2A triage, checks provider health, mints ephemeral JIT credentials, and verifies recovery.</p>
+          </div>
+        </div>
+
+        <div class="workflow-toolbar">
+          <div class="toolbar-group">
+            <button class="btn btn-primary btn-sm" id="playNormalBtn" onclick="startSimulation(false)">▶ Play Normal Remediation Flow</button>
+            <button class="btn btn-danger btn-sm" id="playOutageBtn" onclick="startSimulation(true)">⚠ Simulate Active Cloud Outage Gate</button>
+            <button class="btn btn-secondary btn-sm" onclick="nextStep()">Step Forward →</button>
+          </div>
+          <div class="toolbar-group">
+            <span id="simModeBadge" class="status-pill status-blue">Mode: Normal Incident Flow</span>
+          </div>
+        </div>
+
+        <div class="pipeline-grid" id="pipelineGrid">
+          <div class="step-card active" data-step="0" onclick="selectStep(0)">
+            <div class="step-top"><span class="step-num">STEP 1</span><span class="step-tag">Observe</span></div>
+            <div class="step-title">Telemetry Ingestion &amp; Edge Filter</div>
+            <div class="step-summary">GCP Cloud Logging or OTel/Loki/Prometheus ingests anomalies with SAIF sanitization &amp; $0 noise suppression.</div>
+            <div class="step-chips"><span class="chip">OTel Envelope</span><span class="chip">SAIF IPI</span><span class="chip">15s Heartbeat</span></div>
+          </div>
+
+          <div class="step-card" data-step="1" onclick="selectStep(1)">
+            <div class="step-top"><span class="step-num">STEP 2</span><span class="step-tag">Reason (A2A)</span></div>
+            <div class="step-title">Atlas RCA &amp; Specialist Triage</div>
+            <div class="step-summary">Atlas matches RAG Playbooks &amp; invokes live ADK Database/Infra agents (query introspection + GitOps correlation).</div>
+            <div class="step-chips"><span class="chip">Model Router</span><span class="chip">JSON-RPC A2A</span><span class="chip">GitOps / SQL</span></div>
+          </div>
+
+          <div class="step-card" data-step="2" onclick="selectStep(2)">
+            <div class="step-top"><span class="step-num">STEP 3</span><span class="step-tag">Pre-Flight + HITL</span></div>
+            <div class="step-title">Cloud Outage Gate &amp; SSO Approval</div>
+            <div class="step-summary">Verifies cloud regional status feed, authenticates operator via Google/OIDC SSO &amp; mints 15m JIT token on “I accept”.</div>
+            <div class="step-chips"><span class="chip">Outage Gate</span><span class="chip">OIDC / SSO</span><span class="chip">jit-wif-*</span></div>
+          </div>
+
+          <div class="step-card" data-step="3" onclick="selectStep(3)">
+            <div class="step-top"><span class="step-num">STEP 4</span><span class="step-tag">Remediate</span></div>
+            <div class="step-title">Harness Execution &amp; GitOps PR</div>
+            <div class="step-summary">OPA Policy Gate, 10m .tflock/Redis lease, TF dry-run, federated execution ($0 LLM) &amp; Bidirectional GitOps PR payload.</div>
+            <div class="step-chips"><span class="chip">OPA Gate</span><span class="chip">Redis / .tflock</span><span class="chip">GitOps PR</span></div>
+          </div>
+
+          <div class="step-card" data-step="4" onclick="selectStep(4)">
+            <div class="step-top"><span class="step-num">STEP 5</span><span class="step-tag">Verify</span></div>
+            <div class="step-title">2-Stage Watchdog &amp; Safe Rollback</div>
+            <div class="step-summary">45s direct API liveness + 3m metrics window + 45m hysteresis freeze with stateless auto-revert or stateful isolation.</div>
+            <div class="step-chips"><span class="chip">45s + 3m</span><span class="chip">45m Freeze</span><span class="chip">Safe-Mode</span></div>
+          </div>
+        </div>
+
+        <div class="inspector" id="stepInspector">
+          <div class="inspector-meta">
+            <h3><span id="inspTitle">Step 1: Telemetry Ingestion &amp; Edge Noise Filtering</span> <span id="inspBadge" class="status-pill status-ok">ACTIVE</span></h3>
+            <p id="inspSubtitle" style="font-size:0.86rem;color:var(--text-muted);margin-bottom:0.5rem;"></p>
+            <ul class="inspector-list" id="inspBullets"></ul>
+          </div>
+          <div class="code-box">
+            <div class="code-head">
+              <span id="inspCodeTitle" class="mono">Telemetry &amp; A2A Trace Payload</span>
+              <span id="inspCodeMeta" class="mono">JSON</span>
+            </div>
+            <pre class="code-body mono" id="inspCode"></pre>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- SECTION 2: CLOUD-AGNOSTIC PORTS & ADAPTERS -->
+    <section id="architecture">
+      <div class="container">
+        <div class="sec-head">
+          <div>
+            <div class="sec-eyebrow">Section 2 • Hexagonal Architecture</div>
+            <h2 class="sec-title">Cloud-Agnostic Ports &amp; Adapters Configurator</h2>
+            <p class="sec-desc">Select a target environment to inspect how Agent-Triad dynamically binds its Telemetry, State, Locking, LLM, Cloud Strategy, and Identity ports purely via environment variables.</p>
+          </div>
+        </div>
+
+        <div class="tab-bar" id="cloudTabs">
+          <button class="tab-btn active" onclick="selectCloudProfile('gcp', this)">GCP Cloud Run (Default)</button>
+          <button class="tab-btn" onclick="selectCloudProfile('aws', this)">AWS EKS + Bedrock</button>
+          <button class="tab-btn" onclick="selectCloudProfile('azure', this)">Azure AKS + Azure OpenAI</button>
+          <button class="tab-btn" onclick="selectCloudProfile('openshift', this)">Red Hat OpenShift</button>
+          <button class="tab-btn" onclick="selectCloudProfile('local', this)">Zero-Cloud Local Docker</button>
+        </div>
+
+        <div class="arch-layout">
+          <div class="ports-grid" id="portsGrid"></div>
+          <div class="code-box">
+            <div class="code-head">
+              <span class="mono" id="profileEnvTitle">Active Environment Configuration</span>
+              <button class="copy-btn" onclick="copyElementText('profileEnvCode', this)">Copy</button>
+            </div>
+            <pre class="code-body mono" id="profileEnvCode" style="max-height:360px;"></pre>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- SECTION 3: 5-PHASE EVOLUTION -->
+    <section id="phases">
+      <div class="container">
+        <div class="sec-head">
+          <div>
+            <div class="sec-eyebrow">Section 3 • Engineering Roadmap Completed</div>
+            <h2 class="sec-title">The 5-Phase Cloud-Agnostic Evolution</h2>
+            <p class="sec-desc">All five phases are implemented and verified by the 24-check integration gate in <code class="mono">poc/test_poc.py</code>, keeping 100% backward compatibility with the live GCP Cloud Run deployment.</p>
+          </div>
+        </div>
+
+        <div class="phases-grid">
+          <div class="phase-card" style="--pcolor:var(--g-blue)">
+            <div class="phase-badge">Phase 1</div>
+            <h3>Telemetry, State &amp; Lock Ports</h3>
+            <ul>
+              <li><strong>Telemetry Port:</strong> <code>GCPCloudLoggingAdapter</code> (default) &amp; <code>OTelLokiLogAdapter</code> (OTLP, Grafana Loki, Prometheus Alertmanager).</li>
+              <li><strong>State Port:</strong> <code>GCPFirestoreSessionAdapter</code>, <code>PostgresSessionAdapter</code>, <code>RedisSessionAdapter</code>, <code>InMemorySessionAdapter</code>.</li>
+              <li><strong>Lock Port:</strong> <code>LocalFileLockAdapter</code> &amp; multi-replica <code>RedisLockAdapter</code> (atomic TTL for <code>.tflock</code> &amp; 45m hysteresis).</li>
+            </ul>
+          </div>
+
+          <div class="phase-card" style="--pcolor:var(--g-purple)">
+            <div class="phase-badge">Phase 2</div>
+            <h3>Model Router &amp; OIDC Auth Broker</h3>
+            <ul>
+              <li><strong>LLM Router:</strong> Switch between <code>vertex</code>, <code>gemini</code>, <code>bedrock</code>, <code>azure_openai</code>, <code>openai</code> &amp; <code>litellm</code> via env vars with $0 deterministic fallback.</li>
+              <li><strong>OIDC Auth:</strong> Google ID tokens, IAP headers &amp; standard RS256/ES256 JWKS verification (Okta, Auth0, Entra ID, Keycloak).</li>
+              <li><strong>Multi-Cloud WIF:</strong> Ephemeral 15m JIT tokens exchanged via GCP STS, AWS STS <code>AssumeRoleWithWebIdentity</code> &amp; Azure <code>jwt-bearer</code>.</li>
+            </ul>
+          </div>
+
+          <div class="phase-card" style="--pcolor:var(--g-green)">
+            <div class="phase-badge">Phase 3</div>
+            <h3>Multi-Cloud Specialist Strategies</h3>
+            <ul>
+              <li><strong>Strategy Factory:</strong> <code>DatabaseCloudAdapter</code> &amp; <code>ComputeCloudAdapter</code> dispatched by <code>CLOUD_PROVIDER=gcp|aws|azure</code>.</li>
+              <li><strong>AWS Adapters:</strong> Lazy <code>boto3</code> RDS + EC2 + CloudWatch metrics &amp; logs.</li>
+              <li><strong>Azure Adapters:</strong> Lazy <code>azure-mgmt-sql</code> / <code>azure-mgmt-compute</code> + Azure Monitor &amp; <code>DefaultAzureCredential</code>.</li>
+            </ul>
+          </div>
+
+          <div class="phase-card" style="--pcolor:var(--g-yellow)">
+            <div class="phase-badge">Phase 4</div>
+            <h3>Proactive SRE &amp; Bidirectional GitOps</h3>
+            <ul>
+              <li><strong>Cloud Outage Gate:</strong> Pre-flight checks GCP/AWS/Azure status feeds; blocks mutations &amp; withholds JIT tokens during outages.</li>
+              <li><strong>GitOps Correlator:</strong> Maps incident times to recent <code>git log</code> / CI releases &amp; emits structured <code>BIDIRECTIONAL_GITOPS_PR</code> payloads.</li>
+              <li><strong>DB Introspection:</strong> Strictly read-only <code>pg_stat_activity</code> &amp; zero-standing-privilege slow-query log analysis.</li>
+            </ul>
+          </div>
+
+          <div class="phase-card" style="--pcolor:var(--g-red)">
+            <div class="phase-badge">Phase 5</div>
+            <h3>Zero-Cloud &amp; K8s / OpenShift Portability</h3>
+            <ul>
+              <li><strong>Unified Probe:</strong> <code>GET /healthz</code> reporting live state, lock, telemetry &amp; LLM backends.</li>
+              <li><strong>Docker Compose:</strong> 5-service zero-cloud local stack (Control Plane, DB/Infra Agents, Postgres 16, Redis 7).</li>
+              <li><strong>Helm v2 Chart:</strong> 17 validated templates for EKS (IRSA), AKS (WI), GKE (WI) &amp; OpenShift (<code>restricted-v2</code> SCC + TLS Route).</li>
+            </ul>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- SECTION 4: PROACTIVE SRE INTELLIGENCE & 5-LAYER SAFETY GUARDRAILS -->
+    <section id="sre-guardrails">
+      <div class="container">
+        <div class="sec-head">
+          <div>
+            <div class="sec-eyebrow">Section 4 • Production Resilience</div>
+            <h2 class="sec-title">Proactive SRE Intelligence &amp; 5-Layer Safety Guardrails</h2>
+            <p class="sec-desc">Built to prevent autonomous SRE failure modes — never mutating during cloud outages, never running destructive DDL/DML, and safely rolling back regressions.</p>
+          </div>
+        </div>
+
+        <div class="cards-3">
+          <div class="feature-card">
+            <div class="feature-icon" style="background:rgba(234,67,53,0.14);color:var(--g-red);">⚡</div>
+            <h3>Cloud Provider Outage Pre-Flight Gate</h3>
+            <p>Queries GCP (<code>status.cloud.google.com/incidents.json</code>), AWS Health, and Azure Status feeds via <code>GET /api/preflight/cloud-status</code> and Watcher skill <code>check_cloud_provider_status</code>.</p>
+            <div class="step-chips">
+              <span class="chip">BLOCKED_PROVIDER_OUTAGE</span>
+              <span class="chip">Withholds JIT Mint</span>
+              <span class="chip">Fail-Safe / Fail-Closed</span>
+            </div>
+          </div>
+
+          <div class="feature-card">
+            <div class="feature-icon" style="background:rgba(66,133,244,0.14);color:var(--g-blue);">⇄</div>
+            <h3>GitOps Correlator &amp; Bidirectional PRs</h3>
+            <p>Correlates incident timestamps with recent <code>git log</code> commits and CI/CD revisions to identify suspect deployments, emitting declarative <code>BIDIRECTIONAL_GITOPS_PR</code> Terraform/manifest PR payloads and revert commands.</p>
+            <div class="step-chips">
+              <span class="chip">correlate_gitops_deployments</span>
+              <span class="chip">GitHub / GitLab PR</span>
+              <span class="chip">Drift Prevention</span>
+            </div>
+          </div>
+
+          <div class="feature-card">
+            <div class="feature-icon" style="background:rgba(52,168,83,0.14);color:var(--g-green);">🔍</div>
+            <h3>Strictly Read-Only DB Query Introspection</h3>
+            <p>Inspects slow-query logs out-of-band by default (zero port-5432 access) or opt-in <code>AAAS_DB_READONLY_DSN</code> with <code>SET TRANSACTION READ ONLY</code> and regex blocking of all DML/DDL/admin kills.</p>
+            <div class="step-chips">
+              <span class="chip">pg_stat_activity</span>
+              <span class="chip">Blocking Chains</span>
+              <span class="chip">Read-Only Enforced</span>
+            </div>
+          </div>
+        </div>
+
+        <h3 style="font-size:1rem;font-weight:700;margin-bottom:0.85rem;color:var(--text);">5-Layer Deterministic Safety Pipeline</h3>
+        <div class="guardrail-strip">
+          <div class="guardrail-item">
+            <div class="guardrail-num">Layer 1 • Pre-Flight</div>
+            <h4>Cloud Outage Gate</h4>
+            <p>Halts mutations when the target cloud region has an active provider incident.</p>
+          </div>
+          <div class="guardrail-item">
+            <div class="guardrail-num">Layer 2 • Policy</div>
+            <h4>OPA &amp; SAIF Guard</h4>
+            <p>Sanitizes prompt injections (IPI), blocks <code>delete/drop/destroy</code> &amp; protects teammate apps (<code>testdbconnect</code>).</p>
+          </div>
+          <div class="guardrail-item">
+            <div class="guardrail-num">Layer 3 • Concurrency</div>
+            <h4>10m .tflock / Redis Lease</h4>
+            <p>Atomic distributed lease prevents concurrent conflicting changes across multi-replica pods.</p>
+          </div>
+          <div class="guardrail-item">
+            <div class="guardrail-num">Layer 4 • Identity</div>
+            <h4>15m Single-Use JIT Token</h4>
+            <p>Zero-standing write permissions; ephemeral <code>jit-wif-*</code> token minted only on human <strong>I accept</strong>.</p>
+          </div>
+          <div class="guardrail-item">
+            <div class="guardrail-num">Layer 5 • Recovery</div>
+            <h4>45s + 3m Watchdog</h4>
+            <p>Post-fix liveness + 3m metrics + 45m hysteresis freeze. Stateless auto-rollback; stateful safe-mode isolation.</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- SECTION 5: SPECIALIST ROSTER, 4 SCENARIOS & WORKSPACE -->
+    <section id="roster">
+      <div class="container">
+        <div class="sec-head">
+          <div>
+            <div class="sec-eyebrow">Section 5 • Agents, Scenarios &amp; Enterprise UI</div>
+            <h2 class="sec-title">7-Agent Specialist Roster &amp; 4 Cloud Ops Scenarios</h2>
+            <p class="sec-desc">Atlas orchestrates 2 standalone live ADK microservices over A2A 1.0 plus 5 zero-token deterministic domain execution harnesses, alongside a Material 3 multi-session workspace.</p>
+          </div>
+        </div>
+
+        <div class="roster-grid">
+          <div class="agent-card live">
+            <div class="agent-top"><h4>Database Agent</h4><span class="status-pill status-blue">Live ADK</span></div>
+            <p>Cloud SQL, AWS RDS &amp; Azure SQL state, CPU/memory/connection metrics, <code>cloud-sql-proxy</code> log triage &amp; strictly read-only query introspection.</p>
+          </div>
+          <div class="agent-card live">
+            <div class="agent-top"><h4>Infra Agent</h4><span class="status-pill status-blue">Live ADK</span></div>
+            <p>Compute Engine, AWS EC2 &amp; Azure VMs inventory, performance metrics, GCE/VM logs, Terraform HCL &amp; GitOps deployment commit correlation.</p>
+          </div>
+          <div class="agent-card">
+            <div class="agent-top"><h4>Serverless Agent</h4><span class="status-pill status-ok">Harness ($0)</span></div>
+            <p>Cloud Run, Cloud Functions &amp; serverless revision rollbacks, concurrency tuning, and canary health checks.</p>
+          </div>
+          <div class="agent-card">
+            <div class="agent-top"><h4>Networking Agent</h4><span class="status-pill status-ok">Harness ($0)</span></div>
+            <p>VPC firewall rules, Cloud NAT, ingress/load-balancer health checks &amp; cross-subnet connectivity remediation.</p>
+          </div>
+          <div class="agent-card">
+            <div class="agent-top"><h4>Security Agent</h4><span class="status-pill status-ok">Harness ($0)</span></div>
+            <p>Least-privilege IAM bindings, WIF federation posture, TLS/SSL enforcement &amp; policy violation triage.</p>
+          </div>
+          <div class="agent-card">
+            <div class="agent-top"><h4>Data Analytics Agent</h4><span class="status-pill status-ok">Harness ($0)</span></div>
+            <p>BigQuery / data pipeline quota exhaustion, slot contention &amp; ETL job failure remediation.</p>
+          </div>
+          <div class="agent-card">
+            <div class="agent-top"><h4>Billing &amp; FinOps Agent</h4><span class="status-pill status-ok">Harness ($0)</span></div>
+            <p>Idle workload right-sizing, cost anomaly alerts &amp; budget threshold governance.</p>
+          </div>
+        </div>
+
+        <div class="scenarios-grid" style="margin-bottom:1.4rem;">
+          <div class="scenario-card">
+            <span class="status-pill status-blue">Scenario 1</span>
+            <h4>1-Line CLI / API Fix</h4>
+            <p>Rapid root-cause analysis and single-command <code>gcloud</code> / <code>aws</code> / <code>az</code> remediation gated by HITL approval.</p>
+          </div>
+          <div class="scenario-card">
+            <span class="status-pill status-ok">Scenario 2</span>
+            <h4>Multi-Service Terraform Fix</h4>
+            <p>Coordinated cross-domain remediation (IAM + VPC + DB) via validated <code>.tf</code> bundles &amp; Bidirectional GitOps PRs.</p>
+          </div>
+          <div class="scenario-card">
+            <span class="status-pill status-warn">Scenario 3</span>
+            <h4>Terraform Stack Generator</h4>
+            <p>Natural-language chat to production <code>.tf</code> HCL with automatic dry-run validation (<code>deletion_protection = true</code>).</p>
+          </div>
+          <div class="scenario-card">
+            <span class="status-pill" style="background:rgba(161,66,244,0.16);color:#c084fc;border:1px solid rgba(161,66,244,0.35);">Scenario 4</span>
+            <h4>$0 Sandbox Advisory</h4>
+            <p>Instant architectural guidance and operational how-to answers with zero sandbox overhead or infrastructure mutation.</p>
+          </div>
+        </div>
+
+        <div class="cards-2">
+          <div class="feature-card">
+            <h3>Enterprise SSO &amp; Multi-Session Chat Workspace</h3>
+            <p>Real <strong>Google Identity Services (OAuth 2.0)</strong>, <strong>GCP IAP</strong> auto-detection, and standard <strong>OIDC JWKS JWT</strong> verification (HTTP <code>401</code> on forged tokens). Persists up to <strong>25 conversation threads per signed-in user</strong> in Firestore, PostgreSQL, or Redis with New, History Switch, Reset, Delete, and Clear All controls.</p>
+          </div>
+          <div class="feature-card">
+            <h3>Material 3 Command Center &amp; Zero-SPOF Fallback</h3>
+            <p>4-view Left Sidebar Rail (<em>Command Center</em>, <em>Specialist Roster</em>, <em>Audit &amp; Events</em>, <em>View Logs &amp; A2A</em>) with Auto/Dark/Light theming. If any LLM API hits quota (<code>429</code>) or runs without keys, Atlas and specialists drop cleanly into <strong>$0 deterministic API + Golden Playbook mode</strong>, and specialists stay directly callable via <code>POST /diagnose</code>.</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- SECTION 6: DEPLOY ANYWHERE & API REFERENCE -->
+    <section id="deploy">
+      <div class="container">
+        <div class="sec-head">
+          <div>
+            <div class="sec-eyebrow">Section 6 • Portable Operations</div>
+            <h2 class="sec-title">Deploy Anywhere &amp; Control Plane API Reference</h2>
+            <p class="sec-desc">Run locally with zero cloud credentials, install via Helm onto EKS / AKS / GKE / OpenShift, or deploy serverless to GCP Cloud Run via Terraform.</p>
+          </div>
+        </div>
+
+        <div class="tab-bar" id="deployTabs">
+          <button class="tab-btn active" onclick="selectDeployTab('compose', this)">Zero-Cloud Docker Compose</button>
+          <button class="tab-btn" onclick="selectDeployTab('eks', this)">AWS EKS (Helm)</button>
+          <button class="tab-btn" onclick="selectDeployTab('aks', this)">Azure AKS (Helm)</button>
+          <button class="tab-btn" onclick="selectDeployTab('gke', this)">Google GKE (Helm)</button>
+          <button class="tab-btn" onclick="selectDeployTab('openshift', this)">Red Hat OpenShift (Helm)</button>
+          <button class="tab-btn" onclick="selectDeployTab('terraform', this)">GCP Cloud Run (Terraform)</button>
+        </div>
+
+        <div class="code-box">
+          <div class="code-head">
+            <span class="mono" id="deployCodeTitle">Zero-Cloud Local / Any-VM 5-Service Stack</span>
+            <button class="copy-btn" onclick="copyElementText('deployCodeBody', this)">Copy Command</button>
+          </div>
+          <pre class="code-body mono" id="deployCodeBody"></pre>
+        </div>
+
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Category</th>
+                <th>Endpoints</th>
+                <th>Purpose</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td><strong>Health &amp; Probe</strong></td>
+                <td><code>GET /healthz</code></td>
+                <td>Liveness/readiness probe reporting active <code>state_backend</code>, <code>lock_backend</code>, <code>telemetry_provider</code> &amp; <code>llm_provider</code>.</td>
+              </tr>
+              <tr>
+                <td><strong>Auth (SSO / OIDC / IAP)</strong></td>
+                <td><code>GET /api/auth/me</code> · <code>POST /api/auth/google</code> · <code>POST /api/auth/config</code> · <code>POST /api/auth/logout</code></td>
+                <td>IAP header detection, Google OAuth2 / ID Token &amp; generic OIDC JWKS JWT validation (<code>401</code> on invalid tokens).</td>
+              </tr>
+              <tr>
+                <td><strong>Telemetry &amp; Pre-Flight</strong></td>
+                <td><code>GET /api/state</code> · <code>POST /api/poll-cloud-logging</code> · <code>GET /api/preflight/cloud-status</code> · <code>GET /api/harness/status</code> · <code>GET /api/audit-events</code></td>
+                <td>Live system state, newest-first anomaly polling, regional cloud outage check, harness metrics &amp; immutable audit trail.</td>
+              </tr>
+              <tr>
+                <td><strong>Incidents &amp; HITL</strong></td>
+                <td><code>POST /api/incidents/{id}/chat</code> · <code>/approve</code> · <code>/skip</code> · <code>/reopen</code></td>
+                <td>Pre-approval Atlas Q&amp;A, outage-gated HITL approval &amp; JIT execution, manual skip, and reopen lifecycle.</td>
+              </tr>
+              <tr>
+                <td><strong>Atlas Chat &amp; Sessions</strong></td>
+                <td><code>POST /api/atlas/chat</code> · <code>/deploy-terraform</code> · <code>GET/POST/DELETE /api/atlas/sessions</code></td>
+                <td>All 4 operational scenarios, Terraform harness deployment, and per-user multi-session history (Firestore / Postgres / Redis).</td>
+              </tr>
+              <tr>
+                <td><strong>A2A v1.0 Protocol</strong></td>
+                <td><code>GET /a2a/{agent}/.well-known/agent.json</code> · <code>POST /a2a/{agent}</code> · Specialist <code>/diagnose</code></td>
+                <td>AgentCard discovery and JSON-RPC 2.0 <code>tasks/send</code> across Watcher, Atlas, DB Agent &amp; Infra Agent.</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer>
+    <div class="container">
+      <strong>Agent-Triad (AaaS)</strong> — Autonomous Cloud Operations Platform • Verified by 24/24 end-to-end checks in <code class="mono">poc/test_poc.py</code>
+    </div>
+  </footer>
+
+  <script>
+    /* Theme Switcher (Auto / Dark / Light) */
+    const systemMedia = window.matchMedia('(prefers-color-scheme: dark)');
+    let themeMode = localStorage.getItem('aaas_overview_theme') || 'dark';
+
+    function applyTheme(mode) {
+      const effective = mode === 'auto' ? (systemMedia.matches ? 'dark' : 'light') : mode;
+      document.documentElement.setAttribute('data-theme', effective);
+      ['Auto', 'Dark', 'Light'].forEach(name => {
+        const btn = document.getElementById('theme' + name);
+        if (btn) btn.classList.toggle('active', mode === name.toLowerCase());
+      });
+    }
+
+    function setTheme(mode) {
+      themeMode = mode;
+      localStorage.setItem('aaas_overview_theme', mode);
+      applyTheme(mode);
+    }
+    systemMedia.addEventListener('change', () => { if (themeMode === 'auto') applyTheme('auto'); });
+    applyTheme(themeMode);
+
+    /* Section 1: Interactive Workflow Data & Simulator */
+    const normalSteps = [
+      {
+        title: "Step 1: Telemetry Ingestion & Edge Noise Filtering",
+        badge: "OBSERVING • OTel Normalized",
+        badgeClass: "status-blue",
+        subtitle: "Heartbeat & Telemetry ingests live cloud errors via TelemetryIngestionAdapter (GCP Cloud Logging or OTel/Loki/Prometheus) at $0 LLM cost.",
+        bullets: [
+          "<strong>Multi-Source Adapters:</strong> Pulls <code>cloudsql_database</code> / <code>cloud-sql-proxy</code> / <code>gce_instance</code> logs on GCP, or Grafana Loki / Prometheus Alertmanager / OTLP JSON via <code>OTelLokiLogAdapter</code>.",
+          "<strong>Edge Noise Suppression:</strong> Drops routine GKE Composer, <code>GCEGuestAgent</code>, <code>kube-probe/</code>, and <code>ELB-HealthChecker</code> noise while deduplicating bursts by <code>signature_key</code>.",
+          "<strong>SAIF IPI Guard:</strong> Strips embedded prompt-injection payloads before any log text enters LLM reasoning context."
+        ],
+        codeTitle: "Normalized OTel Anomaly Envelope (Watcher → Atlas)",
+        codeMeta: "A2A tasks/send",
+        code: `{
+  "jsonrpc": "2.0",
+  "method": "tasks/send",
+  "params": {
+    "skill_id": "ingest_anomaly_alert",
+    "payload": {
+      "log_id": "gcp-9f81c2a01b",
+      "cloud_provider": "gcp",
+      "region": "us-central1",
+      "resource": "cloudsql_database/testdbinstance1",
+      "severity": "ERROR",
+      "signature_key": "CLOUDSQL_PROXY_CONNECTION_TIMEOUT",
+      "saif_sanitized": true,
+      "suppressed_routine_logs": 47
+    }
+  }
+}`
+      },
+      {
+        title: "Step 2: Atlas Root-Cause Reasoning & Live A2A Specialist Triage",
+        badge: "REASONING • A2A v1.0",
+        badgeClass: "status-blue",
+        subtitle: "Atlas matches Golden Playbooks (RAG) and delegates strictly read-only inspection over A2A JSON-RPC 2.0 to live ADK specialists.",
+        bullets: [
+          "<strong>Model-Agnostic Inference:</strong> Routes via <code>AAAS_LLM_PROVIDER</code> (Vertex Gemini, Bedrock Claude, Azure OpenAI, OpenAI, or LiteLLM) with automatic <code>$0</code> deterministic fallback.",
+          "<strong>Database Query Introspection:</strong> ADK Database Agent checks Cloud SQL/RDS/Azure SQL health and runs strictly <code>READ ONLY</code> slow-query / <code>pg_stat_activity</code> blocking-chain analysis.",
+          "<strong>GitOps Release Correlation:</strong> ADK Infra Agent runs <code>correlate_gitops_deployments</code> against recent <code>git log</code> commits &amp; CI/CD revisions to flag suspect releases."
+        ],
+        codeTitle: "Specialist Read-Only Diagnostic Synthesis",
+        codeMeta: "DB + Infra ADK Agents",
+        code: `{
+  "playbook_match": "PB-DB-402 (Connection Pool & Blocking Lock Triage)",
+  "database_introspection": {
+    "read_only_enforced": true,
+    "blocking_chain": "pid 4188 -> blocking pid 4102 (2450.3 ms)",
+    "slow_query_max_ms": 2450.32,
+    "advisory_fix": "CREATE INDEX CONCURRENTLY idx_orders_created_at ON orders(created_at);"
+  },
+  "gitops_correlation": {
+    "suspect_commit": "a1b2c3d4 (8.0m prior, confidence: HIGH)",
+    "changed_files": ["terraform/db_pool.tf", "services/payments/config.yaml"]
+  }
+}`
+      },
+      {
+        title: "Step 3: Cloud Provider Outage Pre-Flight Gate & HITL SSO Approval",
+        badge: "PRE-FLIGHT OK • AWAITING I ACCEPT",
+        badgeClass: "status-warn",
+        subtitle: "Before any write action is permitted, Atlas checks regional cloud provider status feeds and requires an authenticated human approval.",
+        bullets: [
+          "<strong>Cloud Outage Pre-Flight:</strong> Calls <code>GET /api/preflight/cloud-status?cloud=gcp&amp;region=us-central1</code> via Watcher skill <code>check_cloud_provider_status</code> — confirms <code>OPERATIONAL</code>.",
+          "<strong>Verified Operator Identity:</strong> Authenticates via Google Identity Services OAuth 2.0, GCP IAP, or enterprise OIDC JWKS JWT (forged tokens rejected with HTTP <code>401</code>).",
+          "<strong>15-Min Single-Use JIT Minting:</strong> Clicking <strong>I accept</strong> mints an ephemeral <code>jit-wif-*</code> token + OIDC <code>web_identity_token</code> scoped exclusively to this single incident."
+        ],
+        codeTitle: "Pre-Flight Check & Ephemeral JIT Token Mint",
+        codeMeta: "CloudAuthBroker",
+        code: `{
+  "preflight_cloud_status": {
+    "cloud": "gcp",
+    "region": "us-central1",
+    "status": "OPERATIONAL",
+    "mutations_allowed": true
+  },
+  "hitl_approval": {
+    "approved_by": "sre-lead@company.com (google-oauth2-verified)",
+    "jit_token_id": "jit-wif-1794590400-0c4cc36d44",
+    "ttl_seconds": 900,
+    "federation_target": "GCP WIF STS | AWS STS | Azure Entra jwt-bearer"
+  }
+}`
+      },
+      {
+        title: "Step 4: Harnessed Deterministic Execution & Bidirectional GitOps PR",
+        badge: "EXECUTING • $0 LLM TOKENS",
+        badgeClass: "status-ok",
+        subtitle: "Agent Harness enforces OPA policies, acquires a distributed lock, validates Terraform safety, executes at $0 LLM cost, and opens a GitOps PR payload.",
+        bullets: [
+          "<strong>OPA Policy Gate:</strong> Rejects destructive verbs (<code>delete</code>, <code>drop</code>, <code>destroy</code>) and strictly blocks mutations targeting protected external services (<code>testdbconnect</code>).",
+          "<strong>10-Min Distributed Lock:</strong> Acquires atomic <code>.tflock</code> or multi-replica <strong>Redis EX TTL</strong> lease so parallel replicas never collide.",
+          "<strong>Terraform &amp; Bidirectional GitOps PR:</strong> Validates <code>deletion_protection = true</code> &amp; <code>prevent_destroy = true</code>, executes fix, and builds a declarative GitHub/GitLab reconciliation PR payload."
+        ],
+        codeTitle: "Agent Harness & Bidirectional GitOps PR Payload",
+        codeMeta: "BIDIRECTIONAL_GITOPS_PR",
+        code: `{
+  "opa_policy_gate": "PASSED (0 destructive ops, protected resources intact)",
+  "distributed_lock": { "backend": "Redis", "lease_id": "tflock-0137edc550", "ttl_s": 600 },
+  "execution_llm_tokens": 0,
+  "gitops_reconciliation_pr": {
+    "type": "BIDIRECTIONAL_GITOPS_PR",
+    "repo": "harisankar/AgentTriad",
+    "base_branch": "main",
+    "head_branch": "aaas/gitops-reconcile-payments-api-p4gitops",
+    "files_updated": ["terraform/db_pool.tf", "k8s/payments-api.yaml"],
+    "deletion_protection_verified": true
+  }
+}`
+      },
+      {
+        title: "Step 5: Two-Stage Verification, 45m Hysteresis Freeze & Safe Rollback",
+        badge: "VERIFIED • HEALTHY",
+        badgeClass: "status-ok",
+        subtitle: "Closes the loop by proving service recovery across both immediate control-plane probes and delayed metric ingestion windows.",
+        bullets: [
+          "<strong>Stage 1 (45s Direct API Liveness):</strong> Queries live Cloud Control Plane APIs with strict <code>timestamp &gt; execution_completed_at</code> log filtering so pre-fix logs never trigger false rollbacks.",
+          "<strong>Stage 2 (3-Min Monitoring Window):</strong> Evaluates aggregated CPU, memory, and connection time-series across 180 seconds.",
+          "<strong>Stage 3 (45-Min Hysteresis + Bifurcated Rollback):</strong> Applies a 45-min anti-flapping freeze; stateless workloads auto-revert on regression while stateful databases enforce <code>STATEFUL_SAFE_MODE_ISOLATION</code>."
+        ],
+        codeTitle: "Two-Stage Post-Fix Verification & Audit Record",
+        codeMeta: "Audit Tracker",
+        code: `{
+  "stage_1_liveness_45s": "PASS (RUNNABLE, 0 post-fix errors)",
+  "stage_2_metrics_180s": "PASS (CPU 24%, connections nominal)",
+  "stage_3_hysteresis_freeze": "ACTIVE (45m cooldown in Redis)",
+  "rollback_policy": {
+    "stateless_workloads": "STATELESS_CANARY_ROLLBACK",
+    "stateful_databases": "STATEFUL_SAFE_MODE_ISOLATION"
+  },
+  "audit_event": "LOGGED (jit_token revoked after single use)"
+}`
+      }
+    ];
+
+    const outageOverrideStep2 = {
+      title: "Step 3: ACTIVE CLOUD OUTAGE DETECTED — Mutation Blocked!",
+      badge: "BLOCKED_PROVIDER_OUTAGE",
+      badgeClass: "status-err",
+      subtitle: "Phase 4 Cloud Provider Status Pre-Flight detected an ongoing regional cloud outage and immediately halted automated remediation.",
+      bullets: [
+        "<strong>Regional Outage Match:</strong> Live status feed reported an active unresolved incident in <code>us-central1</code> affecting Cloud SQL / Compute control planes.",
+        "<strong>Zero JIT Token Minted:</strong> <code>CloudAuthBroker</code> refuses to mint any <code>jit-wif-*</code> write credential while <code>mutations_allowed=false</code>.",
+        "<strong>Safe SRE Escalation:</strong> Steps 4 &amp; 5 are safely bypassed; Atlas advises waiting for provider recovery or executing a cross-region DR plan, and resumes automatically once the feed clears."
+      ],
+      codeTitle: "Phase 4 Cloud Outage Pre-Flight Block Response",
+      codeMeta: "HTTP 200 • BLOCKED",
+      code: `{
+  "status": "BLOCKED_PROVIDER_OUTAGE",
+  "preflight_cloud_status": {
+    "cloud": "gcp",
+    "region": "us-central1",
+    "status": "ACTIVE_OUTAGE",
+    "mutations_allowed": false,
+    "active_incidents": [
+      {
+        "id": "gcp-inc-us-central1-2026",
+        "severity": "high",
+        "external_desc": "Elevated control-plane latency in us-central1"
+      }
+    ]
+  },
+  "jit_token_minted": false,
+  "action_taken": "NONE — mutation safely withheld until provider recovery"
+}`
+    };
+
+    let currentStep = 0;
+    let isOutageMode = false;
+    let simTimer = null;
+
+    function renderStep(idx) {
+      currentStep = idx;
+      const cards = document.querySelectorAll('.step-card');
+      cards.forEach((card, i) => {
+        card.classList.remove('active', 'done', 'blocked', 'skipped');
+        if (isOutageMode) {
+          if (i < 2) card.classList.add(i === idx ? 'active' : 'done');
+          else if (i === 2) card.classList.add('blocked');
+          else card.classList.add('skipped');
+          if (i === idx && i < 2) card.classList.add('active');
+        } else {
+          if (i < idx) card.classList.add('done');
+          if (i === idx) card.classList.add('active');
+        }
+      });
+
+      const data = (isOutageMode && idx >= 2) ? outageOverrideStep2 : normalSteps[idx];
+      document.getElementById('inspTitle').textContent = data.title;
+      const badgeEl = document.getElementById('inspBadge');
+      badgeEl.textContent = data.badge;
+      badgeEl.className = 'status-pill ' + data.badgeClass;
+      document.getElementById('inspSubtitle').textContent = data.subtitle;
+      document.getElementById('inspBullets').innerHTML = data.bullets.map(b => `<li>${b}</li>`).join('');
+      document.getElementById('inspCodeTitle').textContent = data.codeTitle;
+      document.getElementById('inspCodeMeta').textContent = data.codeMeta;
+      document.getElementById('inspCode').textContent = data.code;
+
+      const modeBadge = document.getElementById('simModeBadge');
+      if (isOutageMode) {
+        modeBadge.textContent = 'Mode: Active Regional Outage (Phase 4 Block)';
+        modeBadge.className = 'status-pill status-err';
+      } else {
+        modeBadge.textContent = `Mode: Normal Incident Flow (Step ${idx + 1}/5)`;
+        modeBadge.className = 'status-pill status-blue';
+      }
+    }
+
+    function selectStep(idx) {
+      if (simTimer) { clearInterval(simTimer); simTimer = null; }
+      if (isOutageMode && idx > 2) idx = 2;
+      renderStep(idx);
+    }
+
+    function nextStep() {
+      if (simTimer) { clearInterval(simTimer); simTimer = null; }
+      const maxStep = isOutageMode ? 2 : 4;
+      renderStep(currentStep >= maxStep ? 0 : currentStep + 1);
+    }
+
+    function startSimulation(outageMode) {
+      if (simTimer) { clearInterval(simTimer); simTimer = null; }
+      isOutageMode = outageMode;
+      document.getElementById('playOutageBtn').classList.toggle('active', outageMode);
+      let step = 0;
+      renderStep(0);
+      const maxStep = outageMode ? 2 : 4;
+      simTimer = setInterval(() => {
+        step += 1;
+        if (step > maxStep) {
+          clearInterval(simTimer);
+          simTimer = null;
+          return;
+        }
+        renderStep(step);
+      }, 1700);
+    }
+    renderStep(0);
+
+    /* Section 2: Cloud-Agnostic Ports & Adapters Profiles */
+    const cloudProfiles = {
+      gcp: {
+        title: "GCP Cloud Run (100% Backward-Compatible Default)",
+        ports: [
+          { port: "Telemetry Port", adapter: "GCPCloudLoggingAdapter", detail: "Cloud Logging + cloud-sql-proxy + SAIF edge filter", file: "poc/providers/gcp/cloud_logging_adapter.py" },
+          { port: "Session State Port", adapter: "GCPFirestoreSessionAdapter", detail: "Cloud Firestore (aaas_user_sessions) + local JSON fallback", file: "poc/providers/gcp/firestore_session_adapter.py" },
+          { port: "Distributed Lock Port", adapter: "LocalFileLockAdapter", detail: "10-min .tflock leases & 45-min hysteresis freezes", file: "poc/providers/generic/memory_state_adapters.py" },
+          { port: "LLM Model Router", adapter: "Vertex AI Gemini", detail: "gemini-2.5-flash on Vertex AI with $0 playbook fallback", file: "poc/providers/model_router.py" },
+          { port: "Cloud Specialist Strategy", adapter: "GCPDatabase + GCPCompute", detail: "Cloud SQL Admin, Compute Engine & Cloud Monitoring APIs", file: "poc/providers/gcp/cloud_adapters.py" },
+          { port: "Identity & WIF Broker", adapter: "Google SSO / IAP + GCP WIF", detail: "Google OAuth2 / IAP headers + GCP STS JIT federation", file: "poc/services/auth_broker.py" }
+        ],
+        env: `# GCP Cloud Run Default Profile (terraform/main.tf)
+CLOUD_PROVIDER=gcp
+GCP_PROJECT_ID=agent-triad
+GCP_REGION=us-central1
+
+AAAS_TELEMETRY_PROVIDER=gcp
+AAAS_STATE_BACKEND=firestore
+AAAS_LOCK_BACKEND=local
+
+AAAS_LLM_PROVIDER=vertex
+AAAS_LLM_MODEL=gemini-2.5-flash
+GOOGLE_GENAI_USE_VERTEXAI=TRUE
+
+AAAS_AUTH_PROVIDER=gcp
+GOOGLE_OAUTH_CLIENT_ID=<web-client-id>.apps.googleusercontent.com
+AAAS_CLOUD_STATUS_MODE=live`
+      },
+      aws: {
+        title: "AWS EKS + Bedrock + RDS / EC2 Profile",
+        ports: [
+          { port: "Telemetry Port", adapter: "OTelLokiLogAdapter", detail: "CloudWatch OTel exports, Grafana Loki & Prometheus Alertmanager", file: "poc/providers/generic/otel_loki_adapter.py" },
+          { port: "Session State Port", adapter: "PostgresSessionAdapter", detail: "Amazon RDS / Aurora PostgreSQL via psycopg v3", file: "poc/providers/generic/postgres_session_adapter.py" },
+          { port: "Distributed Lock Port", adapter: "RedisLockAdapter", detail: "Amazon ElastiCache Redis atomic EX TTL locks across EKS pods", file: "poc/providers/generic/redis_lock_adapter.py" },
+          { port: "LLM Model Router", adapter: "AWS Bedrock (Claude)", detail: "anthropic.claude-3-5-sonnet via Bedrock / LiteLLM adapter", file: "poc/providers/model_router.py" },
+          { port: "Cloud Specialist Strategy", adapter: "AWSDatabase + AWSCompute", detail: "Lazy boto3 RDS describe_db_instances, EC2 & CloudWatch", file: "poc/providers/aws/cloud_adapters.py" },
+          { port: "Identity & WIF Broker", adapter: "OIDC JWKS + AWS STS IRSA", detail: "EKS IRSA ServiceAccount + STS AssumeRoleWithWebIdentity", file: "poc/services/auth_broker.py" }
+        ],
+        env: `# AWS EKS + Bedrock Profile (deploy/helm/agent-triad)
+CLOUD_PROVIDER=aws
+AWS_REGION=us-east-1
+AWS_BEDROCK_REGION=us-east-1
+
+AAAS_TELEMETRY_PROVIDER=otel
+AAAS_OTEL_LOKI_URL=http://loki-gateway.monitoring:3100
+AAAS_STATE_BACKEND=postgres
+AAAS_POSTGRES_DSN=postgresql://aaas:<pass>@<rds-endpoint>:5432/agent_triad
+AAAS_LOCK_BACKEND=redis
+AAAS_REDIS_URL=redis://<elasticache-endpoint>:6379/0
+
+AAAS_LLM_PROVIDER=bedrock
+AAAS_LLM_MODEL=anthropic.claude-3-5-sonnet-20241022-v2:0
+AAAS_AUTH_PROVIDER=oidc
+AAAS_OIDC_JWKS_URL=https://<idp>/.well-known/jwks.json`
+      },
+      azure: {
+        title: "Azure AKS + Azure OpenAI + Azure SQL / VMs Profile",
+        ports: [
+          { port: "Telemetry Port", adapter: "OTelLokiLogAdapter", detail: "Azure Monitor OTel exporter + Prometheus Alertmanager", file: "poc/providers/generic/otel_loki_adapter.py" },
+          { port: "Session State Port", adapter: "PostgresSessionAdapter", detail: "Azure Database for PostgreSQL Flexible Server", file: "poc/providers/generic/postgres_session_adapter.py" },
+          { port: "Distributed Lock Port", adapter: "RedisLockAdapter", detail: "Azure Cache for Redis atomic distributed leases & hysteresis", file: "poc/providers/generic/redis_lock_adapter.py" },
+          { port: "LLM Model Router", adapter: "Azure OpenAI Service", detail: "Enterprise GPT-4o deployment via AZURE_OPENAI_ENDPOINT", file: "poc/providers/model_router.py" },
+          { port: "Cloud Specialist Strategy", adapter: "AzureDatabase + AzureCompute", detail: "azure-mgmt-sql, azure-mgmt-compute & Azure Monitor SDKs", file: "poc/providers/azure/cloud_adapters.py" },
+          { port: "Identity & WIF Broker", adapter: "Microsoft Entra ID Federation", detail: "AKS Workload Identity + Entra jwt-bearer client assertions", file: "poc/services/auth_broker.py" }
+        ],
+        env: `# Azure AKS + Azure OpenAI Profile
+CLOUD_PROVIDER=azure
+AAAS_AZURE_SUBSCRIPTION_ID=<subscription-uuid>
+AAAS_AZURE_RESOURCE_GROUP=aaas-prod-rg
+AAAS_AZURE_LOCATION=eastus
+
+AAAS_TELEMETRY_PROVIDER=otel
+AAAS_STATE_BACKEND=postgres
+AAAS_POSTGRES_DSN=postgresql://aaas:<pass>@<pg>.postgres.database.azure.com:5432/agent_triad
+AAAS_LOCK_BACKEND=redis
+AAAS_REDIS_URL=rediss://<cache>.redis.cache.windows.net:6380/0
+
+AAAS_LLM_PROVIDER=azure_openai
+AZURE_OPENAI_ENDPOINT=https://<resource>.openai.azure.com
+AZURE_OPENAI_DEPLOYMENT=gpt-4o
+AAAS_AUTH_PROVIDER=oidc`
+      },
+      openshift: {
+        title: "Red Hat OpenShift (restricted-v2 SCC + TLS Route)",
+        ports: [
+          { port: "Telemetry Port", adapter: "OTelLokiLogAdapter", detail: "OpenShift Logging / LokiStack + Alertmanager integration", file: "poc/providers/generic/otel_loki_adapter.py" },
+          { port: "Session State Port", adapter: "PostgresSessionAdapter", detail: "CloudNativePG / Crunchy Postgres operator external DSN", file: "poc/providers/generic/postgres_session_adapter.py" },
+          { port: "Distributed Lock Port", adapter: "RedisLockAdapter", detail: "In-cluster or managed Redis with arbitrary UID compliance", file: "poc/providers/generic/redis_lock_adapter.py" },
+          { port: "LLM Model Router", adapter: "LiteLLM / Private Proxy", detail: "Self-hosted vLLM / Ollama / LiteLLM OpenAI-compatible gateway", file: "poc/providers/model_router.py" },
+          { port: "Security & Ingress", adapter: "OpenShift restricted-v2 + Route", detail: "Omits fixed UID/GID/fsGroup & deploys edge-TLS OpenShift Route", file: "deploy/helm/agent-triad/templates/openshift-route.yaml" },
+          { port: "Identity Broker", adapter: "Enterprise OIDC (Keycloak/RHSSO)", detail: "Standard RS256/ES256 JWKS verification + scoped JIT tokens", file: "poc/services/auth_broker.py" }
+        ],
+        env: `# Red Hat OpenShift Profile (openshift.enabled=true)
+CLOUD_PROVIDER=gcp # or aws | azure
+AAAS_TELEMETRY_PROVIDER=otel
+AAAS_OTEL_LOKI_URL=https://logging-loki-gateway-http.openshift-logging.svc:8080
+
+AAAS_STATE_BACKEND=postgres
+AAAS_POSTGRES_DSN=postgresql://aaas:<pass>@crunchy-pg-primary:5432/agent_triad
+AAAS_LOCK_BACKEND=redis
+AAAS_REDIS_URL=redis://agent-triad-redis:6379/0
+
+AAAS_LLM_PROVIDER=litellm
+AAAS_LLM_MODEL=openai/gpt-4o-mini
+AAAS_LLM_API_BASE=http://litellm-proxy.ai-platform.svc:4000/v1
+AAAS_AUTH_PROVIDER=oidc`
+      },
+      local: {
+        title: "Zero-Cloud Local / Any-VM Stack (docker-compose.yml)",
+        ports: [
+          { port: "Telemetry Port", adapter: "OTelLokiLogAdapter (Ring Buffer)", detail: "Local OTLP push ingestion with zero external endpoints required", file: "poc/providers/generic/otel_loki_adapter.py" },
+          { port: "Session State Port", adapter: "PostgresSessionAdapter", detail: "Local postgres:16-alpine container with persistent volume", file: "docker-compose.yml" },
+          { port: "Distributed Lock Port", adapter: "RedisLockAdapter", detail: "Local redis:7-alpine container with AOF persistence", file: "docker-compose.yml" },
+          { port: "LLM Model Router", adapter: "OpenAI / Ollama / $0 Deterministic", detail: "Leave AAAS_LLM_API_KEY blank for zero-key RAG/Playbook mode", file: "poc/providers/model_router.py" },
+          { port: "Specialist Agents", adapter: "Local db-agent & infra-agent", detail: "Containerized FastAPI ADK agents on :8081 and :8082", file: "docker-compose.yml" },
+          { port: "Pre-Flight Status", adapter: "Offline Safe Mode", detail: "AAAS_CLOUD_STATUS_MODE=offline for air-gapped dev & CI", file: ".env.example" }
+        ],
+        env: `# Zero-Cloud Local Dev (.env.example -> .env)
+CONTROL_PLANE_PORT=8080
+DB_AGENT_PORT=8081
+INFRA_AGENT_PORT=8082
+
+AAAS_STATE_BACKEND=postgres
+AAAS_LOCK_BACKEND=redis
+AAAS_TELEMETRY_PROVIDER=otel
+AAAS_CLOUD_STATUS_MODE=offline
+
+CLOUD_PROVIDER=gcp
+GOOGLE_GENAI_USE_VERTEXAI=FALSE
+AAAS_LLM_PROVIDER=openai
+AAAS_LLM_MODEL=gpt-4o-mini
+AAAS_LLM_API_KEY= # blank = $0 deterministic local mode
+AAAS_GITOPS_REPO=harisankar/AgentTriad`
+      }
+    };
+
+    function selectCloudProfile(key, btnEl) {
+      if (btnEl) {
+        document.querySelectorAll('#cloudTabs .tab-btn').forEach(b => b.classList.remove('active'));
+        btnEl.classList.add('active');
+      }
+      const prof = cloudProfiles[key];
+      document.getElementById('portsGrid').innerHTML = prof.ports.map(p => `
+        <div class="port-card">
+          <div class="port-name">${p.port}</div>
+          <div class="adapter-val">${p.adapter}</div>
+          <div class="adapter-detail">${p.detail}</div>
+          <div class="adapter-file mono">${p.file}</div>
+        </div>
+      `).join('');
+      document.getElementById('profileEnvTitle').textContent = prof.title;
+      document.getElementById('profileEnvCode').textContent = prof.env;
+    }
+    selectCloudProfile('gcp');
+
+    /* Section 6: Deployment Commands */
+    const deployCommands = {
+      compose: {
+        title: "Zero-Cloud Local / Any-VM 5-Service Stack (docker-compose.yml)",
+        cmd: `# 1. Copy the zero-cloud template (no GCP/AWS/Azure keys required)
+cp .env.example .env
+
+# 2. Boot Control Plane (:8080), DB Agent (:8081), Infra Agent (:8082), Postgres 16 & Redis 7
+docker compose up --build
+
+# 3. Verify health & active adapters
+curl http://localhost:8080/healthz`
+      },
+      eks: {
+        title: "AWS EKS — IRSA + Amazon Bedrock Claude + ALB Ingress",
+        cmd: `helm upgrade --install agent-triad ./deploy/helm/agent-triad \\
+  --namespace agent-triad --create-namespace \\
+  --set global.cloudProvider=aws \\
+  --set global.awsRegion=us-east-1 \\
+  --set serviceAccount.eksRoleArn=arn:aws:iam::123456789012:role/agent-triad-irsa \\
+  --set llm.provider=bedrock \\
+  --set llm.model=anthropic.claude-3-5-sonnet-20241022-v2:0 \\
+  --set ingress.enabled=true \\
+  --set ingress.className=alb \\
+  --set ingress.hosts[0].host=agent-triad.aws.example.com`
+      },
+      aks: {
+        title: "Azure AKS — Workload Identity + Azure OpenAI + NGINX/AGIC Ingress",
+        cmd: `helm upgrade --install agent-triad ./deploy/helm/agent-triad \\
+  --namespace agent-triad --create-namespace \\
+  --set global.cloudProvider=azure \\
+  --set global.azureSubscriptionId=<subscription-id> \\
+  --set global.azureResourceGroup=<resource-group> \\
+  --set serviceAccount.aksClientId=<managed-identity-client-id> \\
+  --set llm.provider=azure_openai \\
+  --set llm.azureOpenaiEndpoint=https://<resource>.openai.azure.com \\
+  --set llm.azureOpenaiDeployment=gpt-4o \\
+  --set ingress.enabled=true \\
+  --set ingress.className=nginx`
+      },
+      gke: {
+        title: "Google GKE — Workload Identity + Vertex AI Gemini + GCE Ingress",
+        cmd: `helm upgrade --install agent-triad ./deploy/helm/agent-triad \\
+  --namespace agent-triad --create-namespace \\
+  --set global.cloudProvider=gcp \\
+  --set global.gcpProjectId=<gcp-project-id> \\
+  --set serviceAccount.gkeServiceAccount=aaas-orchestrator@<gcp-project-id>.iam.gserviceaccount.com \\
+  --set llm.provider=vertex \\
+  --set llm.model=gemini-2.5-flash \\
+  --set llm.googleGenaiUseVertexai=TRUE \\
+  --set ingress.enabled=true \\
+  --set ingress.className=gce`
+      },
+      openshift: {
+        title: "Red Hat OpenShift — restricted-v2 SCC + Edge TLS Route",
+        cmd: `helm upgrade --install agent-triad ./deploy/helm/agent-triad \\
+  --namespace agent-triad --create-namespace \\
+  --set openshift.enabled=true \\
+  --set postgres.enabled=false \\
+  --set postgres.externalDsn="postgresql://aaas:<password>@<managed-or-operator-pg>:5432/agent_triad" \\
+  --set llm.provider=litellm \\
+  --set llm.model=openai/gpt-4o-mini \\
+  --set llm.apiKey=<api-key>`
+      },
+      terraform: {
+        title: "GCP Cloud Run v2 Serverless Stack (Original Terraform IaC)",
+        cmd: `cd terraform
+GOOGLE_OAUTH_ACCESS_TOKEN="$(gcloud auth print-access-token)" \\
+  ../.venv/bin/terraform apply -auto-approve
+
+# Run full 24-check end-to-end validation suite
+cd .. && .venv/bin/python poc/test_poc.py`
+      }
+    };
+
+    function selectDeployTab(key, btnEl) {
+      if (btnEl) {
+        document.querySelectorAll('#deployTabs .tab-btn').forEach(b => b.classList.remove('active'));
+        btnEl.classList.add('active');
+      }
+      document.getElementById('deployCodeTitle').textContent = deployCommands[key].title;
+      document.getElementById('deployCodeBody').textContent = deployCommands[key].cmd;
+    }
+    selectDeployTab('compose');
+
+    function copyElementText(elId, btn) {
+      const text = document.getElementById(elId).textContent;
+      navigator.clipboard.writeText(text).then(() => {
+        const prev = btn.textContent;
+        btn.textContent = 'Copied ✓';
+        setTimeout(() => { btn.textContent = prev; }, 1600);
+      });
+    }
+  </script>
+</body>
+</html>
