@@ -30,7 +30,15 @@ from agents.a2a_protocol import (
     AgentCard,
     AgentSkill,
 )
+from providers.cloud_factory import normalize_target_cloud
+from providers.model_router import (
+    ModelAgnosticLLMClient,
+    get_llm_provider_config,
+    resolve_adk_model,
+)
 from services.agent_harness import agent_harness, inspect_agent_harness_policy_tool
+from services.cloud_status_service import cloud_status_service
+from services.gitops_correlator import correlate_gitops_deployments_tool, gitops_correlator
 from services.playbook_rag import (
     RAG_PLAYBOOK_CATALOG,
     playbook_rag_service,
@@ -57,7 +65,11 @@ except ImportError:
 
 PROJECT_ID = os.getenv("GCP_PROJECT_ID", "agent-triad")
 LOCATION = os.getenv("GCP_LOCATION", "us-central1")
-MODEL_NAME = os.getenv("AAAS_GEMINI_MODEL", "gemini-2.5-flash")
+MODEL_NAME = (
+    os.getenv("AAAS_LLM_MODEL")
+    or os.getenv("AAAS_GEMINI_MODEL")
+    or "gemini-2.5-flash"
+)
 
 
 GOLDEN_PLAYBOOKS: Dict[str, Dict[str, Any]] = {
@@ -176,6 +188,10 @@ class LeadOrchestratorAgent:
             else None
         )
         self._genai_client = self._build_genai_client()
+        self._llm_client = ModelAgnosticLLMClient(
+            genai_client=self._genai_client,
+            default_model=MODEL_NAME,
+        )
         self.general_chat_messages: List[Dict[str, Any]] = self._default_general_chat_greeting()
         self.active_session_id: str = f"sess-{uuid.uuid4().hex[:8]}"
         self._init_or_restore_user_sessions(sync_from_firestore=True)
@@ -219,7 +235,7 @@ class LeadOrchestratorAgent:
         try:
             return AdkAgent(
                 name="atlas_aaas_root_orchestrator",
-                model=MODEL_NAME,
+                model=resolve_adk_model(MODEL_NAME),
                 description=(
                     "Atlas: Single Authorizing ADK Root Gemini Agent that coordinates Heartbeat & Telemetry "
                     "and the 7 Deterministic Specialist Execution Harnesses."
@@ -230,10 +246,49 @@ class LeadOrchestratorAgent:
                     "and `inspect_agent_harness_policy_tool` to verify OPA blast-radius policies and Terraform dry-runs. "
                     "Never execute mutations without Stage 2 HITL approval from User: Hari and a minted 15-minute JIT token."
                 ),
-                tools=[query_playbook_rag_tool, inspect_agent_harness_policy_tool],
+                tools=[
+                    query_playbook_rag_tool,
+                    inspect_agent_harness_policy_tool,
+                    correlate_gitops_deployments_tool,
+                ],
             )
         except Exception:
             return None
+
+    async def _run_cloud_provider_preflight_check(
+        self,
+        cloud_provider: str = "gcp",
+        region: str = "us-central1",
+        service_hint: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """
+        Pre-flight Cloud Provider Status Check delegated to `log-watcher-agent` over A2A
+        (`check_cloud_provider_status`), falling back to local `cloud_status_service`.
+        Blocks infrastructure mutations whenever an active regional provider outage is detected.
+        """
+        resolved_cloud = normalize_target_cloud(cloud_provider)
+        try:
+            if "log-watcher-agent" in self.a2a_hub.handlers:
+                resp = await self.a2a_hub.send_a2a_task(
+                    sender_id=self.AGENT_ID,
+                    recipient_id="log-watcher-agent",
+                    skill_id="check_cloud_provider_status",
+                    payload={
+                        "cloud_provider": resolved_cloud,
+                        "region": region,
+                        "service_hint": service_hint,
+                    },
+                    summary=f"Pre-flight cloud provider status check ({resolved_cloud.upper()} / {region})",
+                )
+                if isinstance(resp.result, dict) and "mutations_allowed" in resp.result:
+                    return resp.result
+        except Exception:
+            pass
+        return cloud_status_service.check_region_status(
+            cloud_provider=resolved_cloud,
+            region=region,
+            service_hint=service_hint,
+        )
 
     def _build_genai_client(self) -> Any:
         if genai is None:
@@ -250,39 +305,25 @@ class LeadOrchestratorAgent:
         self,
         prompt: str,
         instance_name: str = "testdbinstance1",
+        target_cloud: Optional[str] = None,
     ) -> Optional[Dict[str, Any]]:
         """
         Invokes the live Cloud Run ADK Database Specialist Agent (`agent-triad-db-agent`)
-        over Zero-Trust A2A (`POST /a2a` with OIDC Identity Token) and logs the remote
-        A2A exchange into the AaaS Control Plane ledger.
+        over Zero-Trust A2A (`POST /a2a` with OIDC Identity Token and `target_cloud` strategy)
+        and logs the remote A2A exchange into the AaaS Control Plane ledger.
         """
         import subprocess
         import urllib.request
 
+        resolved_cloud = normalize_target_cloud(target_cloud)
         db_agent_url = os.getenv(
             "DATABASE_AGENT_URL",
             "https://agent-triad-db-agent-qq3mp7ftqq-uc.a.run.app",
         ).rstrip("/")
 
-        id_token_str = ""
-        try:
-            from google.auth.transport.requests import Request as GoogleAuthRequest
-            from google.oauth2 import id_token as google_id_token
+        from services.auth_broker import auth_broker
 
-            id_token_str = google_id_token.fetch_id_token(GoogleAuthRequest(), db_agent_url)
-        except Exception:
-            try:
-                proc = subprocess.run(
-                    ["gcloud", "auth", "print-identity-token"],
-                    capture_output=True,
-                    text=True,
-                    timeout=6,
-                    check=False,
-                )
-                if proc.returncode == 0 and proc.stdout.strip():
-                    id_token_str = proc.stdout.strip()
-            except Exception:
-                id_token_str = ""
+        id_token_str = auth_broker.mint_oidc_id_token(db_agent_url)
 
         rpc_id = f"a2a-db-{uuid.uuid4().hex[:8]}"
         rpc_payload = {
@@ -294,6 +335,7 @@ class LeadOrchestratorAgent:
                 "data": {
                     "prompt": prompt,
                     "instance_name": instance_name,
+                    "target_cloud": resolved_cloud,
                 },
             },
         }
@@ -336,41 +378,27 @@ class LeadOrchestratorAgent:
         self,
         prompt: str,
         target_instance: str = "auto",
+        target_cloud: Optional[str] = None,
     ) -> Optional[Dict[str, Any]]:
         """
         Invokes the live Cloud Run ADK Infra Specialist Agent (`agent-triad-infra-agent`)
-        over Zero-Trust A2A (`POST /a2a` with OIDC Identity Token) and logs the remote
-        A2A exchange into the AaaS Control Plane ledger. Falls back to in-process ADK
-        execution (`agents.infra_agent.agent.run_diagnosis`) if the remote Cloud Run
+        over Zero-Trust A2A (`POST /a2a` with OIDC Identity Token and `target_cloud` strategy)
+        and logs the remote A2A exchange into the AaaS Control Plane ledger. Falls back to
+        in-process ADK execution (`agents.infra_agent.agent.run_diagnosis`) if the remote
         endpoint is not yet reachable.
         """
         import subprocess
         import urllib.request
 
+        resolved_cloud = normalize_target_cloud(target_cloud)
         infra_agent_url = os.getenv(
             "INFRA_AGENT_URL",
             "https://agent-triad-infra-agent-qq3mp7ftqq-uc.a.run.app",
         ).rstrip("/")
 
-        id_token_str = ""
-        try:
-            from google.auth.transport.requests import Request as GoogleAuthRequest
-            from google.oauth2 import id_token as google_id_token
+        from services.auth_broker import auth_broker
 
-            id_token_str = google_id_token.fetch_id_token(GoogleAuthRequest(), infra_agent_url)
-        except Exception:
-            try:
-                proc = subprocess.run(
-                    ["gcloud", "auth", "print-identity-token"],
-                    capture_output=True,
-                    text=True,
-                    timeout=6,
-                    check=False,
-                )
-                if proc.returncode == 0 and proc.stdout.strip():
-                    id_token_str = proc.stdout.strip()
-            except Exception:
-                id_token_str = ""
+        id_token_str = auth_broker.mint_oidc_id_token(infra_agent_url)
 
         rpc_id = f"a2a-infra-{uuid.uuid4().hex[:8]}"
         rpc_payload = {
@@ -382,6 +410,7 @@ class LeadOrchestratorAgent:
                 "data": {
                     "prompt": prompt,
                     "target_instance": target_instance,
+                    "target_cloud": resolved_cloud,
                 },
             },
         }
@@ -417,7 +446,13 @@ class LeadOrchestratorAgent:
                     spec.loader.exec_module(mod)
                     with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
                         diagnosis = pool.submit(
-                            lambda: asyncio.run(mod.run_diagnosis(prompt=prompt, target_instance=target_instance))
+                            lambda: asyncio.run(
+                                mod.run_diagnosis(
+                                    prompt=prompt,
+                                    target_instance=target_instance,
+                                    target_cloud=resolved_cloud,
+                                )
+                            )
                         ).result(timeout=70)
             except Exception:
                 diagnosis = None
@@ -505,7 +540,7 @@ class LeadOrchestratorAgent:
             "reasoning_engine": f"ADK Root Agent (Atlas • {MODEL_NAME}) + RAG Playbook {playbook['playbook_id']} (score={rag_score})",
         }
 
-        if self._genai_client is not None:
+        if self._llm_client.is_available:
             try:
                 prompt = (
                     "You are Atlas, the Single Authorizing ADK Root Gemini Agent for Google Cloud AaaS (AgentTriad).\n"
@@ -524,21 +559,13 @@ class LeadOrchestratorAgent:
                     "- recommended_kubectl (string, exact gcloud or kubectl command)\n"
                     "- rollback_plan (string, 1 sentence fail-safe rollback plan)"
                 )
-                config = (
-                    genai_types.GenerateContentConfig(
-                        response_mime_type="application/json",
-                        temperature=0.2,
-                    )
-                    if genai_types is not None
-                    else None
+                raw_json = self._llm_client.generate_text(
+                    prompt,
+                    response_mime_type="application/json",
+                    temperature=0.2,
                 )
-                resp = self._genai_client.models.generate_content(
-                    model=MODEL_NAME,
-                    contents=prompt,
-                    config=config,
-                )
-                if resp and resp.text:
-                    parsed = json.loads(resp.text)
+                if raw_json:
+                    parsed = json.loads(raw_json)
                     for key in (
                         "customer_headline",
                         "customer_what_happened",
@@ -716,14 +743,17 @@ class LeadOrchestratorAgent:
 
             live_db_diag: Optional[Dict[str, Any]] = None
             live_infra_diag: Optional[Dict[str, Any]] = None
+            raw_cloud = str(log_entry.get("cloud_provider") or "").strip().lower()
+            event_cloud = raw_cloud if raw_cloud in ("gcp", "aws", "azure") else None
             if specialist.get("id") == "database-agent":
                 target_inst = str(log_entry.get("pod") or "testdbinstance1").split(":")[-1]
                 live_db_diag = self._invoke_live_database_agent_a2a(
                     prompt=(
                         f"Atlas Alert: Cloud Logging detected [{log_entry.get('severity')}] on `{workload}`: "
-                        f"{log_entry.get('message')}. Inspect the live Cloud SQL instance and logs and propose a safe fix."
+                        f"{log_entry.get('message')}. Inspect the live database instance and logs and propose a safe fix."
                     ),
                     instance_name=target_inst,
+                    target_cloud=event_cloud,
                 )
                 if live_db_diag:
                     impact_and_remedy["live_database_agent_diagnosis"] = live_db_diag
@@ -745,10 +775,11 @@ class LeadOrchestratorAgent:
                     prompt=(
                         f"Atlas Alert: Cloud Logging detected [{log_entry.get('severity')}] on `{workload}` "
                         f"(zone/cluster `{cluster}`): {log_entry.get('message')}. "
-                        f"Inspect the live Compute Engine inventory, Cloud Monitoring metrics, and Cloud Logging entries "
+                        f"Inspect the live compute inventory, performance metrics, and logs "
                         f"for `{target_inst}` and propose a safe remediation."
                     ),
                     target_instance=target_inst,
+                    target_cloud=event_cloud,
                 )
                 if live_infra_diag:
                     impact_and_remedy["live_infra_agent_diagnosis"] = live_infra_diag
@@ -787,6 +818,40 @@ class LeadOrchestratorAgent:
             now_iso = datetime.datetime.now(datetime.timezone.utc).isoformat()
             occurred_at = log_entry.get("timestamp") or data.get("detected_at") or now_iso
             detected_at = data.get("detected_at") or now_iso
+
+            # Phase 4: Pre-flight Cloud Provider Status Check snapshot
+            cloud_provider_status = data.get("cloud_provider_status") or await self._run_cloud_provider_preflight_check(
+                cloud_provider=event_cloud or "gcp",
+                region=cluster,
+                service_hint=str(log_entry.get("source") or ""),
+            )
+            impact_and_remedy["cloud_provider_status"] = cloud_provider_status
+
+            # Phase 4: GitOps / Recent Deployment Correlation & Bidirectional GitOps PR Payload (Infra/Serverless path)
+            gitops_correlation: Optional[Dict[str, Any]] = None
+            gitops_pr_payload: Optional[Dict[str, Any]] = None
+            if specialist.get("id") in ("infra-agent", "serverless-agent"):
+                if live_infra_diag and live_infra_diag.get("gitops_correlation"):
+                    gitops_correlation = live_infra_diag["gitops_correlation"]
+                else:
+                    gitops_correlation = gitops_correlator.correlate_recent_deployments(
+                        incident_timestamp=occurred_at,
+                        workload=workload,
+                        window_minutes=180,
+                    )
+                live_prop = (live_infra_diag or {}).get("remediation_proposal") or {}
+                gitops_pr_payload = live_prop.get("gitops_pr_payload") or gitops_correlator.build_gitops_reconciliation_pr_payload(
+                    incident_id=incident_id,
+                    workload=workload,
+                    target_cloud=event_cloud or "gcp",
+                    recommended_cli=impact_and_remedy.get("recommended_kubectl", ""),
+                    terraform_hcl=impact_and_remedy.get("terraform_code"),
+                    correlation_report=gitops_correlation,
+                    reason=impact_and_remedy.get("remedy_summary", ""),
+                )
+                impact_and_remedy["gitops_correlation"] = gitops_correlation
+                impact_and_remedy["gitops_pr_payload"] = gitops_pr_payload
+
             chat_messages = self._build_initial_chat_greeting(
                 log_entry=log_entry,
                 impact=impact_and_remedy,
@@ -849,6 +914,9 @@ class LeadOrchestratorAgent:
                 "error_code": log_entry.get("error_code", "GCP_ERROR"),
                 "log_entry": log_entry,
                 "impact_analysis": impact_and_remedy,
+                "cloud_provider_status": cloud_provider_status,
+                "gitops_correlation": gitops_correlation,
+                "gitops_pr_payload": gitops_pr_payload,
                 "chat_messages": chat_messages,
                 "jit_token": None,
                 "execution_result": None,
@@ -992,8 +1060,13 @@ class LeadOrchestratorAgent:
                 approved_by=f"{uname} (via Chat)",
                 execution_mode="live",
             )
+            action = (
+                "BLOCKED_PROVIDER_OUTAGE"
+                if updated.get("status") == "BLOCKED_PROVIDER_OUTAGE"
+                else "APPROVED_AND_EXECUTED"
+            )
             return {
-                "action_taken": "APPROVED_AND_EXECUTED",
+                "action_taken": action,
                 "reply": updated["chat_messages"][-1]["text"],
                 "incident": updated,
             }
@@ -1016,7 +1089,7 @@ class LeadOrchestratorAgent:
         )
 
         reply_text = ""
-        if self._genai_client is not None:
+        if self._llm_client.is_available:
             try:
                 prompt = (
                     "You are Atlas, the Single Authorizing ADK Root Gemini Agent for Hari's Google Cloud project (`agent-triad`).\n"
@@ -1033,12 +1106,9 @@ class LeadOrchestratorAgent:
                     f"Raw Log Message: {log_entry.get('message')}\n\n"
                     f"Conversation so far:\n{history_text}\n"
                 )
-                resp = self._genai_client.models.generate_content(
-                    model=MODEL_NAME,
-                    contents=prompt,
-                )
-                if resp and resp.text:
-                    reply_text = resp.text.strip()
+                generated = self._llm_client.generate_text(prompt)
+                if generated:
+                    reply_text = generated
             except Exception:
                 reply_text = ""
 
@@ -1092,17 +1162,73 @@ class LeadOrchestratorAgent:
         approved_by: str = "Hari",
         execution_mode: str = "live",
         custom_kubectl: Optional[str] = None,
+        force_override_outage: bool = False,
     ) -> Dict[str, Any]:
         """
         Called when Hari approves the fix (via button or chat):
+          0. Pre-flight Cloud Provider Status Check via `log-watcher-agent` (`check_cloud_provider_status`):
+             blocks infrastructure mutations if the target region is experiencing an active provider outage.
           1. Atlas (the sole authorizing agent) mints a 15-minute WIF JIT token scoped to the incident.
-          2. Delegates the remediation task (1-line CLI/API or Multi-Service Terraform bundle) over A2A
-             to the deterministic Specialist Agent Roster (`$0` extra LLM cost).
+          2. Delegates the remediation task (1-line CLI/API, Multi-Service Terraform bundle, and
+             Bidirectional GitOps PR payload) over A2A to the deterministic Specialist Agent Roster.
           3. Requests 45s post-remediation telemetry verification over A2A from `log-watcher-agent`.
         """
         incident = self.incidents.get(incident_id)
         if not incident:
             raise ValueError(f"Incident {incident_id} not found")
+
+        raw_cloud = str((incident.get("log_entry") or {}).get("cloud_provider") or "gcp").strip().lower()
+        target_cloud = raw_cloud if raw_cloud in ("gcp", "aws", "azure") else "gcp"
+
+        # 0. Pre-flight Cloud Provider Status Check (blocks mutations during active regional provider outages)
+        preflight_status = await self._run_cloud_provider_preflight_check(
+            cloud_provider=target_cloud,
+            region=str(incident.get("cluster") or "us-central1"),
+            service_hint=str((incident.get("log_entry") or {}).get("source") or ""),
+        )
+        incident["cloud_provider_status"] = preflight_status
+        if not preflight_status.get("mutations_allowed", True) and not force_override_outage:
+            blocked_at = datetime.datetime.now(datetime.timezone.utc).isoformat()
+            outage_summary = preflight_status.get("recommendation") or (
+                f"Active {target_cloud.upper()} regional outage detected in `{preflight_status.get('region')}`."
+            )
+            incident["status"] = "BLOCKED_PROVIDER_OUTAGE"
+            incident["updated_at"] = blocked_at
+            incident["execution_result"] = {
+                "status": "BLOCKED_PROVIDER_OUTAGE",
+                "incident_id": incident_id,
+                "mutations_allowed": False,
+                "cloud_provider_status": preflight_status,
+                "reason": outage_summary,
+                "blocked_at": blocked_at,
+            }
+            incident["timeline"].append(
+                {
+                    "timestamp": blocked_at,
+                    "agent": "Atlas • Pre-Flight Outage Guard",
+                    "event": (
+                        f"Blocked infrastructure mutation for `{incident.get('workload')}`: {outage_summary} "
+                        "Zero JIT tokens minted."
+                    ),
+                }
+            )
+            uname = self.active_user.get("name") or "Hari"
+            incident.setdefault("chat_messages", []).append(
+                {
+                    "role": "assistant",
+                    "sender": "Atlas • AaaS Lead",
+                    "text": (
+                        f"⚠️ **Mutation Held by Cloud Provider Status Pre-Flight Check**, {uname}:\n"
+                        f"• **Cloud / Region**: `{target_cloud.upper()}` / `{preflight_status.get('region')}`\n"
+                        f"• **Status**: `{preflight_status.get('status')}` ({preflight_status.get('active_incident_count', 1)} active provider incident(s))\n"
+                        f"• **Action Taken**: {outage_summary}\n"
+                        "• **Safety**: No JIT token was minted and no infrastructure changes were dispatched."
+                    ),
+                    "timestamp": blocked_at,
+                }
+            )
+            self._upsert_audit_event(incident, event_type="MUTATION_BLOCKED_PROVIDER_OUTAGE")
+            return incident
 
         kubectl_cmd = (
             custom_kubectl.strip()
@@ -1119,7 +1245,7 @@ class LeadOrchestratorAgent:
         jit_token = self.a2a_hub.jit_broker.mint_token(
             incident_id=incident_id,
             approved_by=approved_by,
-            scope=f"gcp:{incident['cluster']}:{incident['namespace']}:{incident['workload']}",
+            scope=f"{target_cloud}:{incident['cluster']}:{incident['namespace']}:{incident['workload']}",
             ttl_seconds=900,
         )
         incident["jit_token"] = jit_token
@@ -1131,7 +1257,8 @@ class LeadOrchestratorAgent:
                 "timestamp": approved_at,
                 "agent": "Atlas • Lead Orchestrator",
                 "event": (
-                    f"User ({approved_by}) approved remedy at {approved_at}. Atlas minted 15-min JIT token "
+                    f"User ({approved_by}) approved remedy at {approved_at}. Pre-flight cloud status PASS "
+                    f"({target_cloud.upper()}/{preflight_status.get('region')}). Atlas minted 15-min JIT token "
                     f"`{jit_token['token_id'][:20]}...` and delegated task to {coord_names} via A2A."
                 ),
             }
@@ -1147,6 +1274,8 @@ class LeadOrchestratorAgent:
             "cluster": incident["cluster"],
             "namespace": incident["namespace"],
             "workload": incident["workload"],
+            "target_cloud": target_cloud,
+            "gitops_pr_payload": incident.get("gitops_pr_payload"),
             "specialist_worker": specialist,
             "coordinated_specialists": coordinated_specialists,
             "log_entry": incident["log_entry"],
@@ -1678,6 +1807,46 @@ class LeadOrchestratorAgent:
 
         cli_cmd = recommended_cli_from_bundle or f"gcloud run services list --project={PROJECT_ID}"
 
+        # Pre-flight Cloud Provider Status Check before minting JIT token for Terraform mutation
+        preflight_status = await self._run_cloud_provider_preflight_check(
+            cloud_provider="gcp",
+            region=cluster,
+            service_hint="terraform",
+        )
+        if not preflight_status.get("mutations_allowed", True):
+            blocked_msg = (
+                f"⚠️ **Terraform Deployment Held — Active Cloud Provider Outage in `{preflight_status.get('region')}`**:\n"
+                f"{preflight_status.get('recommendation')} Zero JIT tokens minted."
+            )
+            reply_msg = {
+                "role": "assistant",
+                "sender": "Atlas • AaaS Lead",
+                "specialist": primary_spec,
+                "specialist_worker": primary_spec,
+                "coordinated_specialists": coord_specs,
+                "scenario_badge": scen_badge,
+                "text": blocked_msg,
+                "timestamp": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+            }
+            self.general_chat_messages.append(reply_msg)
+            self._persist_active_session()
+            return {
+                "deployment_id": incident_id,
+                "action_taken": "BLOCKED_PROVIDER_OUTAGE",
+                "status": "BLOCKED_PROVIDER_OUTAGE",
+                "cloud_provider_status": preflight_status,
+                "reply": blocked_msg,
+                "specialist_worker": primary_spec,
+                "coordinated_specialists": coord_specs,
+                "execution_result": {
+                    "status": "BLOCKED_PROVIDER_OUTAGE",
+                    "mutations_allowed": False,
+                    "cloud_provider_status": preflight_status,
+                },
+                "active_session_id": self.active_session_id,
+                "messages": list(self.general_chat_messages),
+            }
+
         jit_token = self.a2a_hub.jit_broker.mint_token(
             incident_id=incident_id,
             approved_by=approved_by,
@@ -2008,7 +2177,7 @@ class LeadOrchestratorAgent:
                     f"• **Active Runtime Identity**: `{ident.get('active_service_account')}`"
                 )
             reply_text = "\n".join(header_lines) + "\n\n" + str(live_infra_diagnosis["infra_reasoning_report"])
-        elif self._genai_client is not None:
+        elif self._llm_client.is_available:
             try:
                 prompt = (
                     "You are Atlas, the Single Authorizing ADK Root Gemini Agent for Hari's Google Cloud project (`agent-triad`).\n"
@@ -2018,12 +2187,9 @@ class LeadOrchestratorAgent:
                     "Provide a clear, practical, and concise answer (3-5 bullet points) tailored to Hari's request. "
                     "Include exact `gcloud` commands or explain how the coordinated specialists and Agent Harness handle this."
                 )
-                resp = self._genai_client.models.generate_content(
-                    model=MODEL_NAME,
-                    contents=prompt,
-                )
-                if resp and resp.text:
-                    reply_text = resp.text.strip()
+                generated = self._llm_client.generate_text(prompt)
+                if generated:
+                    reply_text = generated
             except Exception:
                 reply_text = ""
 

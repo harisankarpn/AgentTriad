@@ -1,0 +1,19 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "agent-triad.fullname" . }}-control-plane
+  labels:
+    {{- include "agent-triad.componentLabels" (dict "root" . "component" "control-plane") | nindent 4 }}
+  {{- with .Values.controlPlane.service.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  type: {{ .Values.controlPlane.service.type }}
+  ports:
+    - port: {{ .Values.controlPlane.service.port }}
+      targetPort: http
+      protocol: TCP
+      name: http
+  selector:
+    {{- include "agent-triad.componentSelectorLabels" (dict "root" . "component" "control-plane") | nindent 4 }}

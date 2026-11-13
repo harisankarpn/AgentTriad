@@ -1,0 +1,15 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "agent-triad.fullname" . }}-infra-agent
+  labels:
+    {{- include "agent-triad.componentLabels" (dict "root" . "component" "infra-agent") | nindent 4 }}
+spec:
+  type: {{ .Values.infraAgent.service.type }}
+  ports:
+    - port: {{ .Values.infraAgent.service.port }}
+      targetPort: http
+      protocol: TCP
+      name: http
+  selector:
+    {{- include "agent-triad.componentSelectorLabels" (dict "root" . "component" "infra-agent") | nindent 4 }}

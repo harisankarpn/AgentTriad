@@ -1,0 +1,22 @@
+apiVersion: v2
+name: agent-triad
+description: >-
+  Cloud-Agnostic AgentTriad (AaaS) Control Plane and Specialist ADK Agents
+  portable across AWS EKS, Azure AKS, Google GKE, and Red Hat OpenShift.
+type: application
+version: 1.0.0
+appVersion: "1.0.0"
+keywords:
+  - agent-triad
+  - aiops
+  - sre
+  - multi-cloud
+  - eks
+  - aks
+  - gke
+  - openshift
+  - adk
+  - a2a
+home: https://github.com/harisankar/AgentTriad
+maintainers:
+  - name: AgentTriad Team

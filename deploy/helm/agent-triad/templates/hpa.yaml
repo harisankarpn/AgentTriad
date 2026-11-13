@@ -1,0 +1,24 @@
+{{- if .Values.controlPlane.autoscaling.enabled -}}
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: {{ include "agent-triad.fullname" . }}-control-plane
+  labels:
+    {{- include "agent-triad.componentLabels" (dict "root" . "component" "control-plane") | nindent 4 }}
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: {{ include "agent-triad.fullname" . }}-control-plane
+  minReplicas: {{ .Values.controlPlane.autoscaling.minReplicas }}
+  maxReplicas: {{ .Values.controlPlane.autoscaling.maxReplicas }}
+  metrics:
+    {{- if .Values.controlPlane.autoscaling.targetCPUUtilizationPercentage }}
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: {{ .Values.controlPlane.autoscaling.targetCPUUtilizationPercentage }}
+    {{- end }}
+{{- end }}

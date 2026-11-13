@@ -12,24 +12,87 @@ Role:
 from __future__ import annotations
 
 import asyncio
+import contextvars
 import json
 import logging
 import os
 import subprocess
+import sys
 import urllib.request
+from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 # Suppress benign google_genai warning when tool-call turns contain function_call parts
 logging.getLogger("google_genai.types").setLevel(logging.ERROR)
 
+# Expose monorepo `poc/` provider adapters when running in monorepo (graceful fallback in minimal Docker builds)
+_MONOREPO_POC_DIR = Path(__file__).resolve().parents[2] / "poc"
+if _MONOREPO_POC_DIR.exists() and str(_MONOREPO_POC_DIR) not in sys.path:
+    sys.path.append(str(_MONOREPO_POC_DIR))
+
 PROJECT_ID = os.getenv("GCP_PROJECT_ID", "agent-triad")
 REGION = os.getenv("GCP_REGION", "us-central1")
-MODEL_NAME = os.getenv("ADK_MODEL", "gemini-2.5-flash")
+LLM_PROVIDER = (os.getenv("AAAS_LLM_PROVIDER") or "vertex").strip().lower()
+MODEL_NAME = (
+    os.getenv("AAAS_LLM_MODEL")
+    or os.getenv("ADK_MODEL")
+    or "gemini-2.5-flash"
+)
 
-# Default Vertex AI env vars for Google ADK if not already set in shell
-os.environ.setdefault("GOOGLE_GENAI_USE_VERTEXAI", "TRUE")
-os.environ.setdefault("GOOGLE_CLOUD_PROJECT", PROJECT_ID)
-os.environ.setdefault("GOOGLE_CLOUD_LOCATION", REGION)
+# Default Vertex AI env vars for Google ADK only when targeting Vertex AI (default)
+if LLM_PROVIDER == "vertex":
+    os.environ.setdefault("GOOGLE_GENAI_USE_VERTEXAI", "TRUE")
+    os.environ.setdefault("GOOGLE_CLOUD_PROJECT", PROJECT_ID)
+    os.environ.setdefault("GOOGLE_CLOUD_LOCATION", REGION)
+
+try:
+    from providers.cloud_factory import (
+        get_database_cloud_adapter as _get_database_cloud_adapter,
+        normalize_target_cloud as _normalize_target_cloud,
+    )
+except ImportError:
+    _get_database_cloud_adapter = None  # type: ignore
+
+    def _normalize_target_cloud(target_cloud: Optional[str] = None) -> str:
+        raw = (target_cloud or os.getenv("CLOUD_PROVIDER") or "gcp").strip().lower()
+        return raw if raw in ("gcp", "aws", "azure") else "gcp"
+
+try:
+    from providers.model_router import resolve_adk_model as _resolve_adk_model
+except ImportError:
+    def _resolve_adk_model(default_model: str = MODEL_NAME, **_: Any) -> Any:
+        return default_model
+
+try:
+    from services.db_query_introspection import (
+        analyze_pg_stat_activity_and_slow_queries as _analyze_pg_stat_activity,
+        is_strictly_readonly_introspection_sql,
+    )
+except ImportError:
+    _analyze_pg_stat_activity = None  # type: ignore
+
+    def is_strictly_readonly_introspection_sql(sql: str) -> bool:
+        import re as _re
+
+        cleaned = (sql or "").strip().rstrip(";").strip()
+        if not _re.match(r"^(SELECT|WITH)\b", cleaned, flags=_re.IGNORECASE):
+            return False
+        return not bool(
+            _re.search(
+                r"\b(insert|update|delete|drop|alter|truncate|create|grant|revoke|pg_terminate_backend|pg_cancel_backend)\b",
+                cleaned,
+                flags=_re.IGNORECASE,
+            )
+        )
+
+# Request-scoped target cloud propagated from A2A JSON-RPC payload (`gcp` | `aws` | `azure`)
+_ACTIVE_TARGET_CLOUD: contextvars.ContextVar[Optional[str]] = contextvars.ContextVar(
+    "aaas_db_target_cloud", default=None
+)
+
+
+def _resolve_target_cloud(target_cloud: Optional[str] = None) -> str:
+    return _normalize_target_cloud(target_cloud or _ACTIVE_TARGET_CLOUD.get())
 
 import google.auth
 import google.oauth2.credentials
@@ -96,16 +159,25 @@ if not os.getenv("K_SERVICE") and not os.getenv("GOOGLE_APPLICATION_CREDENTIALS"
 def inspect_cloudsql_instance(
     instance_name: str = "testdbinstance1",
     project_id: str = PROJECT_ID,
+    target_cloud: Optional[str] = None,
 ) -> Dict[str, Any]:
     """
-    Read-only tool: Inspects real Cloud SQL instances in the project via the Cloud SQL Admin API
-    (`sqladmin.googleapis.com`), returning live state (`RUNNABLE` vs `STOPPED`), `activationPolicy`,
-    tier, region, disk size, IP configuration (`authorizedNetworks`), and database flags.
+    Read-only tool: Inspects managed database instances via the selected cloud strategy:
+      - `gcp`: Google Cloud SQL Admin API (`sqladmin.googleapis.com`)
+      - `aws`: AWS RDS (`boto3` `describe_db_instances`)
+      - `azure`: Azure SQL (`azure-mgmt-sql`)
 
     Args:
-        instance_name: Name of the Cloud SQL instance to inspect (or 'auto' to discover live instances).
-        project_id: GCP Project ID (defaults to 'agent-triad').
+        instance_name: Name of the database instance to inspect (or 'auto' to discover live instances).
+        project_id: GCP Project ID / AWS Account ID / Azure Subscription ID.
+        target_cloud: Optional cloud provider override (`gcp` | `aws` | `azure`).
     """
+    cloud = _resolve_target_cloud(target_cloud)
+    if _get_database_cloud_adapter is not None:
+        return _get_database_cloud_adapter(cloud).inspect_instance(
+            instance_name=instance_name,
+            account_or_project_id=project_id,
+        )
     token = _get_gcp_access_token()
     if not token:
         return {
@@ -181,23 +253,27 @@ def get_cloudsql_performance_metrics(
     instance_name: str = "testdbinstance1",
     project_id: str = PROJECT_ID,
     window_minutes: int = 30,
+    target_cloud: Optional[str] = None,
 ) -> Dict[str, Any]:
     """
-    Read-only tool: Queries the live Google Cloud Monitoring API (`monitoring.googleapis.com/v3`)
-    for real-time Cloud SQL performance metrics over the specified lookback window:
-      - `cloudsql.googleapis.com/database/up` (Instance availability: 1=UP, 0=DOWN)
-      - `cloudsql.googleapis.com/database/cpu/utilization` (CPU utilization %)
-      - `cloudsql.googleapis.com/database/memory/utilization` (Memory utilization %)
-      - `cloudsql.googleapis.com/database/disk/utilization` (Disk storage utilization %)
-      - `cloudsql.googleapis.com/database/postgresql/num_backends` (Active PostgreSQL connections)
-      - `cloudsql.googleapis.com/database/disk/read_ops_count` & `write_ops_count` (Disk IOPS)
-      - `cloudsql.googleapis.com/database/postgresql/transaction_count` (PostgreSQL transactions)
+    Read-only tool: Queries live database performance metrics via the selected cloud strategy:
+      - `gcp`: Google Cloud Monitoring API (`monitoring.googleapis.com/v3`)
+      - `aws`: AWS CloudWatch (`AWS/RDS` `CPUUtilization`, `FreeableMemory`, `DatabaseConnections`, IOPS)
+      - `azure`: Azure Monitor (`cpu_percent`, `storage_percent`, `dtu_consumption_percent`)
 
     Args:
-        instance_name: Target Cloud SQL instance name (e.g. 'testdbinstance1').
-        project_id: GCP Project ID (defaults to 'agent-triad').
+        instance_name: Target database instance name (e.g. 'testdbinstance1').
+        project_id: GCP Project ID / AWS Account ID / Azure Subscription ID.
         window_minutes: Lookback window in minutes (default 30).
+        target_cloud: Optional cloud provider override (`gcp` | `aws` | `azure`).
     """
+    cloud = _resolve_target_cloud(target_cloud)
+    if _get_database_cloud_adapter is not None:
+        return _get_database_cloud_adapter(cloud).get_performance_metrics(
+            instance_name=instance_name,
+            account_or_project_id=project_id,
+            window_minutes=window_minutes,
+        )
     import datetime
     import urllib.parse
 
@@ -321,17 +397,25 @@ def analyze_db_logs_and_connections(
     symptom: str = "",
     instance_name: str = "testdbinstance1",
     project_id: str = PROJECT_ID,
+    target_cloud: Optional[str] = None,
 ) -> Dict[str, Any]:
     """
-    Read-only tool: Queries live Google Cloud Logging (`logging.googleapis.com/v2/entries:list`)
-    for `resource.type="cloudsql_database"` filtered to the specific `database_id` (`{project_id}:{instance_name}`).
-    Categorizes actual log messages dynamically without any hardcoded or pre-baked findings.
+    Read-only tool: Queries live database warning/error logs via the selected cloud strategy
+    (`gcp`: Cloud Logging, `aws`: CloudWatch Logs, `azure`: Azure Monitor Activity Logs).
 
     Args:
         symptom: Description of the database error or symptom reported by Atlas/User.
-        instance_name: Target Cloud SQL instance name.
-        project_id: GCP Project ID.
+        instance_name: Target database instance name.
+        project_id: GCP Project ID / AWS Account ID / Azure Subscription ID.
+        target_cloud: Optional cloud provider override (`gcp` | `aws` | `azure`).
     """
+    cloud = _resolve_target_cloud(target_cloud)
+    if _get_database_cloud_adapter is not None:
+        return _get_database_cloud_adapter(cloud).analyze_logs_and_connections(
+            symptom=symptom,
+            instance_name=instance_name,
+            account_or_project_id=project_id,
+        )
     token = _get_gcp_access_token()
     if not token:
         return {
@@ -433,13 +517,19 @@ def analyze_db_logs_and_connections(
     }
 
 
-def inspect_agent_runtime_identity(project_id: str = PROJECT_ID) -> Dict[str, Any]:
+def inspect_agent_runtime_identity(
+    project_id: str = PROJECT_ID,
+    target_cloud: Optional[str] = None,
+) -> Dict[str, Any]:
     """
-    Read-only tool: Introspects the Database Agent's own live Cloud Run Service Account identity,
-    IAM roles, and telemetry collection mechanism via the GCP Metadata Server and OAuth2 tokeninfo.
-    Call this tool whenever the user asks what Service Account the agent uses, how the agent
-    connects to the database, or how permissions/authentication work.
+    Read-only tool: Introspects the Database Agent's own live runtime identity,
+    IAM roles, and telemetry collection mechanism for the active cloud (`gcp` | `aws` | `azure`).
     """
+    cloud = _resolve_target_cloud(target_cloud)
+    if _get_database_cloud_adapter is not None:
+        return _get_database_cloud_adapter(cloud).inspect_runtime_identity(
+            account_or_project_id=project_id,
+        )
     service_account_email = None
     metadata_scopes: List[str] = []
 
@@ -499,24 +589,122 @@ def inspect_agent_runtime_identity(project_id: str = PROJECT_ID) -> Dict[str, An
     }
 
 
+def introspect_db_query_activity_detailed(
+    instance_name: str = "testdbinstance1",
+    project_id: str = PROJECT_ID,
+    slow_query_threshold_ms: float = 500.0,
+    target_cloud: Optional[str] = None,
+    activity_rows: Optional[List[Dict[str, Any]]] = None,
+    statement_rows: Optional[List[Dict[str, Any]]] = None,
+    log_lines: Optional[List[str]] = None,
+    db_connection: Optional[Any] = None,
+    readonly_dsn: Optional[str] = None,
+) -> Dict[str, Any]:
+    """
+    Programmatic read-only query-level introspection (`pg_stat_activity` / `pg_stat_statements` /
+    slow-query log analysis) supporting injected DB-API 2.0 read-only connections, sample rows,
+    opt-in `AAAS_DB_READONLY_DSN`, or default Zero-Standing-Privilege cloud slow-query log analysis.
+    """
+    cloud = _resolve_target_cloud(target_cloud)
+    if _get_database_cloud_adapter is not None:
+        return _get_database_cloud_adapter(cloud).introspect_query_activity(
+            instance_name=instance_name,
+            account_or_project_id=project_id,
+            slow_query_threshold_ms=slow_query_threshold_ms,
+            activity_rows=activity_rows,
+            statement_rows=statement_rows,
+            log_lines=log_lines,
+            db_connection=db_connection,
+            readonly_dsn=readonly_dsn,
+        )
+    if _analyze_pg_stat_activity is not None:
+        resolved_logs = list(log_lines) if log_lines is not None else []
+        if not resolved_logs and db_connection is None and not activity_rows and not readonly_dsn:
+            log_res = analyze_db_logs_and_connections(
+                symptom="slow query duration lock wait",
+                instance_name=instance_name,
+                project_id=project_id,
+                target_cloud=cloud,
+            )
+            resolved_logs = list(log_res.get("evidence") or [])
+        return _analyze_pg_stat_activity(
+            instance_name=instance_name,
+            target_cloud=cloud,
+            slow_query_threshold_ms=slow_query_threshold_ms,
+            activity_rows=activity_rows,
+            statement_rows=statement_rows,
+            log_lines=resolved_logs,
+            db_connection=db_connection,
+            readonly_dsn=readonly_dsn,
+        )
+
+    # Minimal standalone fallback if `poc/services/db_query_introspection.py` is absent
+    return {
+        "status": "NO_SLOW_QUERIES_DETECTED",
+        "target_cloud": cloud,
+        "instance_name": instance_name,
+        "introspection_mode": "out_of_band_log_and_insights",
+        "read_only_enforced": True,
+        "slow_query_threshold_ms": float(slow_query_threshold_ms),
+        "active_sessions": [],
+        "long_running_queries": [],
+        "idle_in_transaction_sessions": [],
+        "blocking_chains": [],
+        "top_slow_queries": [],
+        "dba_recommendations": [],
+    }
+
+
+def introspect_db_query_activity(
+    instance_name: str = "testdbinstance1",
+    project_id: str = PROJECT_ID,
+    slow_query_threshold_ms: int = 500,
+    target_cloud: Optional[str] = None,
+) -> Dict[str, Any]:
+    """
+    Read-only ADK tool: Performs query-level database introspection (`pg_stat_activity`
+    long-running sessions, `idle in transaction` locks, blocking PID chains, and slow-query
+    log/statement analysis) without executing any DDL/DML or session-terminating mutations.
+
+    Args:
+        instance_name: Target database instance name (e.g. 'testdbinstance1').
+        project_id: GCP Project ID / AWS Account ID / Azure Subscription ID.
+        slow_query_threshold_ms: Threshold in milliseconds for flagging slow queries (default 500).
+        target_cloud: Optional cloud provider override (`gcp` | `aws` | `azure`).
+    """
+    return introspect_db_query_activity_detailed(
+        instance_name=instance_name,
+        project_id=project_id,
+        slow_query_threshold_ms=float(slow_query_threshold_ms),
+        target_cloud=target_cloud,
+    )
+
+
 def generate_remediation_proposal(
     issue_type: str,
     instance_name: str = "testdbinstance1",
     project_id: str = PROJECT_ID,
+    target_cloud: Optional[str] = None,
 ) -> Dict[str, Any]:
     """
-    Generates a safe, non-destructive remediation proposal grounded dynamically in the live Cloud SQL
-    instance state and the actual detected issue:
-      1. A 1-line `gcloud sql` CLI command (Scenario 1)
-      2. A Terraform (`google_sql_database_instance`) HCL snippet (Scenario 2/3)
+    Generates a safe, non-destructive remediation proposal grounded dynamically in the live database
+    instance state and the active cloud strategy (`gcp`: `gcloud sql` / `google_sql_database_instance`,
+    `aws`: `aws rds` / `aws_db_instance`, `azure`: `az sql` / `azurerm_mssql_database`).
     Requires HITL approval via Atlas before execution.
 
     Args:
-        issue_type: Actual diagnostic finding from live inspection/logs (e.g. UNENCRYPTED_SSL_REJECTIONS,
-                    INSTANCE_STOPPED, PASSWORD_AUTH_FAILURES, CONNECTION_POOL_EXHAUSTION, or HARDENING).
-        instance_name: Target Cloud SQL instance name.
-        project_id: GCP Project ID.
+        issue_type: Actual diagnostic finding from live inspection/logs.
+        instance_name: Target database instance name.
+        project_id: GCP Project ID / AWS Account ID / Azure Subscription ID.
+        target_cloud: Optional cloud provider override (`gcp` | `aws` | `azure`).
     """
+    cloud = _resolve_target_cloud(target_cloud)
+    if _get_database_cloud_adapter is not None:
+        return _get_database_cloud_adapter(cloud).generate_remediation_proposal(
+            issue_type=issue_type,
+            instance_name=instance_name,
+            account_or_project_id=project_id,
+        )
     live = inspect_cloudsql_instance(instance_name=instance_name, project_id=project_id)
     real_region = live.get("region") or "us-west1"
     real_version = live.get("database_version") or "POSTGRES_18"
@@ -662,7 +850,7 @@ STRICT ANTI-HALLUCINATION & GROUNDING RULES:
 3. NEVER propose `--activation-policy=ALWAYS` if `inspect_cloudsql_instance` shows `activation_policy` is already `"ALWAYS"`.
 4. Tailor your tool calls and response directly to what the user is asking:
    - **Performance / Health / Troubleshooting Questions**:
-     Call `inspect_cloudsql_instance`, `get_cloudsql_performance_metrics`, and `analyze_db_logs_and_connections`.
+     Call `inspect_cloudsql_instance`, `get_cloudsql_performance_metrics`, `analyze_db_logs_and_connections`, and `introspect_db_query_activity` (when slow queries, lock contention, high CPU, or `pg_stat_activity` analysis is relevant).
      Report the exact live Cloud Monitoring numbers (CPU utilization %, Memory utilization %, Disk utilization %, Active PostgreSQL connections `num_backends`, Disk Read/Write Ops, and Transaction count), the live SQL Admin configuration (`state`, `tier`, `region`, `ssl_mode`, `authorized_networks`), and any real Cloud Logging errors.
      Only call `generate_remediation_proposal` if there is a real configuration/security/performance issue to fix (such as `0.0.0.0/0` open public access causing unencrypted `pg_hba.conf` connection rejections, or resource saturation).
    - **Service Account / Identity / "Are you connecting to the database?" Questions**:
@@ -676,15 +864,18 @@ STRICT ANTI-HALLUCINATION & GROUNDING RULES:
      2) For **In-Database SQL Fixes** (e.g., killing a stuck PID via `pg_terminate_backend()`, creating missing indexes, or `VACUUM ANALYZE`), you generate the exact SQL remediation statement or `gcloud sql connect` command for Hari or an authorized Cloud SQL IAM DB Auth job to execute.
 """
 
+RESOLVED_MODEL = _resolve_adk_model(MODEL_NAME)
+
 root_agent = Agent(
     name="aaas_database_agent",
-    model=MODEL_NAME,
-    description="AaaS Database Specialist Agent for live Cloud SQL, AlloyDB, and Spanner diagnostics, Cloud Monitoring performance telemetry, and HITL remediation proposals.",
+    model=RESOLVED_MODEL,
+    description="AaaS Database Specialist Agent for multi-cloud (GCP Cloud SQL, AWS RDS, Azure SQL) diagnostics, performance telemetry, and HITL remediation proposals.",
     instruction=DATABASE_AGENT_INSTRUCTION,
     tools=[
         inspect_cloudsql_instance,
         get_cloudsql_performance_metrics,
         analyze_db_logs_and_connections,
+        introspect_db_query_activity,
         inspect_agent_runtime_identity,
         generate_remediation_proposal,
     ],
@@ -695,11 +886,18 @@ root_agent = Agent(
 # 3. Diagnostic Runner Invoked by FastAPI (/diagnose and /a2a)
 # =====================================================================
 
-async def run_diagnosis(prompt: str, instance_name: str = "testdbinstance1") -> Dict[str, Any]:
+async def run_diagnosis(
+    prompt: str,
+    instance_name: str = "testdbinstance1",
+    target_cloud: Optional[str] = None,
+) -> Dict[str, Any]:
     """
-    Runs a diagnostic or advisory query through the ADK Database Agent and returns both
-    the LLM DBA reasoning and the structured live GCP tool outputs for Atlas.
+    Runs a diagnostic or advisory query through the ADK Database Agent using the requested
+    `target_cloud` strategy (`gcp` | `aws` | `azure`) and returns both the LLM DBA reasoning
+    and structured live cloud tool outputs for Atlas.
     """
+    resolved_cloud = _normalize_target_cloud(target_cloud)
+    ctx_token = _ACTIVE_TARGET_CLOUD.set(resolved_cloud)
     tool_trace: List[str] = []
     tool_outputs: Dict[str, Any] = {}
     session_service = InMemorySessionService()
@@ -712,79 +910,93 @@ async def run_diagnosis(prompt: str, instance_name: str = "testdbinstance1") -> 
         app_name="aaas_database_agent",
         session_service=session_service,
     )
-    content = types.Content(role="user", parts=[types.Part.from_text(text=prompt)])
+    cloud_prefixed_prompt = (
+        prompt
+        if resolved_cloud == "gcp"
+        else f"[target_cloud={resolved_cloud}] {prompt}"
+    )
+    content = types.Content(role="user", parts=[types.Part.from_text(text=cloud_prefixed_prompt)])
     final_text = ""
 
     try:
-        async for event in runner.run_async(
-            user_id="atlas-orchestrator",
-            session_id=session.id,
-            new_message=content,
-        ):
-            if event.content and event.content.parts:
-                for part in event.content.parts:
-                    fc = getattr(part, "function_call", None)
-                    if fc and getattr(fc, "name", None):
-                        if fc.name not in tool_trace:
-                            tool_trace.append(fc.name)
-                    fr = getattr(part, "function_response", None)
-                    if fr and getattr(fr, "name", None) and getattr(fr, "response", None):
-                        resp_val = fr.response
-                        if isinstance(resp_val, dict):
-                            tool_outputs[fr.name] = resp_val.get("result", resp_val) if "result" in resp_val and isinstance(resp_val["result"], dict) else resp_val
-            if event.is_final_response() and event.content and event.content.parts:
-                text_chunks = [
-                    p.text
-                    for p in event.content.parts
-                    if getattr(p, "text", None) and not getattr(p, "function_call", None)
-                ]
-                if text_chunks:
-                    final_text = "".join(text_chunks).strip()
-    except Exception:
-        pass
+        try:
+            async for event in runner.run_async(
+                user_id="atlas-orchestrator",
+                session_id=session.id,
+                new_message=content,
+            ):
+                if event.content and event.content.parts:
+                    for part in event.content.parts:
+                        fc = getattr(part, "function_call", None)
+                        if fc and getattr(fc, "name", None):
+                            if fc.name not in tool_trace:
+                                tool_trace.append(fc.name)
+                        fr = getattr(part, "function_response", None)
+                        if fr and getattr(fr, "name", None) and getattr(fr, "response", None):
+                            resp_val = fr.response
+                            if isinstance(resp_val, dict):
+                                tool_outputs[fr.name] = resp_val.get("result", resp_val) if "result" in resp_val and isinstance(resp_val["result"], dict) else resp_val
+                if event.is_final_response() and event.content and event.content.parts:
+                    text_chunks = [
+                        p.text
+                        for p in event.content.parts
+                        if getattr(p, "text", None) and not getattr(p, "function_call", None)
+                    ]
+                    if text_chunks:
+                        final_text = "".join(text_chunks).strip()
+        except Exception:
+            pass
 
-    # Populate structured outputs from the tools actually invoked by the ADK agent
-    insp_data: Optional[Dict[str, Any]] = tool_outputs.get("inspect_cloudsql_instance")
-    perf_data: Optional[Dict[str, Any]] = tool_outputs.get("get_cloudsql_performance_metrics")
-    diag_data: Optional[Dict[str, Any]] = tool_outputs.get("analyze_db_logs_and_connections")
-    identity_data: Optional[Dict[str, Any]] = tool_outputs.get("inspect_agent_runtime_identity")
-    prop_data: Optional[Dict[str, Any]] = tool_outputs.get("generate_remediation_proposal")
+        # Populate structured outputs from the tools actually invoked by the ADK agent
+        insp_data: Optional[Dict[str, Any]] = tool_outputs.get("inspect_cloudsql_instance")
+        perf_data: Optional[Dict[str, Any]] = tool_outputs.get("get_cloudsql_performance_metrics")
+        diag_data: Optional[Dict[str, Any]] = tool_outputs.get("analyze_db_logs_and_connections")
+        query_introspection_data: Optional[Dict[str, Any]] = tool_outputs.get("introspect_db_query_activity")
+        identity_data: Optional[Dict[str, Any]] = tool_outputs.get("inspect_agent_runtime_identity")
+        prop_data: Optional[Dict[str, Any]] = tool_outputs.get("generate_remediation_proposal")
 
-    if not final_text:
-        insp_data = insp_data or inspect_cloudsql_instance(instance_name)
-        resolved_instance = insp_data.get("instance_name") or instance_name
-        perf_data = perf_data or get_cloudsql_performance_metrics(resolved_instance)
-        diag_data = diag_data or analyze_db_logs_and_connections(prompt, resolved_instance)
-        identity_data = identity_data or inspect_agent_runtime_identity()
-        prop_data = prop_data or generate_remediation_proposal(diag_data.get("finding", ""), resolved_instance)
-        tool_trace = [
-            "inspect_cloudsql_instance",
-            "get_cloudsql_performance_metrics",
-            "analyze_db_logs_and_connections",
-        ]
-        cpu_m = (perf_data.get("metrics", {}).get("cpu_utilization_pct") or {}).get("latest")
-        mem_m = (perf_data.get("metrics", {}).get("memory_utilization_pct") or {}).get("latest")
-        conn_m = (perf_data.get("metrics", {}).get("active_connections") or {}).get("latest")
-        final_text = (
-            f"### Live DBA Root Cause & Performance Analysis (`{resolved_instance}` in `{insp_data.get('region')}`)\n"
-            f"- **Live Cloud SQL State**: `{insp_data.get('database_version')}` • State: **`{insp_data.get('state')}`** (`activationPolicy={insp_data.get('activation_policy')}`, Tier: `{insp_data.get('tier')}`)\n"
-            f"- **Live Cloud Monitoring Metrics**: CPU: `{cpu_m}%` • Memory: `{mem_m}%` • Active Connections: `{conn_m}` • Health: `{perf_data.get('performance_health_verdict')}`\n"
-            f"- **Real Cloud Logging Evidence ({diag_data.get('live_log_count', 0)} logs)**: `{diag_data.get('evidence', ['None'])[0] if diag_data.get('evidence') else 'None'}`\n"
-            f"- **Active Service Account**: `{identity_data.get('active_service_account')}`\n"
-            f"- **Proposed CLI Fix**: `{prop_data.get('recommended_cli')}`"
-        )
+        if not final_text:
+            insp_data = insp_data or inspect_cloudsql_instance(instance_name, target_cloud=resolved_cloud)
+            resolved_instance = insp_data.get("instance_name") or instance_name
+            perf_data = perf_data or get_cloudsql_performance_metrics(resolved_instance, target_cloud=resolved_cloud)
+            diag_data = diag_data or analyze_db_logs_and_connections(prompt, resolved_instance, target_cloud=resolved_cloud)
+            identity_data = identity_data or inspect_agent_runtime_identity(target_cloud=resolved_cloud)
+            prop_data = prop_data or generate_remediation_proposal(
+                diag_data.get("finding", ""), resolved_instance, target_cloud=resolved_cloud
+            )
+            tool_trace = [
+                "inspect_cloudsql_instance",
+                "get_cloudsql_performance_metrics",
+                "analyze_db_logs_and_connections",
+            ]
+            cpu_m = (perf_data.get("metrics", {}).get("cpu_utilization_pct") or {}).get("latest")
+            mem_m = (perf_data.get("metrics", {}).get("memory_utilization_pct") or {}).get("latest")
+            conn_m = (perf_data.get("metrics", {}).get("active_connections") or {}).get("latest")
+            final_text = (
+                f"### Live DBA Root Cause & Performance Analysis (`{resolved_instance}` on `{resolved_cloud.upper()}` / `{insp_data.get('region')}`)\n"
+                f"- **Live Database State**: `{insp_data.get('database_version')}` • State: **`{insp_data.get('state')}`** (Tier: `{insp_data.get('tier')}`)\n"
+                f"- **Live Monitoring Metrics**: CPU: `{cpu_m}%` • Memory: `{mem_m}%` • Active Connections: `{conn_m}` • Health: `{perf_data.get('performance_health_verdict')}`\n"
+                f"- **Real Log Evidence ({diag_data.get('live_log_count', 0)} logs)**: `{diag_data.get('evidence', ['None'])[0] if diag_data.get('evidence') else 'None'}`\n"
+                f"- **Active Runtime Identity**: `{identity_data.get('active_service_account')}`\n"
+                f"- **Proposed CLI Fix**: `{prop_data.get('recommended_cli')}`"
+            )
 
-    return {
-        "agent": "aaas_database_agent",
-        "model": MODEL_NAME,
-        "tools_invoked": tool_trace or ["inspect_cloudsql_instance"],
-        "instance_inspection": insp_data,
-        "performance_metrics": perf_data,
-        "log_analysis": diag_data,
-        "runtime_identity": identity_data,
-        "remediation_proposal": prop_data,
-        "dba_reasoning_report": final_text,
-    }
+        return {
+            "agent": "aaas_database_agent",
+            "model": MODEL_NAME,
+            "llm_provider": LLM_PROVIDER,
+            "target_cloud": resolved_cloud,
+            "tools_invoked": tool_trace or ["inspect_cloudsql_instance"],
+            "instance_inspection": insp_data,
+            "performance_metrics": perf_data,
+            "log_analysis": diag_data,
+            "query_introspection": query_introspection_data,
+            "runtime_identity": identity_data,
+            "remediation_proposal": prop_data,
+            "dba_reasoning_report": final_text,
+        }
+    finally:
+        _ACTIVE_TARGET_CLOUD.reset(ctx_token)
 
 
 if __name__ == "__main__":

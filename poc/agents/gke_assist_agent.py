@@ -135,6 +135,8 @@ class GKEAssistAgent:
                 specialist_worker=specialist,
                 coordinated_specialists=coordinated_specialists,
                 terraform_code=terraform_code,
+                gitops_pr_payload=data.get("gitops_pr_payload"),
+                target_cloud=str(data.get("target_cloud") or "gcp"),
             )
 
             # Single-action envelope: revoke JIT token immediately after execution

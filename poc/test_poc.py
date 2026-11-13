@@ -434,9 +434,388 @@ def run_e2e_tests() -> None:
 
     live_prop = infra_agent_mod.generate_infra_remediation_proposal(live_logs["finding"], "2397540675679890849")
     assert "gcloud compute" in live_prop["recommended_cli"]
+    assert live_prop.get("gitops_pr_payload") is not None
+    assert live_prop["gitops_pr_payload"]["reconciliation_mode"] == "BIDIRECTIONAL_GITOPS_PR"
     print(
         f"[PASS] ADK Infra Specialist Agent verified: discovered_vms={[v['instance_name'] for v in live_vms['discovered_instances']]}, "
         f"service_account={live_ident['active_service_account']}"
+    )
+
+    # 8. Phase 4 Unit Test: Cloud Provider Status Check Pre-Flight Gate (GCP / AWS / Azure)
+    from app import watcher_agent as app_watcher_agent
+    from services.cloud_status_service import cloud_status_service
+
+    watcher_card = client.get("/a2a/log-watcher-agent/.well-known/agent.json").json()
+    watcher_skills = [s["id"] for s in watcher_card.get("skills", [])]
+    assert "check_cloud_provider_status" in watcher_skills
+
+    # Nominal pre-flight check (offline-safe assertion: status is HEALTHY or STATUS_FEED_UNREACHABLE, mutations_allowed=True)
+    nominal_preflight = client.get("/api/preflight/cloud-status", params={"cloud": "gcp", "region": "us-central1-c"})
+    assert nominal_preflight.status_code == 200
+    assert nominal_preflight.json()["region"] == "us-central1"
+    assert nominal_preflight.json()["mutations_allowed"] is True
+
+    try:
+        # Inject active GCP regional outage in us-central1 (via zone string us-central1-c)
+        cloud_status_service.inject_simulated_outage(
+            cloud_provider="gcp",
+            region="us-central1-c",
+            title="Elevated Compute Engine & Cloud Run API error rates in us-central1",
+            service="Cloud Run / Compute Engine",
+        )
+
+        # Verify Watcher A2A check_cloud_provider_status detects active outage
+        outage_rpc = {
+            "jsonrpc": "2.0",
+            "id": "preflight-outage-1",
+            "method": "tasks/send",
+            "params": {
+                "sender": "lead-orchestrator-agent",
+                "skill_id": "check_cloud_provider_status",
+                "message": {
+                    "role": "agent",
+                    "parts": [{"type": "data", "data": {"cloud_provider": "gcp", "region": "us-central1-c"}}],
+                },
+            },
+        }
+        outage_rpc_res = client.post("/a2a/log-watcher-agent", json=outage_rpc)
+        assert outage_rpc_res.status_code == 200
+        assert outage_rpc_res.json()["result"]["status"] == "ACTIVE_OUTAGE_DETECTED"
+        assert outage_rpc_res.json()["result"]["mutations_allowed"] is False
+
+        # Report a serverless incident in us-central1-c and verify approval is BLOCKED while provider outage is active
+        outage_log = {
+            "log_id": "p4-outage-test-inc-1",
+            "timestamp": "2026-11-13T16:15:00+00:00",
+            "severity": "ERROR",
+            "source": "cloud_run_revision",
+            "cluster": "us-central1-c",
+            "namespace": "default",
+            "workload": "service/payments-api",
+            "pod": "payments-api-00042",
+            "error_code": "HTTP_503_REGIONAL",
+            "title": "Cloud Run 503 Upstream Timeout",
+            "message": "Upstream service unavailable in us-central1-c",
+            "is_anomaly": True,
+            "cloud_provider": "gcp",
+        }
+        asyncio.run(app_watcher_agent.detect_and_report_anomaly(outage_log))
+
+        blocked_approve = client.post(
+            "/api/incidents/p4-outage-test-inc-1/approve",
+            json={"approved_by": "Hari", "execution_mode": "sandbox"},
+        )
+        assert blocked_approve.status_code == 200
+        blocked_payload = blocked_approve.json()
+        assert blocked_payload["status"] == "BLOCKED_PROVIDER_OUTAGE", blocked_payload
+        assert blocked_payload["incident"]["status"] == "BLOCKED_PROVIDER_OUTAGE"
+        assert blocked_payload["incident"]["jit_token"] is None, "JIT token must NOT be minted during active provider outage"
+        assert blocked_payload["incident"]["execution_result"]["mutations_allowed"] is False
+
+        # Verify AWS & Azure outage gating too
+        cloud_status_service.inject_simulated_outage("aws", "us-east-1a", title="AWS EC2 Control Plane Degradation")
+        cloud_status_service.inject_simulated_outage("azure", "East US", title="Azure Compute Regional Outage")
+        aws_st = cloud_status_service.check_region_status("aws", "us-east-1b")
+        az_st = cloud_status_service.check_region_status("azure", "eastus")
+        assert aws_st["region"] == "us-east-1" and aws_st["mutations_allowed"] is False
+        assert az_st["region"] == "eastus" and az_st["mutations_allowed"] is False
+    finally:
+        cloud_status_service.clear_simulated_outages()
+
+    # Once outage clears, approving the same incident succeeds cleanly
+    recovered_approve = client.post(
+        "/api/incidents/p4-outage-test-inc-1/approve",
+        json={"approved_by": "Hari", "execution_mode": "sandbox"},
+    )
+    assert recovered_approve.status_code == 200
+    assert recovered_approve.json()["status"] == "REMEDIATION_COMPLETED_AND_VERIFIED"
+    assert recovered_approve.json()["incident"]["status"] == "RESOLVED"
+    assert recovered_approve.json()["incident"]["jit_token"]["token_id"].startswith("jit-wif-")
+    assert recovered_approve.json()["incident"]["execution_result"]["gitops_pr_payload"]["reconciliation_mode"] == "BIDIRECTIONAL_GITOPS_PR"
+    print("[PASS] Phase 4 Cloud Provider Status Check Pre-Flight verified: blocked mutations during active GCP/AWS/Azure outages and resumed cleanly on recovery")
+
+    # 9. Phase 4 Unit Test: GitOps / Recent Deployment Correlator & Bidirectional GitOps PR Payload
+    from services.gitops_correlator import gitops_correlator
+
+    sample_commits = [
+        {
+            "event_type": "git_commit",
+            "commit_sha": "a1b2c3d4e5f60718293a4b5c6d7e8f9012345678",
+            "short_sha": "a1b2c3d4",
+            "author": "release-bot",
+            "committed_at": "2026-11-13T16:07:00+00:00",
+            "subject": "Bump payments-api Cloud Run concurrency & Terraform VPC connector",
+            "changed_files": ["terraform/payments-api/main.tf", "poc/app.py"],
+        },
+        {
+            "event_type": "git_commit",
+            "commit_sha": "9999999999999999999999999999999999999999",
+            "short_sha": "99999999",
+            "author": "old-dev",
+            "committed_at": "2026-11-13T10:00:00+00:00",
+            "subject": "Unrelated docs tweak",
+            "changed_files": ["README.md"],
+        },
+    ]
+    corr = gitops_correlator.correlate_recent_deployments(
+        incident_timestamp="2026-11-13T16:15:00+00:00",
+        workload="service/payments-api",
+        window_minutes=180,
+        git_commits=sample_commits,
+    )
+    assert corr["status"] == "CORRELATED_RECENT_DEPLOYMENT", corr
+    top = corr["highest_confidence_match"]
+    assert top is not None
+    assert top["commit_sha"] == "a1b2c3d4e5f60718293a4b5c6d7e8f9012345678"
+    assert top["delta_minutes_before_incident"] == 8.0
+    assert top["confidence"] == "HIGH"
+    assert top["suggested_action"] == "REVERT_COMMIT_VIA_GITOPS_PR"
+
+    pr_payload = gitops_correlator.build_gitops_reconciliation_pr_payload(
+        incident_id="p4-gitops-inc-1",
+        workload="service/payments-api",
+        target_cloud="gcp",
+        recommended_cli="gcloud run services update payments-api --concurrency=40 --region=us-central1",
+        correlation_report=corr,
+        reason="Revert bad concurrency config causing 503 timeouts",
+    )
+    assert pr_payload["reconciliation_mode"] == "BIDIRECTIONAL_GITOPS_PR"
+    assert pr_payload["base_branch"] == "main"
+    assert pr_payload["head_branch"].startswith("aaas/gitops-reconcile-payments-api-")
+    assert pr_payload["correlated_suspect_commit"] == "a1b2c3d4e5f60718293a4b5c6d7e8f9012345678"
+    assert pr_payload["revert_recommended"] is True
+    assert pr_payload["revert_command"].startswith("git revert --no-edit a1b2c3d4")
+    assert len(pr_payload["files"]) == 2
+    assert any(f["path"].endswith("reconciliation-metadata.json") for f in pr_payload["files"])
+
+    # Verify Infra Agent exposes GitOps correlation tool & AgentCard capabilities
+    assert "gitops-deployment-correlation" in infra_card.json()["capabilities"]
+    assert "bidirectional-gitops-pr-reconciliation" in infra_card.json()["capabilities"]
+    infra_gitops_res = infra_agent_mod.correlate_gitops_deployments(
+        workload="gce_instance/testinstance1",
+        target_cloud="gcp",
+        recommended_cli="gcloud compute instances add-metadata testinstance1 --zone=us-west1-b",
+    )
+    assert infra_gitops_res["gitops_pr_payload"]["reconciliation_mode"] == "BIDIRECTIONAL_GITOPS_PR"
+    assert recovered_approve.json()["incident"].get("gitops_correlation") is not None
+    assert recovered_approve.json()["incident"].get("gitops_pr_payload") is not None
+    print(
+        f"[PASS] Phase 4 GitOps Deployment Correlator & Bidirectional PR verified: "
+        f"suspect={top['short_sha']} ({top['delta_minutes_before_incident']}m prior, {top['confidence']}), "
+        f"branch={pr_payload['head_branch']}, files={len(pr_payload['files'])}"
+    )
+
+    # 10. Phase 4 Unit Test: Database Agent Read-Only pg_stat_activity & Slow-Query Introspection
+    db_dir = Path(__file__).resolve().parent.parent / "agents" / "database_agent"
+    prev_agent_mod = sys.modules.pop("agent", None)
+    try:
+        sys.path.insert(0, str(db_dir))
+        spec_db_agent = importlib.util.spec_from_file_location("agent", str(db_dir / "agent.py"))
+        assert spec_db_agent and spec_db_agent.loader
+        db_agent_mod = importlib.util.module_from_spec(spec_db_agent)
+        sys.modules["agent"] = db_agent_mod
+        spec_db_agent.loader.exec_module(db_agent_mod)
+
+        spec_db_srv = importlib.util.spec_from_file_location("db_srv_mod", str(db_dir / "server.py"))
+        assert spec_db_srv and spec_db_srv.loader
+        db_srv_mod = importlib.util.module_from_spec(spec_db_srv)
+        sys.modules["db_srv_mod"] = db_srv_mod
+        spec_db_srv.loader.exec_module(db_srv_mod)
+    finally:
+        if str(db_dir) in sys.path:
+            sys.path.remove(str(db_dir))
+        if prev_agent_mod is not None:
+            sys.modules["agent"] = prev_agent_mod
+
+    db_client = TestClient(db_srv_mod.app)
+    db_card = db_client.get("/.well-known/agent.json")
+    assert db_card.status_code == 200
+    assert "pg-stat-activity-readonly-introspection" in db_card.json()["capabilities"]
+    assert "slow-query-analysis" in db_card.json()["capabilities"]
+
+    # Verify strict read-only SQL guard rejects mutations / termination calls
+    assert db_agent_mod.is_strictly_readonly_introspection_sql("SELECT pid, state FROM pg_stat_activity") is True
+    assert db_agent_mod.is_strictly_readonly_introspection_sql("DELETE FROM orders WHERE id = 1") is False
+    assert db_agent_mod.is_strictly_readonly_introspection_sql("SELECT pg_terminate_backend(4201)") is False
+    assert db_agent_mod.is_strictly_readonly_introspection_sql("SELECT 1; DROP TABLE users") is False
+
+    # Mock DB-API 2.0 read-only connection returning pg_stat_activity & pg_stat_statements rows
+    executed_sqls: list[str] = []
+
+    class _MockReadOnlyCursor:
+        def __init__(self) -> None:
+            self._rows: list[tuple] = []
+            self.description: list[tuple] = []
+
+        def __enter__(self) -> "_MockReadOnlyCursor":
+            return self
+
+        def __exit__(self, exc_type, exc, tb) -> bool:
+            return False
+
+        def execute(self, sql: str) -> None:
+            executed_sqls.append(sql.strip())
+            if "FROM pg_stat_activity" in sql:
+                self.description = [
+                    ("pid",), ("usename",), ("application_name",), ("client_addr",),
+                    ("state",), ("wait_event_type",), ("wait_event",), ("duration_ms",),
+                    ("xact_duration_ms",), ("blocked_by_pids",), ("query",),
+                ]
+                self._rows = [
+                    (
+                        4102, "checkout_svc", "payments-api", "10.0.1.15",
+                        "idle in transaction", "Client", "ClientRead", 45200.0,
+                        45200.0, [], "UPDATE orders SET status = 'PENDING' WHERE id = 9981",
+                    ),
+                    (
+                        4188, "checkout_svc", "payments-api", "10.0.1.18",
+                        "active", "Lock", "transactionid", 18450.5,
+                        18450.5, [4102], "SELECT * FROM orders WHERE customer_id = 42 FOR UPDATE",
+                    ),
+                ]
+            elif "FROM pg_stat_statements" in sql:
+                self.description = [
+                    ("queryid",), ("calls",), ("total_exec_time_ms",), ("mean_exec_time_ms",),
+                    ("rows",), ("shared_blks_read",), ("shared_blks_hit",), ("query",),
+                ]
+                self._rows = [
+                    ("8819201", 1420, 4820000.0, 3394.37, 142000, 95000, 12000, "SELECT * FROM orders WHERE customer_id = 'secret'"),
+                ]
+
+        def fetchall(self) -> list[tuple]:
+            return self._rows
+
+    class _MockReadOnlyConn:
+        def cursor(self) -> _MockReadOnlyCursor:
+            return _MockReadOnlyCursor()
+
+    pg_res = db_agent_mod.introspect_db_query_activity_detailed(
+        instance_name="testdbinstance1",
+        slow_query_threshold_ms=500.0,
+        target_cloud="gcp",
+        db_connection=_MockReadOnlyConn(),
+    )
+    assert pg_res["status"] == "LIVE_PG_STAT_ACTIVITY", pg_res
+    assert pg_res["read_only_enforced"] is True
+    assert any("SET TRANSACTION READ ONLY" in s for s in executed_sqls)
+    assert pg_res["summary"]["total_active_sessions"] == 2
+    assert pg_res["summary"]["long_running_count"] == 1
+    assert pg_res["summary"]["idle_in_transaction_count"] == 1
+    assert pg_res["summary"]["blocked_session_count"] == 1
+    assert pg_res["blocking_chains"][0]["blocked_pid"] == 4188
+    assert pg_res["blocking_chains"][0]["blocker_pid"] == 4102
+    assert all(rec["requires_hitl_approval"] is True for rec in pg_res["dba_recommendations"])
+
+    # Also verify out-of-band slow-query log analysis mode (Zero-Standing-Privilege default)
+    slow_log_res = db_agent_mod.introspect_db_query_activity_detailed(
+        instance_name="prod-rds-1",
+        slow_query_threshold_ms=500.0,
+        target_cloud="aws",
+        log_lines=[
+            "[2026-11-13T16:14:00Z] LOG:  duration: 2450.32 ms  statement: SELECT * FROM orders WHERE customer_id = 42 AND status = 'OPEN'",
+            "[2026-11-13T16:14:02Z] ERROR:  deadlock detected while waiting for ShareLock on transaction 1234",
+        ],
+    )
+    assert slow_log_res["status"] == "CONTROL_PLANE_SLOW_QUERY_ANALYSIS", slow_log_res
+    assert slow_log_res["read_only_enforced"] is True
+    assert slow_log_res["summary"]["slow_query_count"] == 1
+    assert slow_log_res["top_slow_queries"][0]["table_hint"] == "orders"
+    assert "42" not in slow_log_res["top_slow_queries"][0]["query_fingerprint"]
+    assert len(slow_log_res["lock_warnings_in_logs"]) == 1
+    print(
+        f"[PASS] Phase 4 Database Agent Read-Only Query Introspection verified: "
+        f"pg_stat_activity blocking_chain={pg_res['blocking_chains'][0]['blocked_pid']}->{pg_res['blocking_chains'][0]['blocker_pid']}, "
+        f"slow_log_max_ms={slow_log_res['summary']['max_query_duration_ms']}ms, read_only_enforced=True"
+    )
+
+    # 11. Phase 5: Portable Deployment (/healthz, docker-compose.yml, Helm chart for EKS/AKS/GKE/OpenShift, intact Terraform)
+    import re as _re
+    import yaml as _yaml
+    from pathlib import Path as _Path
+
+    repo_root = _Path(__file__).resolve().parent.parent
+
+    # 11a. Control-plane /healthz endpoint
+    hz = client.get("/healthz")
+    assert hz.status_code == 200, hz.text
+    hz_body = hz.json()
+    assert hz_body["status"] == "ok", hz_body
+    assert hz_body["service"] == "agent-triad-control-plane", hz_body
+    for key in ("state_backend", "lock_backend", "telemetry_provider", "llm_provider"):
+        assert key in hz_body and hz_body[key], hz_body
+
+    # 11b. Local / Any-VM docker-compose.yml validation
+    compose_path = repo_root / "docker-compose.yml"
+    assert compose_path.exists(), "docker-compose.yml missing"
+    compose_doc = _yaml.safe_load(compose_path.read_text(encoding="utf-8"))
+    services = compose_doc.get("services") or {}
+    expected_services = {"control-plane", "db-agent", "infra-agent", "postgres", "redis"}
+    assert expected_services.issubset(set(services.keys())), f"Missing services: {expected_services - set(services.keys())}"
+    for svc_name in expected_services:
+        assert "healthcheck" in services[svc_name], f"Missing healthcheck for {svc_name}"
+    cp_env = services["control-plane"].get("environment") or {}
+    assert cp_env.get("DATABASE_AGENT_URL") == "http://db-agent:8080", cp_env
+    assert cp_env.get("INFRA_AGENT_URL") == "http://infra-agent:8080", cp_env
+    assert "AAAS_POSTGRES_DSN" in cp_env and "AAAS_REDIS_URL" in cp_env, cp_env
+
+    # 11c. Portable Kubernetes Helm Chart (EKS, AKS, GKE, OpenShift)
+    helm_dir = repo_root / "deploy" / "helm" / "agent-triad"
+    chart_doc = _yaml.safe_load((helm_dir / "Chart.yaml").read_text(encoding="utf-8"))
+    values_doc = _yaml.safe_load((helm_dir / "values.yaml").read_text(encoding="utf-8"))
+    assert chart_doc.get("apiVersion") == "v2" and chart_doc.get("name") == "agent-triad", chart_doc
+    for k in ("global", "openshift", "serviceAccount", "llm", "state", "telemetry", "auth", "controlPlane", "dbAgent", "infraAgent", "postgres", "redis", "ingress", "openshiftRoute", "networkPolicy"):
+        assert k in values_doc, f"Missing values.yaml section: {k}"
+    sa_vals = values_doc["serviceAccount"]
+    assert all(k in sa_vals for k in ("eksRoleArn", "aksClientId", "gkeServiceAccount")), sa_vals
+
+    templates_dir = helm_dir / "templates"
+    required_templates = [
+        "_helpers.tpl",
+        "serviceaccount.yaml",
+        "configmap.yaml",
+        "secret.yaml",
+        "control-plane-deployment.yaml",
+        "control-plane-service.yaml",
+        "db-agent-deployment.yaml",
+        "db-agent-service.yaml",
+        "infra-agent-deployment.yaml",
+        "infra-agent-service.yaml",
+        "postgres.yaml",
+        "redis.yaml",
+        "ingress.yaml",
+        "openshift-route.yaml",
+        "hpa.yaml",
+        "networkpolicy.yaml",
+        "NOTES.txt",
+    ]
+    for tpl_name in required_templates:
+        tpl_file = templates_dir / tpl_name
+        assert tpl_file.exists(), f"Missing Helm template: {tpl_name}"
+        tpl_text = tpl_file.read_text(encoding="utf-8")
+        assert tpl_text.count("{{") == tpl_text.count("}}"), f"Unbalanced template braces in {tpl_name}"
+        # Validate Go template block open/close balance (`if`/`with`/`range`/`define` vs `end`)
+        actions = _re.findall(r"\{\{-?\s*(.*?)\s*-?\}\}", tpl_text, flags=_re.DOTALL)
+        depth = 0
+        for act in actions:
+            stripped = act.strip()
+            if stripped.startswith("/*"):
+                continue
+            head = stripped.split()[0] if stripped.split() else ""
+            if head in ("if", "with", "range", "define"):
+                depth += 1
+            elif head == "end":
+                depth -= 1
+                assert depth >= 0, f"Unexpected 'end' in {tpl_name}"
+        assert depth == 0, f"Unclosed template block (depth={depth}) in {tpl_name}"
+
+    # 11d. Verify original GCP Cloud Run terraform/main.tf remains intact
+    tf_main = (repo_root / "terraform" / "main.tf").read_text(encoding="utf-8")
+    assert 'resource "google_cloud_run_v2_service"' in tf_main, "terraform/main.tf Cloud Run resources altered!"
+
+    print(
+        f"[PASS] Phase 5 Portable Deployment verified: /healthz=200, "
+        f"docker-compose={len(expected_services)} services, "
+        f"helm-chart={len(required_templates)} validated templates (EKS/AKS/GKE/OpenShift), terraform/main.tf intact"
     )
 
 

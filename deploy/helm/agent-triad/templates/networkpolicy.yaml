@@ -1,0 +1,36 @@
+{{- if .Values.networkPolicy.enabled -}}
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "agent-triad.fullname" . }}-internal-zero-trust
+  labels:
+    {{- include "agent-triad.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "agent-triad.selectorLabels" . | nindent 6 }}
+    matchExpressions:
+      - key: app.kubernetes.io/component
+        operator: In
+        values:
+          - db-agent
+          - infra-agent
+          - postgres
+          - redis
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              {{- include "agent-triad.componentSelectorLabels" (dict "root" . "component" "control-plane") | nindent 14 }}
+      ports:
+        - protocol: TCP
+          port: {{ .Values.dbAgent.service.targetPort }}
+        - protocol: TCP
+          port: {{ .Values.infraAgent.service.targetPort }}
+        - protocol: TCP
+          port: 5432
+        - protocol: TCP
+          port: 6379
+{{- end }}

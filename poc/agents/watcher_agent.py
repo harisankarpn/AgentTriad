@@ -21,6 +21,7 @@ from agents.a2a_protocol import (
 )
 from services.agent_harness import agent_harness
 from services.cloud_logging_service import CloudLoggingService
+from services.cloud_status_service import cloud_status_service
 
 
 class CloudLoggingWatcherAgent:
@@ -54,6 +55,15 @@ class CloudLoggingWatcherAgent:
                     description="Verifies that service metrics, 15s heartbeat ticks, and error logs have stabilized after a fix.",
                     tags=["watchdog", "verification", "slo", "heartbeat"],
                 ),
+                AgentSkill(
+                    id="check_cloud_provider_status",
+                    name="Cloud Provider Status Check Pre-Flight",
+                    description=(
+                        "Checks whether the target GCP, AWS, or Azure region is experiencing an active "
+                        "provider outage before allowing infrastructure mutations."
+                    ),
+                    tags=["preflight", "cloud-status", "outage-guard", "multi-cloud"],
+                ),
             ],
         )
         self.a2a_hub.register_agent(self.card, self.handle_a2a_task)
@@ -64,6 +74,14 @@ class CloudLoggingWatcherAgent:
         A2A `ingest_anomaly_alert` task to Atlas (Lead Orchestrator Agent).
         """
         sanitized_entry = agent_harness.sanitize_telemetry_saif(log_entry)
+        raw_cloud = str(sanitized_entry.get("cloud_provider") or "gcp").strip().lower()
+        target_cloud = raw_cloud if raw_cloud in ("gcp", "aws", "azure") else "gcp"
+        target_region = str(sanitized_entry.get("cluster") or sanitized_entry.get("region") or "us-central1")
+        provider_status = cloud_status_service.check_region_status(
+            cloud_provider=target_cloud,
+            region=target_region,
+            service_hint=str(sanitized_entry.get("source") or ""),
+        )
         alert_envelope = {
             "alert_id": sanitized_entry["log_id"],
             "detected_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
@@ -71,6 +89,7 @@ class CloudLoggingWatcherAgent:
             "edge_noise_suppressed": self.logging_service.suppressed_routine_logs_count,
             "saif_sanitized": True,
             "gcp_persisted": sanitized_entry.get("persisted_to_gcp", False),
+            "cloud_provider_status": provider_status,
             "log_entry": sanitized_entry,
         }
 
@@ -146,6 +165,25 @@ class CloudLoggingWatcherAgent:
                         "heartbeat_tick": f"PASS ({watchdog_spec['current_heartbeat_latency_seconds']}s / 15s interval)",
                     },
                     "summary": verification_msg,
+                },
+            )
+
+        if skill_id == "check_cloud_provider_status":
+            cloud_provider = str(data.get("cloud_provider") or data.get("target_cloud") or "gcp")
+            region = str(data.get("region") or data.get("cluster") or "us-central1")
+            service_hint = data.get("service_hint")
+            force_refresh = bool(data.get("force_refresh", False))
+            status_report = cloud_status_service.check_region_status(
+                cloud_provider=cloud_provider,
+                region=region,
+                service_hint=service_hint,
+                force_refresh=force_refresh,
+            )
+            return A2ATaskResponse(
+                id=request.id,
+                result={
+                    "agent": self.AGENT_ID,
+                    **status_report,
                 },
             )
 

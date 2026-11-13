@@ -21,6 +21,7 @@ import uuid
 from typing import Any, Dict, List, Optional
 
 from services.agent_harness import OWNED_SERVICES, agent_harness
+from services.gitops_correlator import gitops_correlator
 
 try:
     from google.auth.transport.requests import AuthorizedSession
@@ -159,9 +160,14 @@ class GKERemediator:
         specialist_worker: Optional[Dict[str, str]] = None,
         coordinated_specialists: Optional[List[Dict[str, str]]] = None,
         terraform_code: Optional[str] = None,
+        gitops_pr_payload: Optional[Dict[str, Any]] = None,
+        target_cloud: str = "gcp",
     ) -> Dict[str, Any]:
         started_at = datetime.datetime.now(datetime.timezone.utc).isoformat()
-        pr_id = f"PR-{uuid.uuid4().int % 900 + 100}"
+        pr_id = (
+            (gitops_pr_payload or {}).get("pr_id")
+            or f"PR-{uuid.uuid4().int % 900 + 100}"
+        )
         specialist = specialist_worker or {
             "id": "serverless-agent",
             "name": "Serverless Agent",
@@ -278,13 +284,24 @@ class GKERemediator:
                 f"[{spec_name} • Sandbox Validation] Validated `{kubectl_command}` -> configuration passed OPA & schema checks"
             )
 
-        # 5. Record mutation in Blast-Radius Governor, verify Watchdog spec, and release `.tflock`
+        # 5. Record mutation in Blast-Radius Governor, verify Watchdog spec, build Bidirectional GitOps PR, and release `.tflock`
         self.harness.record_completed_execution(workload=workload, incident_id=incident_id, specialist_name=spec_name)
         watchdog_spec = self.harness.get_rollback_and_watchdog_spec(workload=workload)
         release_info = self.harness.release_state_lock(cluster=cluster, namespace=namespace, workload=workload)
 
+        resolved_pr_payload = gitops_pr_payload or gitops_correlator.build_gitops_reconciliation_pr_payload(
+            incident_id=incident_id,
+            workload=workload,
+            target_cloud=target_cloud,
+            recommended_cli=command_executed,
+            terraform_hcl=terraform_code,
+            reason=f"Bidirectional GitOps reconciliation following {spec_name} execution on `{workload}`.",
+            pr_id=pr_id,
+        )
+
         steps.append(
-            f"[GitOps Reconciliation] Opened automated reconciliation {pr_id} to prevent IaC drift"
+            f"[GitOps Reconciliation] Opened bidirectional reconciliation {pr_id} "
+            f"(branch `{resolved_pr_payload.get('head_branch')}` -> `{resolved_pr_payload.get('base_branch')}`) to prevent IaC drift"
         )
         steps.append(
             f"[Watchdog & Auto-Rollback] Armed `{watchdog_spec['rollback_mode']}` for 45s verification window"
@@ -321,6 +338,7 @@ class GKERemediator:
             "coordinated_specialists": coord_list,
             "terraform_lock": lock_id,
             "reconciliation_pr": pr_id,
+            "gitops_pr_payload": resolved_pr_payload,
             "steps": steps,
             "harness_report": {
                 "lock_release": release_info,

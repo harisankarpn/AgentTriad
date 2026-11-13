@@ -30,7 +30,8 @@ app = FastAPI(
 
 class DiagnoseRequest(BaseModel):
     prompt: str = Field(..., description="Incident description or database question from Atlas/User")
-    instance_name: str = Field(default="auto", description="Target Cloud SQL instance name (or 'auto' for live discovery)")
+    instance_name: str = Field(default="auto", description="Target DB instance name (or 'auto' for live discovery)")
+    target_cloud: Optional[str] = Field(default=None, description="Target cloud strategy: gcp | aws | azure")
 
 
 class A2ARequest(BaseModel):
@@ -69,9 +70,14 @@ async def get_agent_card() -> Dict[str, Any]:
         "ZeroStandingPrivilege": True,
         "capabilities": [
             "cloudsql-read-only-inspection",
+            "aws-rds-read-only-inspection",
+            "azure-sql-read-only-inspection",
+            "multi-cloud-strategy-gcp-aws-azure",
             "cloud-monitoring-performance-metrics",
             "connection-pool-exhaustion-analysis",
             "slow-query-log-triage",
+            "pg-stat-activity-readonly-introspection",
+            "slow-query-analysis",
             "runtime-service-account-introspection",
             "terraform-and-gcloud-proposal-generation",
             "jit-gated-remediation-execution",
@@ -98,7 +104,11 @@ async def diagnose_endpoint(req: DiagnoseRequest) -> Dict[str, Any]:
     """Direct HTTP endpoint to trigger ADK Database Agent diagnosis."""
     if not req.prompt.strip():
         raise HTTPException(status_code=400, detail="prompt cannot be empty")
-    result = await run_diagnosis(prompt=req.prompt, instance_name=req.instance_name)
+    result = await run_diagnosis(
+        prompt=req.prompt,
+        instance_name=req.instance_name,
+        target_cloud=req.target_cloud,
+    )
     return result
 
 
@@ -106,7 +116,7 @@ async def diagnose_endpoint(req: DiagnoseRequest) -> Dict[str, Any]:
 async def handle_a2a_rpc(rpc: A2ARequest) -> Dict[str, Any]:
     """
     A2A JSON-RPC 2.0 handler supporting:
-      1. `diagnose_database_anomaly` -> Database Agent 'thinks' (Read-Only ADK tools + Gemini)
+      1. `diagnose_database_anomaly` -> Database Agent 'thinks' (Read-Only ADK tools + multi-cloud strategy)
       2. `execute_approved_db_remediation` -> Database Agent 'follows' (Requires Atlas JIT token)
     """
     skill_id = rpc.params.get("skill_id", "diagnose_database_anomaly")
@@ -115,9 +125,14 @@ async def handle_a2a_rpc(rpc: A2ARequest) -> Dict[str, Any]:
 
     # Skill 1: Read-Only ADK DBA Diagnosis
     if skill_id == "diagnose_database_anomaly":
-        prompt = payload.get("prompt") or payload.get("message") or "Diagnose Cloud SQL connection anomaly"
+        prompt = payload.get("prompt") or payload.get("message") or "Diagnose database connection anomaly"
         instance_name = payload.get("instance_name", "auto")
-        diagnosis = await run_diagnosis(prompt=prompt, instance_name=instance_name)
+        target_cloud = payload.get("target_cloud") or rpc.params.get("target_cloud")
+        diagnosis = await run_diagnosis(
+            prompt=prompt,
+            instance_name=instance_name,
+            target_cloud=target_cloud,
+        )
         return {
             "jsonrpc": "2.0",
             "id": rpc.id,

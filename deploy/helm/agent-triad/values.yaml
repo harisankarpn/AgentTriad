@@ -1,0 +1,285 @@
+# AgentTriad (AaaS) Portable Kubernetes Helm Chart Values
+# Supports one-click deployment to AWS EKS, Azure AKS, Google GKE, and Red Hat OpenShift.
+
+nameOverride: ""
+fullnameOverride: ""
+imagePullSecrets: []
+
+# ---------------------------------------------------------------------------
+# Global Cloud & Runtime Configuration
+# ---------------------------------------------------------------------------
+global:
+  # Target cloud strategy for specialist agents: gcp | aws | azure
+  cloudProvider: "gcp"
+  gcpProjectId: "agent-triad"
+  gcpRegion: "us-central1"
+  awsRegion: "us-east-1"
+  azureSubscriptionId: ""
+  azureResourceGroup: ""
+  # Cloud Provider Outage Pre-Flight Guard: live | offline
+  cloudStatusMode: "live"
+
+# ---------------------------------------------------------------------------
+# Red Hat OpenShift Compatibility Mode
+# Setting openshift.enabled=true automatically:
+#   1. Omits static runAsUser/runAsGroup/fsGroup to comply with restricted-v2 SCC
+#   2. Creates a route.openshift.io/v1 TLS Route for the Control Plane
+# ---------------------------------------------------------------------------
+openshift:
+  enabled: false
+
+# ---------------------------------------------------------------------------
+# ServiceAccount & Multi-Cloud Workload Identity (Zero-Standing-Privilege)
+# ---------------------------------------------------------------------------
+serviceAccount:
+  create: true
+  name: ""
+  automountServiceAccountToken: true
+  # AWS EKS IRSA: arn:aws:iam::<account-id>:role/<role-name>
+  eksRoleArn: ""
+  # Azure AKS Workload Identity: <managed-identity-client-id>
+  # Automatically adds pod label `azure.workload.identity/use: "true"`
+  aksClientId: ""
+  # Google GKE Workload Identity: <gsa-name>@<project-id>.iam.gserviceaccount.com
+  gkeServiceAccount: ""
+  annotations: {}
+
+# ---------------------------------------------------------------------------
+# Pod & Container Security Contexts
+# (runAsUser/runAsGroup/fsGroup omitted automatically when openshift.enabled=true)
+# ---------------------------------------------------------------------------
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 10001
+  runAsGroup: 10001
+  fsGroup: 10001
+  seccompProfile:
+    type: RuntimeDefault
+
+containerSecurityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: false
+  capabilities:
+    drop:
+      - ALL
+
+# ---------------------------------------------------------------------------
+# Model-Agnostic LLM Router (`vertex` | `gemini` | `litellm` | `bedrock` | `azure_openai` | `openai`)
+# ---------------------------------------------------------------------------
+llm:
+  provider: "openai"
+  model: "gpt-4o-mini"
+  apiBase: ""
+  apiKey: ""
+  googleGenaiUseVertexai: "FALSE"
+  azureOpenaiEndpoint: ""
+  azureOpenaiApiKey: ""
+  azureOpenaiDeployment: ""
+
+# ---------------------------------------------------------------------------
+# Cloud-Agnostic State & Distributed Lock Backends
+# ---------------------------------------------------------------------------
+state:
+  # postgres | firestore | redis | memory
+  backend: "postgres"
+  # redis | local | memory
+  lockBackend: "redis"
+
+# ---------------------------------------------------------------------------
+# Cloud-Agnostic Telemetry Ingestion (`otel` | `gcp`)
+# ---------------------------------------------------------------------------
+telemetry:
+  provider: "otel"
+  lokiUrl: ""
+  prometheusAlertmanagerUrl: ""
+
+# ---------------------------------------------------------------------------
+# Pluggable Auth Broker (`oidc` | `gcp`)
+# ---------------------------------------------------------------------------
+auth:
+  provider: "oidc"
+  oidcJwksUrl: ""
+  oidcIssuer: ""
+  oidcAudience: ""
+  oidcHs256Secret: ""
+
+# ---------------------------------------------------------------------------
+# Bidirectional GitOps Reconciliation & Read-Only DB Introspection
+# ---------------------------------------------------------------------------
+gitops:
+  repo: "harisankar/AgentTriad"
+  baseBranch: "main"
+
+databaseIntrospection:
+  # Optional read-only PostgreSQL DSN for pg_stat_activity / slow-query introspection
+  readonlyDsn: ""
+
+# Supply an existing Kubernetes Secret name (e.g. synced via External Secrets Operator,
+# AWS Secrets Manager CSI, Azure Key Vault CSI, or GCP Secret Manager) to skip chart Secret creation.
+existingSecret: ""
+
+# ---------------------------------------------------------------------------
+# Control Plane (FastAPI Command Center + Lead Orchestrator + Watcher + Remediator)
+# ---------------------------------------------------------------------------
+controlPlane:
+  replicaCount: 2
+  image:
+    repository: ghcr.io/harisankar/agent-triad-control-plane
+    tag: "1.0.0"
+    pullPolicy: IfNotPresent
+  service:
+    type: ClusterIP
+    port: 80
+    targetPort: 8080
+    annotations: {}
+  resources:
+    requests:
+      cpu: 250m
+      memory: 512Mi
+    limits:
+      cpu: 1000m
+      memory: 1Gi
+  autoscaling:
+    enabled: false
+    minReplicas: 2
+    maxReplicas: 6
+    targetCPUUtilizationPercentage: 75
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+  extraEnv: []
+
+# ---------------------------------------------------------------------------
+# Specialist Agent 1: ADK Database Agent
+# ---------------------------------------------------------------------------
+dbAgent:
+  replicaCount: 1
+  image:
+    repository: ghcr.io/harisankar/agent-triad-db-agent
+    tag: "1.0.0"
+    pullPolicy: IfNotPresent
+  service:
+    type: ClusterIP
+    port: 8080
+    targetPort: 8080
+  resources:
+    requests:
+      cpu: 200m
+      memory: 384Mi
+    limits:
+      cpu: 1000m
+      memory: 1Gi
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+  extraEnv: []
+
+# ---------------------------------------------------------------------------
+# Specialist Agent 2: ADK Infra Agent
+# ---------------------------------------------------------------------------
+infraAgent:
+  replicaCount: 1
+  image:
+    repository: ghcr.io/harisankar/agent-triad-infra-agent
+    tag: "1.0.0"
+    pullPolicy: IfNotPresent
+  service:
+    type: ClusterIP
+    port: 8080
+    targetPort: 8080
+  resources:
+    requests:
+      cpu: 200m
+      memory: 384Mi
+    limits:
+      cpu: 1000m
+      memory: 1Gi
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+  extraEnv: []
+
+# ---------------------------------------------------------------------------
+# In-Cluster PostgreSQL (Disable and set externalDsn for AWS RDS / Azure PG / Cloud SQL)
+# ---------------------------------------------------------------------------
+postgres:
+  enabled: true
+  # If postgres.enabled=false, supply external managed PostgreSQL DSN here (or via existingSecret)
+  externalDsn: ""
+  image:
+    repository: postgres
+    tag: "16-alpine"
+    pullPolicy: IfNotPresent
+  auth:
+    username: "aaas"
+    password: "aaas-change-me-in-production"
+    database: "agent_triad"
+  service:
+    port: 5432
+  persistence:
+    enabled: true
+    storageClass: ""
+    size: 10Gi
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+
+# ---------------------------------------------------------------------------
+# In-Cluster Redis (Disable and set externalUrl for ElastiCache / Azure Cache / Memorystore)
+# ---------------------------------------------------------------------------
+redis:
+  enabled: true
+  # If redis.enabled=false, supply external managed Redis URL here (or via existingSecret)
+  externalUrl: ""
+  image:
+    repository: redis
+    tag: "7-alpine"
+    pullPolicy: IfNotPresent
+  service:
+    port: 6379
+  persistence:
+    enabled: false
+    storageClass: ""
+    size: 2Gi
+  resources:
+    requests:
+      cpu: 50m
+      memory: 128Mi
+    limits:
+      cpu: 250m
+      memory: 256Mi
+
+# ---------------------------------------------------------------------------
+# Kubernetes Ingress (EKS ALB / AKS AGIC or NGINX / GKE GCE or NGINX)
+# ---------------------------------------------------------------------------
+ingress:
+  enabled: false
+  className: ""
+  annotations: {}
+  hosts:
+    - host: agent-triad.example.com
+      paths:
+        - path: /
+          pathType: Prefix
+  tls: []
+
+# ---------------------------------------------------------------------------
+# OpenShift Route (Enabled automatically when openshift.enabled=true or openshiftRoute.enabled=true)
+# ---------------------------------------------------------------------------
+openshiftRoute:
+  enabled: false
+  host: ""
+  annotations: {}
+  tls:
+    termination: edge
+    insecureEdgeTerminationPolicy: Redirect
+
+# ---------------------------------------------------------------------------
+# Zero-Trust NetworkPolicy (Restricts db-agent, infra-agent, postgres, redis to control-plane)
+# ---------------------------------------------------------------------------
+networkPolicy:
+  enabled: false

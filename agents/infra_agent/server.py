@@ -30,7 +30,8 @@ app = FastAPI(
 
 class DiagnoseRequest(BaseModel):
     prompt: str = Field(..., description="Incident description or infrastructure question from Atlas/User")
-    target_instance: str = Field(default="auto", description="Target GCE instance name, instance_id, or 'auto'")
+    target_instance: str = Field(default="auto", description="Target VM instance name, instance_id, or 'auto'")
+    target_cloud: Optional[str] = Field(default=None, description="Target cloud strategy: gcp | aws | azure")
 
 
 class A2ARequest(BaseModel):
@@ -69,9 +70,14 @@ async def get_agent_card() -> Dict[str, Any]:
         "ZeroStandingPrivilege": True,
         "capabilities": [
             "compute-engine-read-only-inspection",
+            "aws-ec2-read-only-inspection",
+            "azure-vm-read-only-inspection",
+            "multi-cloud-strategy-gcp-aws-azure",
             "cloud-monitoring-vm-performance-metrics",
             "guest-agent-and-gke-log-triage",
             "runtime-service-account-introspection",
+            "gitops-deployment-correlation",
+            "bidirectional-gitops-pr-reconciliation",
             "terraform-and-gcloud-proposal-generation",
             "jit-gated-remediation-execution",
         ],
@@ -97,7 +103,11 @@ async def diagnose_endpoint(req: DiagnoseRequest) -> Dict[str, Any]:
     """Direct HTTP endpoint to trigger ADK Infra Agent diagnosis."""
     if not req.prompt.strip():
         raise HTTPException(status_code=400, detail="prompt cannot be empty")
-    result = await run_diagnosis(prompt=req.prompt, target_instance=req.target_instance)
+    result = await run_diagnosis(
+        prompt=req.prompt,
+        target_instance=req.target_instance,
+        target_cloud=req.target_cloud,
+    )
     return result
 
 
@@ -105,7 +115,7 @@ async def diagnose_endpoint(req: DiagnoseRequest) -> Dict[str, Any]:
 async def handle_a2a_rpc(rpc: A2ARequest) -> Dict[str, Any]:
     """
     A2A JSON-RPC 2.0 handler supporting:
-      1. `diagnose_infra_anomaly` -> Infra Agent 'thinks' (Read-Only ADK tools + Gemini)
+      1. `diagnose_infra_anomaly` -> Infra Agent 'thinks' (Read-Only ADK tools + multi-cloud strategy)
       2. `execute_approved_infra_remediation` -> Infra Agent 'follows' (Requires Atlas JIT token)
     """
     skill_id = rpc.params.get("skill_id", "diagnose_infra_anomaly")
@@ -113,9 +123,14 @@ async def handle_a2a_rpc(rpc: A2ARequest) -> Dict[str, Any]:
     payload: Dict[str, Any] = parts[0].get("data", {}) if parts else rpc.params.get("data", {})
 
     if skill_id == "diagnose_infra_anomaly":
-        prompt = payload.get("prompt") or payload.get("message") or "Diagnose Compute Engine infrastructure anomaly"
+        prompt = payload.get("prompt") or payload.get("message") or "Diagnose compute infrastructure anomaly"
         target_instance = payload.get("target_instance") or payload.get("instance_name") or "auto"
-        diagnosis = await run_diagnosis(prompt=prompt, target_instance=target_instance)
+        target_cloud = payload.get("target_cloud") or rpc.params.get("target_cloud")
+        diagnosis = await run_diagnosis(
+            prompt=prompt,
+            target_instance=target_instance,
+            target_cloud=target_cloud,
+        )
         return {
             "jsonrpc": "2.0",
             "id": rpc.id,

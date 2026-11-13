@@ -1,0 +1,37 @@
+AgentTriad (AaaS) has been deployed to namespace {{ .Release.Namespace }}!
+
+Components:
+  - Control Plane : {{ include "agent-triad.fullname" . }}-control-plane (port {{ .Values.controlPlane.service.port }})
+  - DB Agent      : {{ include "agent-triad.fullname" . }}-db-agent (port {{ .Values.dbAgent.service.port }})
+  - Infra Agent   : {{ include "agent-triad.fullname" . }}-infra-agent (port {{ .Values.infraAgent.service.port }})
+{{- if .Values.postgres.enabled }}
+  - PostgreSQL    : {{ include "agent-triad.fullname" . }}-postgres (in-cluster StatefulSet)
+{{- else }}
+  - PostgreSQL    : External DSN configured
+{{- end }}
+{{- if .Values.redis.enabled }}
+  - Redis         : {{ include "agent-triad.fullname" . }}-redis (in-cluster Deployment)
+{{- else }}
+  - Redis         : External URL configured
+{{- end }}
+
+Runtime Profile:
+  - Target Cloud  : {{ .Values.global.cloudProvider }}
+  - State Backend : {{ .Values.state.backend }} (Lock: {{ .Values.state.lockBackend }})
+  - Telemetry     : {{ .Values.telemetry.provider }}
+  - LLM Provider  : {{ .Values.llm.provider }} ({{ .Values.llm.model }})
+
+Access the Control Plane:
+{{- if or .Values.openshiftRoute.enabled .Values.openshift.enabled }}
+  OpenShift Route:
+    oc get route {{ include "agent-triad.fullname" . }}-control-plane -n {{ .Release.Namespace }} -o jsonpath='https://{.spec.host}{"\n"}'
+{{- else if .Values.ingress.enabled }}
+  Kubernetes Ingress:
+  {{- range .Values.ingress.hosts }}
+    http{{ if $.Values.ingress.tls }}s{{ end }}://{{ .host }}
+  {{- end }}
+{{- else }}
+  Port-forward locally:
+    kubectl -n {{ .Release.Namespace }} port-forward svc/{{ include "agent-triad.fullname" . }}-control-plane 8080:{{ .Values.controlPlane.service.port }}
+    curl http://127.0.0.1:8080/healthz
+{{- end }}

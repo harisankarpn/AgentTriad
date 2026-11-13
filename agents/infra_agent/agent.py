@@ -13,25 +13,71 @@ Role:
 from __future__ import annotations
 
 import asyncio
+import contextvars
 import datetime
 import json
 import logging
 import os
 import subprocess
+import sys
 import urllib.parse
 import urllib.request
+from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 # Suppress benign google_genai warning when tool-call turns contain function_call parts
 logging.getLogger("google_genai.types").setLevel(logging.ERROR)
 
+# Expose monorepo `poc/` provider adapters when running in monorepo (graceful fallback in minimal Docker builds)
+_MONOREPO_POC_DIR = Path(__file__).resolve().parents[2] / "poc"
+if _MONOREPO_POC_DIR.exists() and str(_MONOREPO_POC_DIR) not in sys.path:
+    sys.path.append(str(_MONOREPO_POC_DIR))
+
 PROJECT_ID = os.getenv("GCP_PROJECT_ID", "agent-triad")
 REGION = os.getenv("GCP_REGION", "us-central1")
-MODEL_NAME = os.getenv("ADK_MODEL", "gemini-2.5-flash")
+LLM_PROVIDER = (os.getenv("AAAS_LLM_PROVIDER") or "vertex").strip().lower()
+MODEL_NAME = (
+    os.getenv("AAAS_LLM_MODEL")
+    or os.getenv("ADK_MODEL")
+    or "gemini-2.5-flash"
+)
 
-os.environ.setdefault("GOOGLE_GENAI_USE_VERTEXAI", "TRUE")
-os.environ.setdefault("GOOGLE_CLOUD_PROJECT", PROJECT_ID)
-os.environ.setdefault("GOOGLE_CLOUD_LOCATION", REGION)
+if LLM_PROVIDER == "vertex":
+    os.environ.setdefault("GOOGLE_GENAI_USE_VERTEXAI", "TRUE")
+    os.environ.setdefault("GOOGLE_CLOUD_PROJECT", PROJECT_ID)
+    os.environ.setdefault("GOOGLE_CLOUD_LOCATION", REGION)
+
+try:
+    from providers.cloud_factory import (
+        get_compute_cloud_adapter as _get_compute_cloud_adapter,
+        normalize_target_cloud as _normalize_target_cloud,
+    )
+except ImportError:
+    _get_compute_cloud_adapter = None  # type: ignore
+
+    def _normalize_target_cloud(target_cloud: Optional[str] = None) -> str:
+        raw = (target_cloud or os.getenv("CLOUD_PROVIDER") or "gcp").strip().lower()
+        return raw if raw in ("gcp", "aws", "azure") else "gcp"
+
+try:
+    from providers.model_router import resolve_adk_model as _resolve_adk_model
+except ImportError:
+    def _resolve_adk_model(default_model: str = MODEL_NAME, **_: Any) -> Any:
+        return default_model
+
+try:
+    from services.gitops_correlator import gitops_correlator as _gitops_correlator
+except ImportError:
+    _gitops_correlator = None  # type: ignore
+
+# Request-scoped target cloud propagated from A2A JSON-RPC payload (`gcp` | `aws` | `azure`)
+_ACTIVE_TARGET_CLOUD: contextvars.ContextVar[Optional[str]] = contextvars.ContextVar(
+    "aaas_infra_target_cloud", default=None
+)
+
+
+def _resolve_target_cloud(target_cloud: Optional[str] = None) -> str:
+    return _normalize_target_cloud(target_cloud or _ACTIVE_TARGET_CLOUD.get())
 
 import google.auth
 import google.oauth2.credentials
@@ -97,18 +143,25 @@ if not os.getenv("K_SERVICE") and not os.getenv("GOOGLE_APPLICATION_CREDENTIALS"
 def inspect_compute_instances(
     target_instance: str = "auto",
     project_id: str = PROJECT_ID,
+    target_cloud: Optional[str] = None,
 ) -> Dict[str, Any]:
     """
-    Read-only tool: Queries the live Google Compute Engine API
-    (`compute.googleapis.com/compute/v1/projects/{project_id}/aggregated/instances`)
-    to discover all Compute Engine VMs across all zones, returning their exact ID, name,
-    zone, status (`RUNNING` vs `TERMINATED`), machineType, network IPs, disks, and service accounts.
+    Read-only tool: Discovers and inspects compute VMs via the selected cloud strategy:
+      - `gcp`: Google Compute Engine API (`compute.googleapis.com`)
+      - `aws`: AWS EC2 (`boto3` `describe_instances`)
+      - `azure`: Azure Virtual Machines (`azure-mgmt-compute`)
 
     Args:
-        target_instance: Instance name (e.g. 'testinstance1'), numeric instance_id
-                         (e.g. '2397540675679890849'), or 'auto' to inspect all VMs.
-        project_id: GCP Project ID (defaults to 'agent-triad').
+        target_instance: Instance name, instance ID, or 'auto' to inspect all VMs.
+        project_id: GCP Project ID / AWS Account ID / Azure Subscription ID.
+        target_cloud: Optional cloud provider override (`gcp` | `aws` | `azure`).
     """
+    cloud = _resolve_target_cloud(target_cloud)
+    if _get_compute_cloud_adapter is not None:
+        return _get_compute_cloud_adapter(cloud).inspect_instances(
+            target_instance=target_instance,
+            account_or_project_id=project_id,
+        )
     token = _get_gcp_access_token()
     if not token:
         return {
@@ -217,21 +270,27 @@ def get_compute_performance_metrics(
     target_instance: str = "auto",
     project_id: str = PROJECT_ID,
     window_minutes: int = 30,
+    target_cloud: Optional[str] = None,
 ) -> Dict[str, Any]:
     """
-    Read-only tool: Queries the live Google Cloud Monitoring API (`monitoring.googleapis.com/v3`)
-    for Compute Engine VM telemetry over the specified lookback window:
-      - `compute.googleapis.com/instance/cpu/utilization` (CPU utilization %)
-      - `compute.googleapis.com/instance/uptime` (Uptime delta seconds)
-      - `compute.googleapis.com/instance/network/received_bytes_count` (Network RX bytes)
-      - `compute.googleapis.com/instance/network/sent_bytes_count` (Network TX bytes)
-      - `compute.googleapis.com/instance/disk/read_bytes_count` & `write_bytes_count` (Disk I/O)
+    Read-only tool: Queries live compute VM performance metrics via the selected cloud strategy:
+      - `gcp`: Google Cloud Monitoring API (`monitoring.googleapis.com/v3`)
+      - `aws`: AWS CloudWatch (`AWS/EC2`)
+      - `azure`: Azure Monitor (`Microsoft.Compute/virtualMachines`)
 
     Args:
-        target_instance: Instance name, numeric instance_id, or 'auto' for all project VMs.
-        project_id: GCP Project ID (defaults to 'agent-triad').
+        target_instance: Instance name, instance_id, or 'auto'.
+        project_id: GCP Project ID / AWS Account ID / Azure Subscription ID.
         window_minutes: Lookback window in minutes (default 30).
+        target_cloud: Optional cloud provider override (`gcp` | `aws` | `azure`).
     """
+    cloud = _resolve_target_cloud(target_cloud)
+    if _get_compute_cloud_adapter is not None:
+        return _get_compute_cloud_adapter(cloud).get_performance_metrics(
+            target_instance=target_instance,
+            account_or_project_id=project_id,
+            window_minutes=window_minutes,
+        )
     token = _get_gcp_access_token()
     if not token:
         return {
@@ -348,17 +407,25 @@ def analyze_infra_logs(
     symptom: str = "",
     target_instance: str = "auto",
     project_id: str = PROJECT_ID,
+    target_cloud: Optional[str] = None,
 ) -> Dict[str, Any]:
     """
-    Read-only tool: Queries live Google Cloud Logging (`logging.googleapis.com/v2/entries:list`)
-    for `resource.type="gce_instance"` warning/error logs in `agent-triad`.
-    Dynamically classifies guest-agent metadata resets, gRPC stream errors, or VM lifecycle events.
+    Read-only tool: Queries live compute/infrastructure warning and error logs via the selected
+    cloud strategy (`gcp`: Cloud Logging, `aws`: CloudWatch Logs, `azure`: Azure Activity Logs).
 
     Args:
         symptom: Description of the infrastructure symptom or alert message.
-        target_instance: Target GCE instance_id, instance_name, or 'auto'.
-        project_id: GCP Project ID.
+        target_instance: Target instance_id, instance_name, or 'auto'.
+        project_id: GCP Project ID / AWS Account ID / Azure Subscription ID.
+        target_cloud: Optional cloud provider override (`gcp` | `aws` | `azure`).
     """
+    cloud = _resolve_target_cloud(target_cloud)
+    if _get_compute_cloud_adapter is not None:
+        return _get_compute_cloud_adapter(cloud).analyze_logs(
+            symptom=symptom,
+            target_instance=target_instance,
+            account_or_project_id=project_id,
+        )
     token = _get_gcp_access_token()
     if not token:
         return {
@@ -494,11 +561,19 @@ def analyze_infra_logs(
     }
 
 
-def inspect_infra_agent_runtime_identity(project_id: str = PROJECT_ID) -> Dict[str, Any]:
+def inspect_infra_agent_runtime_identity(
+    project_id: str = PROJECT_ID,
+    target_cloud: Optional[str] = None,
+) -> Dict[str, Any]:
     """
-    Read-only tool: Introspects the Infra Agent's own live Cloud Run Service Account identity,
-    IAM roles, and telemetry collection mechanism via the GCP Metadata Server.
+    Read-only tool: Introspects the Infra Agent's own live runtime identity,
+    IAM roles, and telemetry collection mechanism for the active cloud (`gcp` | `aws` | `azure`).
     """
+    cloud = _resolve_target_cloud(target_cloud)
+    if _get_compute_cloud_adapter is not None:
+        return _get_compute_cloud_adapter(cloud).inspect_runtime_identity(
+            account_or_project_id=project_id,
+        )
     service_account_email = None
     metadata_scopes: List[str] = []
 
@@ -549,18 +624,121 @@ def inspect_infra_agent_runtime_identity(project_id: str = PROJECT_ID) -> Dict[s
     }
 
 
+def correlate_gitops_deployments(
+    workload: str = "auto",
+    incident_timestamp: str = "",
+    window_minutes: int = 180,
+    recommended_cli: str = "",
+    terraform_hcl: str = "",
+    target_cloud: Optional[str] = None,
+) -> Dict[str, Any]:
+    """
+    Read-only GitOps tool: Correlates an infrastructure/serverless incident timestamp
+    with recent Git commits and deployments, and outputs a structured Bidirectional
+    GitOps Reconciliation PR payload (`head_branch`, `base_branch`, declarative `files[]`,
+    and suspect commit correlation) instead of only raw CLI commands.
+
+    Args:
+        workload: Target VM, GKE workload, or Cloud Run service name.
+        incident_timestamp: ISO-8601 incident occurrence timestamp (defaults to UTC now).
+        window_minutes: Lookback window in minutes prior to incident (default 180).
+        recommended_cli: Optional imperative CLI fallback reference.
+        terraform_hcl: Optional declarative Terraform HCL snippet to include in the PR.
+        target_cloud: Optional cloud provider override (`gcp` | `aws` | `azure`).
+    """
+    cloud = _resolve_target_cloud(target_cloud)
+    if _gitops_correlator is not None:
+        correlation = _gitops_correlator.correlate_recent_deployments(
+            incident_timestamp=incident_timestamp or None,
+            workload=workload,
+            window_minutes=window_minutes,
+        )
+        pr_payload = _gitops_correlator.build_gitops_reconciliation_pr_payload(
+            incident_id=f"infra-{workload}",
+            workload=workload,
+            target_cloud=cloud,
+            recommended_cli=recommended_cli,
+            terraform_hcl=terraform_hcl or None,
+            correlation_report=correlation,
+            reason=correlation.get("summary", ""),
+        )
+        return {
+            "status": correlation.get("status", "NO_RECENT_DEPLOYMENT_CORRELATION"),
+            "target_cloud": cloud,
+            "correlation": correlation,
+            "gitops_pr_payload": pr_payload,
+        }
+
+    # Standalone minimal container fallback when `poc/services/gitops_correlator.py` is not bundled
+    now_iso = datetime.datetime.now(datetime.timezone.utc).isoformat()
+    safe_w = str(workload or "workload").split("/")[-1]
+    return {
+        "status": "NO_RECENT_DEPLOYMENT_CORRELATION",
+        "target_cloud": cloud,
+        "correlation": {
+            "status": "NO_RECENT_DEPLOYMENT_CORRELATION",
+            "incident_timestamp": incident_timestamp or now_iso,
+            "workload": workload,
+            "window_minutes": window_minutes,
+            "highest_confidence_match": None,
+            "correlated_events": [],
+        },
+        "gitops_pr_payload": {
+            "reconciliation_mode": "BIDIRECTIONAL_GITOPS_PR",
+            "pr_id": "PR-GITOPS-LOCAL",
+            "base_branch": "main",
+            "head_branch": f"aaas/gitops-reconcile-{safe_w}",
+            "title": f"[AaaS GitOps] Bidirectional reconciliation for {safe_w} ({cloud.upper()})",
+            "files": [
+                {
+                    "path": f"gitops/reconciliations/{cloud}/{safe_w}/main.tf",
+                    "action": "upsert",
+                    "content": terraform_hcl or f"# Declarative GitOps reconciliation for {safe_w}\n",
+                }
+            ],
+            "cli_fallback_reference": recommended_cli,
+            "created_at": now_iso,
+        },
+    }
+
+
 def generate_infra_remediation_proposal(
     issue_type: str,
     target_instance: str = "auto",
     project_id: str = PROJECT_ID,
+    target_cloud: Optional[str] = None,
 ) -> Dict[str, Any]:
     """
     Generates a safe, non-destructive remediation/verification proposal grounded dynamically in the
-    live Compute Engine inventory:
-      1. A 1-line `gcloud compute` CLI command (Scenario 1)
-      2. A Terraform (`google_compute_instance`) HCL snippet (Scenario 2/3)
+    live compute inventory for the active cloud (`gcp`: `gcloud compute` / `google_compute_instance`,
+    `aws`: `aws ec2` / `aws_instance`, `azure`: `az vm` / `azurerm_linux_virtual_machine`),
+    including a Bidirectional GitOps Reconciliation PR payload (`gitops_pr_payload`).
     Requires HITL approval via Atlas before execution.
     """
+    cloud = _resolve_target_cloud(target_cloud)
+    if _get_compute_cloud_adapter is not None:
+        proposal = _get_compute_cloud_adapter(cloud).generate_remediation_proposal(
+            issue_type=issue_type,
+            target_instance=target_instance,
+            account_or_project_id=project_id,
+        )
+        if _gitops_correlator is not None and "gitops_pr_payload" not in proposal:
+            vm_label = proposal.get("target_vm_name") or target_instance
+            corr = _gitops_correlator.correlate_recent_deployments(
+                workload=str(vm_label),
+                window_minutes=180,
+            )
+            proposal["gitops_correlation"] = corr
+            proposal["gitops_pr_payload"] = _gitops_correlator.build_gitops_reconciliation_pr_payload(
+                incident_id=f"infra-{vm_label}",
+                workload=f"compute/{vm_label}",
+                target_cloud=cloud,
+                recommended_cli=str(proposal.get("recommended_cli") or ""),
+                terraform_hcl=proposal.get("terraform_hcl"),
+                correlation_report=corr,
+                reason=str(proposal.get("remediation_reason") or ""),
+            )
+        return proposal
     inv = inspect_compute_instances(target_instance=target_instance, project_id=project_id)
     primary = inv.get("primary_instance") or {}
     vm_name = primary.get("instance_name") or "testinstance1"
@@ -609,6 +787,12 @@ def generate_infra_remediation_proposal(
         "remediation_summary": reason,
         "recommended_cli": cli_cmd,
         "terraform_hcl": terraform_hcl,
+        "gitops_pr_payload": correlate_gitops_deployments(
+            workload=f"compute/{vm_name}",
+            recommended_cli=cli_cmd,
+            terraform_hcl=terraform_hcl,
+            target_cloud=cloud,
+        ).get("gitops_pr_payload"),
         "rollback_strategy": "STATELESS_METADATA_ROLLBACK (Revert instance metadata key if 45s Telemetry Watchdog alerts)",
     }
 
@@ -626,20 +810,24 @@ STRICT ANTI-HALLUCINATION & GROUNDING RULES:
    - Call `inspect_compute_instances`, `get_compute_performance_metrics`, and `analyze_infra_logs`.
    - If `inspect_compute_instances` reports in `lifecycle_note` that the numeric ID was an ephemeral VM that terminated/was replaced, state that clearly and report the currently active `RUNNING` VMs returned in `discovered_instances`.
    - Call `generate_infra_remediation_proposal` when a remediation or verification proposal is requested.
+   - Call `correlate_gitops_deployments` to correlate the incident timestamp against recent Git commits/deployments and output a Bidirectional GitOps Reconciliation PR payload alongside declarative Terraform changes.
 3. If the user asks what Service Account you use or how you connect to VMs:
    - Call `inspect_infra_agent_runtime_identity` and disclose `aaas-infra-agent-sa@agent-triad.iam.gserviceaccount.com`, caller `agent-triad-runtime-sa@agent-triad.iam.gserviceaccount.com`, your read-only IAM roles (`roles/compute.viewer`, `roles/monitoring.viewer`, `roles/logging.viewer`, `roles/aiplatform.user`), and explain that you collect telemetry out-of-band via Google Cloud APIs (`compute.googleapis.com`, `monitoring.googleapis.com`, `logging.googleapis.com`) without opening direct SSH sessions.
 """
 
+RESOLVED_MODEL = _resolve_adk_model(MODEL_NAME)
+
 root_agent = Agent(
     name="aaas_infra_agent",
-    model=MODEL_NAME,
-    description="AaaS Infra Specialist Agent for live Compute Engine VM, GKE, and Terraform IaC diagnostics, Cloud Monitoring telemetry, and HITL remediation proposals.",
+    model=RESOLVED_MODEL,
+    description="AaaS Infra Specialist Agent for multi-cloud (GCP Compute Engine, AWS EC2, Azure VMs) and Terraform IaC diagnostics, performance telemetry, and HITL remediation proposals.",
     instruction=INFRA_AGENT_INSTRUCTION,
     tools=[
         inspect_compute_instances,
         get_compute_performance_metrics,
         analyze_infra_logs,
         inspect_infra_agent_runtime_identity,
+        correlate_gitops_deployments,
         generate_infra_remediation_proposal,
     ],
 )
@@ -649,11 +837,18 @@ root_agent = Agent(
 # 3. Diagnostic Runner Invoked by FastAPI (/diagnose and /a2a)
 # =====================================================================
 
-async def run_diagnosis(prompt: str, target_instance: str = "auto") -> Dict[str, Any]:
+async def run_diagnosis(
+    prompt: str,
+    target_instance: str = "auto",
+    target_cloud: Optional[str] = None,
+) -> Dict[str, Any]:
     """
-    Runs a diagnostic or advisory query through the ADK Infra Agent and returns both
-    the LLM reasoning and the structured live GCP tool outputs for Atlas.
+    Runs a diagnostic or advisory query through the ADK Infra Agent using the requested
+    `target_cloud` strategy (`gcp` | `aws` | `azure`) and returns both the LLM reasoning
+    and structured live cloud tool outputs for Atlas.
     """
+    resolved_cloud = _normalize_target_cloud(target_cloud)
+    ctx_token = _ACTIVE_TARGET_CLOUD.set(resolved_cloud)
     tool_trace: List[str] = []
     tool_outputs: Dict[str, Any] = {}
     session_service = InMemorySessionService()
@@ -666,80 +861,95 @@ async def run_diagnosis(prompt: str, target_instance: str = "auto") -> Dict[str,
         app_name="aaas_infra_agent",
         session_service=session_service,
     )
-    content = types.Content(role="user", parts=[types.Part.from_text(text=prompt)])
+    cloud_prefixed_prompt = (
+        prompt
+        if resolved_cloud == "gcp"
+        else f"[target_cloud={resolved_cloud}] {prompt}"
+    )
+    content = types.Content(role="user", parts=[types.Part.from_text(text=cloud_prefixed_prompt)])
     final_text = ""
 
     try:
-        async for event in runner.run_async(
-            user_id="atlas-orchestrator",
-            session_id=session.id,
-            new_message=content,
-        ):
-            if event.content and event.content.parts:
-                for part in event.content.parts:
-                    fc = getattr(part, "function_call", None)
-                    if fc and getattr(fc, "name", None):
-                        if fc.name not in tool_trace:
-                            tool_trace.append(fc.name)
-                    fr = getattr(part, "function_response", None)
-                    if fr and getattr(fr, "name", None) and getattr(fr, "response", None):
-                        resp_val = fr.response
-                        if isinstance(resp_val, dict):
-                            tool_outputs[fr.name] = (
-                                resp_val.get("result", resp_val)
-                                if "result" in resp_val and isinstance(resp_val["result"], dict)
-                                else resp_val
-                            )
-            if event.is_final_response() and event.content and event.content.parts:
-                text_chunks = [
-                    p.text
-                    for p in event.content.parts
-                    if getattr(p, "text", None) and not getattr(p, "function_call", None)
-                ]
-                if text_chunks:
-                    final_text = "".join(text_chunks).strip()
-    except Exception:
-        pass
+        try:
+            async for event in runner.run_async(
+                user_id="atlas-orchestrator",
+                session_id=session.id,
+                new_message=content,
+            ):
+                if event.content and event.content.parts:
+                    for part in event.content.parts:
+                        fc = getattr(part, "function_call", None)
+                        if fc and getattr(fc, "name", None):
+                            if fc.name not in tool_trace:
+                                tool_trace.append(fc.name)
+                        fr = getattr(part, "function_response", None)
+                        if fr and getattr(fr, "name", None) and getattr(fr, "response", None):
+                            resp_val = fr.response
+                            if isinstance(resp_val, dict):
+                                tool_outputs[fr.name] = (
+                                    resp_val.get("result", resp_val)
+                                    if "result" in resp_val and isinstance(resp_val["result"], dict)
+                                    else resp_val
+                                )
+                if event.is_final_response() and event.content and event.content.parts:
+                    text_chunks = [
+                        p.text
+                        for p in event.content.parts
+                        if getattr(p, "text", None) and not getattr(p, "function_call", None)
+                    ]
+                    if text_chunks:
+                        final_text = "".join(text_chunks).strip()
+        except Exception:
+            pass
 
-    insp_data: Optional[Dict[str, Any]] = tool_outputs.get("inspect_compute_instances")
-    perf_data: Optional[Dict[str, Any]] = tool_outputs.get("get_compute_performance_metrics")
-    log_data: Optional[Dict[str, Any]] = tool_outputs.get("analyze_infra_logs")
-    identity_data: Optional[Dict[str, Any]] = tool_outputs.get("inspect_infra_agent_runtime_identity")
-    prop_data: Optional[Dict[str, Any]] = tool_outputs.get("generate_infra_remediation_proposal")
+        insp_data: Optional[Dict[str, Any]] = tool_outputs.get("inspect_compute_instances")
+        perf_data: Optional[Dict[str, Any]] = tool_outputs.get("get_compute_performance_metrics")
+        log_data: Optional[Dict[str, Any]] = tool_outputs.get("analyze_infra_logs")
+        identity_data: Optional[Dict[str, Any]] = tool_outputs.get("inspect_infra_agent_runtime_identity")
+        gitops_data: Optional[Dict[str, Any]] = tool_outputs.get("correlate_gitops_deployments")
+        prop_data: Optional[Dict[str, Any]] = tool_outputs.get("generate_infra_remediation_proposal")
 
-    if not final_text:
-        insp_data = insp_data or inspect_compute_instances(target_instance)
-        perf_data = perf_data or get_compute_performance_metrics(target_instance)
-        log_data = log_data or analyze_infra_logs(prompt, target_instance)
-        identity_data = identity_data or inspect_infra_agent_runtime_identity()
-        prop_data = prop_data or generate_infra_remediation_proposal(log_data.get("finding", ""), target_instance)
-        tool_trace = [
-            "inspect_compute_instances",
-            "get_compute_performance_metrics",
-            "analyze_infra_logs",
-            "generate_infra_remediation_proposal",
-        ]
-        p_vm = insp_data.get("primary_instance") or {}
-        final_text = (
-            f"### Live Compute Engine & Infrastructure Analysis (`{p_vm.get('instance_name')}` in `{p_vm.get('zone')}`)\n"
-            f"- **Active VMs in `{PROJECT_ID}`**: {len(insp_data.get('discovered_instances', []))} (`{p_vm.get('instance_name')}`, `{p_vm.get('machine_type')}`, Status: **`{p_vm.get('status')}`**)\n"
-            f"- **Lifecycle Note**: {insp_data.get('lifecycle_note') or 'Target instance is active in Compute Engine inventory.'}\n"
-            f"- **Cloud Logging Root Cause**: {log_data.get('root_cause')}\n"
-            f"- **Active Service Account**: `{identity_data.get('active_service_account')}`\n"
-            f"- **Proposed CLI Fix**: `{prop_data.get('recommended_cli')}`"
-        )
+        if not final_text:
+            insp_data = insp_data or inspect_compute_instances(target_instance, target_cloud=resolved_cloud)
+            perf_data = perf_data or get_compute_performance_metrics(target_instance, target_cloud=resolved_cloud)
+            log_data = log_data or analyze_infra_logs(prompt, target_instance, target_cloud=resolved_cloud)
+            identity_data = identity_data or inspect_infra_agent_runtime_identity(target_cloud=resolved_cloud)
+            prop_data = prop_data or generate_infra_remediation_proposal(
+                log_data.get("finding", ""), target_instance, target_cloud=resolved_cloud
+            )
+            tool_trace = [
+                "inspect_compute_instances",
+                "get_compute_performance_metrics",
+                "analyze_infra_logs",
+                "generate_infra_remediation_proposal",
+            ]
+            p_vm = insp_data.get("primary_instance") or {}
+            final_text = (
+                f"### Live Compute & Infrastructure Analysis (`{p_vm.get('instance_name')}` on `{resolved_cloud.upper()}` / `{p_vm.get('zone')}`)\n"
+                f"- **Active VMs Discovered**: {len(insp_data.get('discovered_instances', []))} (`{p_vm.get('instance_name')}`, `{p_vm.get('machine_type')}`, Status: **`{p_vm.get('status')}`**)\n"
+                f"- **Lifecycle Note**: {insp_data.get('lifecycle_note') or 'Target instance is active in cloud compute inventory.'}\n"
+                f"- **Log Root Cause**: {log_data.get('root_cause')}\n"
+                f"- **Active Runtime Identity**: `{identity_data.get('active_service_account')}`\n"
+                f"- **Proposed CLI Fix**: `{prop_data.get('recommended_cli')}`"
+            )
 
-    return {
-        "agent": "aaas_infra_agent",
-        "model": MODEL_NAME,
-        "tools_invoked": tool_trace or ["inspect_compute_instances"],
-        "instance_inspection": insp_data,
-        "performance_metrics": perf_data,
-        "log_analysis": log_data,
-        "runtime_identity": identity_data,
-        "remediation_proposal": prop_data,
-        "infra_reasoning_report": final_text,
-    }
+        return {
+            "agent": "aaas_infra_agent",
+            "model": MODEL_NAME,
+            "llm_provider": LLM_PROVIDER,
+            "target_cloud": resolved_cloud,
+            "tools_invoked": tool_trace or ["inspect_compute_instances"],
+            "instance_inspection": insp_data,
+            "performance_metrics": perf_data,
+            "log_analysis": log_data,
+            "runtime_identity": identity_data,
+            "gitops_correlation": (gitops_data or {}).get("correlation") or (prop_data or {}).get("gitops_correlation"),
+            "gitops_pr_payload": (gitops_data or {}).get("gitops_pr_payload") or (prop_data or {}).get("gitops_pr_payload"),
+            "remediation_proposal": prop_data,
+            "infra_reasoning_report": final_text,
+        }
+    finally:
+        _ACTIVE_TARGET_CLOUD.reset(ctx_token)
 
 
 if __name__ == "__main__":

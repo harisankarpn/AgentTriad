@@ -1,0 +1,15 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "agent-triad.fullname" . }}-db-agent
+  labels:
+    {{- include "agent-triad.componentLabels" (dict "root" . "component" "db-agent") | nindent 4 }}
+spec:
+  type: {{ .Values.dbAgent.service.type }}
+  ports:
+    - port: {{ .Values.dbAgent.service.port }}
+      targetPort: http
+      protocol: TCP
+      name: http
+  selector:
+    {{- include "agent-triad.componentSelectorLabels" (dict "root" . "component" "db-agent") | nindent 4 }}

@@ -1,9 +1,12 @@
 """
-Cloud Firestore + Local Fallback Session Store Service for the AaaS Command Center.
+Pluggable Multi-Backend Session Store Service for the AaaS Command Center.
 
-Persists user chat sessions (`aaas_user_sessions/{user_key}`) and OAuth configuration
-(`aaas_config/oauth`) in the `agent-triad` Cloud Firestore `(default)` database, with an
-in-memory and local JSON cache for low-latency reads and offline/test resilience.
+Controlled by `AAAS_STATE_BACKEND=firestore|postgres|redis|memory` (default: `firestore`):
+  - `firestore`: `GCPFirestoreSessionAdapter` (`projects/{project}/databases/(default)/documents/aaas_user_sessions`)
+                 with in-memory + local `/tmp` JSON fallback cache (100% backward-compatible default)
+  - `postgres`:  `PostgresSessionAdapter` (cloud-agnostic PostgreSQL via `AAAS_POSTGRES_DSN` / `DATABASE_URL`)
+  - `redis`:     `RedisSessionAdapter` (cloud-agnostic Redis KV via `AAAS_REDIS_URL` / `REDIS_URL`)
+  - `memory`:    `InMemorySessionAdapter` (zero-dependency pure in-memory store)
 """
 
 from __future__ import annotations
@@ -12,13 +15,15 @@ import datetime
 import json
 import os
 import re
-import subprocess
-import time
 import uuid
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-import httpx
+from providers.base_state import SessionStoreAdapter
+from providers.gcp.firestore_session_adapter import GCPFirestoreSessionAdapter
+from providers.generic.memory_state_adapters import InMemorySessionAdapter
+from providers.generic.postgres_session_adapter import PostgresSessionAdapter
+from providers.generic.redis_lock_adapter import RedisSessionAdapter
 
 PROJECT_ID = os.getenv("GCP_PROJECT_ID", "agent-triad")
 FIRESTORE_DB = "(default)"
@@ -29,21 +34,53 @@ LOCAL_CACHE_FILE = Path("/tmp/aaas_firestore_sessions_cache.json")
 MAX_SESSIONS_PER_USER = 25
 
 
+def create_session_store_adapter(backend: Optional[str] = None) -> SessionStoreAdapter:
+    """Factory returning a concrete `SessionStoreAdapter` based on `AAAS_STATE_BACKEND`."""
+    mode = (
+        backend
+        or os.getenv("AAAS_SESSION_BACKEND")
+        or os.getenv("AAAS_STATE_BACKEND")
+        or "firestore"
+    ).strip().lower()
+
+    if mode in ("firestore", "gcp"):
+        return GCPFirestoreSessionAdapter(
+            project_id=os.getenv("GCP_PROJECT_ID", PROJECT_ID),
+            database=FIRESTORE_DB,
+        )
+    if mode in ("postgres", "postgresql"):
+        return PostgresSessionAdapter()
+    if mode == "redis":
+        return RedisSessionAdapter()
+    if mode in ("memory", "in-memory"):
+        return InMemorySessionAdapter()
+
+    raise ValueError(
+        f"Unsupported AAAS_STATE_BACKEND={mode!r} for SessionStoreService. "
+        "Expected one of: firestore, postgres, redis, memory."
+    )
+
+
 class SessionStoreService:
     """
-    Manages persistent multi-session chat history per signed-in Google SSO user
-    backed by Google Cloud Firestore (`projects/agent-triad/databases/(default)`).
+    Manages persistent multi-session chat history per signed-in user via a pluggable
+    `SessionStoreAdapter` (defaulting to Google Cloud Firestore for 100% backward compatibility).
     """
 
-    def __init__(self) -> None:
+    def __init__(
+        self,
+        adapter: Optional[SessionStoreAdapter] = None,
+        backend: Optional[str] = None,
+    ) -> None:
+        self.adapter: SessionStoreAdapter = adapter or create_session_store_adapter(backend)
+        self._use_local_cache: bool = isinstance(self.adapter, GCPFirestoreSessionAdapter)
         self._memory_users: Dict[str, Dict[str, Any]] = {}
-        self._cached_token: Optional[str] = None
-        self._cached_token_expiry: float = 0.0
-        self._prefer_gcloud_cli_token: bool = False
-        self._firestore_status: str = "FIRESTORE_READY"
-        self._load_local_cache()
+        if self._use_local_cache:
+            self._load_local_cache()
 
     def _load_local_cache(self) -> None:
+        if not self._use_local_cache:
+            return
         if LOCAL_CACHE_FILE.exists():
             try:
                 data = json.loads(LOCAL_CACHE_FILE.read_text(encoding="utf-8"))
@@ -53,6 +90,8 @@ class SessionStoreService:
                 pass
 
     def _save_local_cache(self) -> None:
+        if not self._use_local_cache:
+            return
         try:
             LOCAL_CACHE_FILE.write_text(
                 json.dumps({"users": self._memory_users}, ensure_ascii=False),
@@ -67,124 +106,19 @@ class SessionStoreService:
         slug = re.sub(r"[^a-z0-9]+", "_", clean).strip("_")
         return slug or "default_operator"
 
-    def _get_access_token(self, force_gcloud: bool = False) -> Optional[str]:
-        now = time.time()
-        if not force_gcloud and self._cached_token and now < self._cached_token_expiry:
-            return self._cached_token
-
-        if not force_gcloud and not self._prefer_gcloud_cli_token:
-            try:
-                import google.auth
-                import google.auth.transport.requests
-
-                creds, _ = google.auth.default(
-                    scopes=[
-                        "https://www.googleapis.com/auth/cloud-platform",
-                        "https://www.googleapis.com/auth/datastore",
-                    ]
-                )
-                creds.refresh(google.auth.transport.requests.Request())
-                if creds.token:
-                    self._cached_token = creds.token
-                    self._cached_token_expiry = now + 1800
-                    return self._cached_token
-            except Exception:
-                pass
-
-        # Fallback for local GCE workstations where metadata server scopes are restricted
-        try:
-            tok = subprocess.check_output(
-                ["gcloud", "auth", "print-access-token"],
-                text=True,
-                stderr=subprocess.DEVNULL,
-                timeout=4.0,
-            ).strip()
-            if tok:
-                self._prefer_gcloud_cli_token = True
-                self._cached_token = tok
-                self._cached_token_expiry = now + 1800
-                return self._cached_token
-        except Exception:
-            pass
-
-        return None
-
-    def _firestore_request(
-        self,
-        method: str,
-        doc_path: str,
-        json_body: Optional[Dict[str, Any]] = None,
-    ) -> Optional[httpx.Response]:
-        token = self._get_access_token()
-        if not token:
-            self._firestore_status = "LOCAL_CACHE_ONLY"
-            return None
-
-        url = f"{FIRESTORE_BASE_URL}/{doc_path.lstrip('/')}"
-        try:
-            with httpx.Client(timeout=4.5) as client:
-                resp = client.request(
-                    method=method,
-                    url=url,
-                    headers={"Authorization": f"Bearer {token}"},
-                    json=json_body,
-                )
-                if resp.status_code == 403 and "ACCESS_TOKEN_SCOPE_INSUFFICIENT" in resp.text:
-                    alt_token = self._get_access_token(force_gcloud=True)
-                    if alt_token and alt_token != token:
-                        resp = client.request(
-                            method=method,
-                            url=url,
-                            headers={"Authorization": f"Bearer {alt_token}"},
-                            json=json_body,
-                        )
-                if resp.status_code in (200, 404):
-                    self._firestore_status = "CLOUD_FIRESTORE_SYNCED"
-                return resp
-        except Exception:
-            self._firestore_status = "LOCAL_FALLBACK"
-            return None
-
     def _read_firestore_user_doc(self, user_key: str) -> Optional[Dict[str, Any]]:
-        resp = self._firestore_request("GET", f"aaas_user_sessions/{user_key}")
-        if not resp or resp.status_code != 200:
-            return None
-        try:
-            doc = resp.json()
-            fields = doc.get("fields", {})
-            sessions_raw = fields.get("sessions_json", {}).get("stringValue", "[]")
-            sessions = json.loads(sessions_raw)
-            if not isinstance(sessions, list):
-                sessions = []
-            return {
-                "user_email": fields.get("user_email", {}).get("stringValue", ""),
-                "user_name": fields.get("user_name", {}).get("stringValue", ""),
-                "active_session_id": fields.get("active_session_id", {}).get("stringValue", ""),
-                "updated_at": fields.get("updated_at", {}).get("stringValue", ""),
-                "sessions": sessions,
-            }
-        except Exception:
-            return None
+        """Reads user record from the active `SessionStoreAdapter` (kept under legacy name for compatibility)."""
+        return self.adapter.read_user_record(user_key)
 
     def _write_firestore_user_doc(self, user_key: str, record: Dict[str, Any]) -> bool:
+        """Persists user record to in-memory cache, optional local cache, and active `SessionStoreAdapter`."""
         now_iso = datetime.datetime.now(datetime.timezone.utc).isoformat()
         record["updated_at"] = now_iso
         sessions = record.get("sessions", [])[:MAX_SESSIONS_PER_USER]
         record["sessions"] = sessions
         self._memory_users[user_key] = record
         self._save_local_cache()
-
-        firestore_payload = {
-            "fields": {
-                "user_email": {"stringValue": str(record.get("user_email", ""))},
-                "user_name": {"stringValue": str(record.get("user_name", ""))},
-                "active_session_id": {"stringValue": str(record.get("active_session_id", ""))},
-                "updated_at": {"stringValue": now_iso},
-                "sessions_json": {"stringValue": json.dumps(sessions, ensure_ascii=False)},
-            }
-        }
-        resp = self._firestore_request("PATCH", f"aaas_user_sessions/{user_key}", json_body=firestore_payload)
-        return bool(resp and resp.status_code == 200)
+        return self.adapter.write_user_record(user_key, record)
 
     @staticmethod
     def build_session_object(
@@ -412,12 +346,7 @@ class SessionStoreService:
         return record
 
     def get_status(self) -> Dict[str, Any]:
-        return {
-            "backend": "Cloud Firestore",
-            "database": f"projects/{PROJECT_ID}/databases/{FIRESTORE_DB}",
-            "collection": "aaas_user_sessions",
-            "status": self._firestore_status,
-        }
+        return self.adapter.get_status()
 
 
 session_store_service = SessionStoreService()

@@ -27,7 +27,9 @@ from agents.gke_assist_agent import GKEAssistAgent
 from agents.lead_orchestrator import LeadOrchestratorAgent, WORKER_AGENT_BOUTIQUE
 from agents.watcher_agent import CloudLoggingWatcherAgent
 from services.agent_harness import agent_harness
+from services.auth_broker import AuthVerificationError, auth_broker
 from services.cloud_logging_service import CloudLoggingService
+from services.cloud_status_service import cloud_status_service
 from services.gke_remediator import GKERemediator
 from services.session_store_service import session_store_service
 
@@ -168,46 +170,32 @@ async def login_with_google_sso(req: GoogleSSOLoginRequest) -> Dict[str, Any]:
     picture = (req.picture or "").strip()
     provider = "google-sso"
 
-    # 1. Verify Real Google OAuth 2.0 Access Token against Google UserInfo API
+    # 1. Verify OAuth 2.0 Access Token via Pluggable CloudAuthBroker (Google UserInfo or OIDC)
     if req.access_token:
-        async with httpx.AsyncClient(timeout=10.0) as http_client:
-            userinfo_res = await http_client.get(
-                "https://www.googleapis.com/oauth2/v3/userinfo",
-                headers={"Authorization": f"Bearer {req.access_token.strip()}"},
-            )
-        if userinfo_res.status_code != 200:
-            raise HTTPException(
-                status_code=401,
-                detail="Google OAuth 2.0 token verification failed against accounts.google.com.",
-            )
-        uinfo = userinfo_res.json()
+        try:
+            uinfo = await auth_broker.verify_oauth2_access_token(req.access_token)
+        except AuthVerificationError as exc:
+            raise HTTPException(status_code=401, detail=str(exc)) from exc
         email = uinfo.get("email") or email
         name = uinfo.get("name") or uinfo.get("given_name") or name
         picture = uinfo.get("picture") or picture
-        provider = "google-oauth2-verified"
+        provider = uinfo.get("provider") or "google-oauth2-verified"
 
-    # 2. Verify Real Google Identity Services ID Token (JWT)
+    # 2. Verify OIDC ID Token JWT via Pluggable CloudAuthBroker (Google ID Token / JWKS / HS256)
     elif req.credential:
         client_id = _get_effective_oauth_client_id()
         try:
-            from google.auth.transport import requests as google_requests
-            from google.oauth2 import id_token
-
-            decoded_claims = id_token.verify_oauth2_token(
+            decoded_claims = auth_broker.verify_oidc_jwt(
                 req.credential,
-                google_requests.Request(),
-                client_id or None,
+                audience=client_id or None,
             )
-        except Exception as exc:
-            raise HTTPException(
-                status_code=401,
-                detail=f"Google ID token cryptographic verification failed: {exc}",
-            ) from exc
+        except AuthVerificationError as exc:
+            raise HTTPException(status_code=401, detail=str(exc)) from exc
 
         email = decoded_claims.get("email") or email
         name = decoded_claims.get("name") or decoded_claims.get("given_name") or name
         picture = decoded_claims.get("picture") or picture
-        provider = "google-id-token-verified"
+        provider = decoded_claims.get("provider") or "google-id-token-verified"
 
     if not name and email:
         name = email.split("@")[0].replace(".", " ").title()
@@ -234,6 +222,19 @@ async def logout_google_sso() -> Dict[str, Any]:
     """Signs out the current Google SSO session."""
     return {
         "status": "SIGNED_OUT",
+    }
+
+
+@app.get("/healthz")
+async def healthz() -> Dict[str, Any]:
+    """Lightweight liveness/readiness probe for Docker Compose, Kubernetes, OpenShift, and Cloud Run."""
+    return {
+        "status": "ok",
+        "service": "agent-triad-control-plane",
+        "state_backend": session_store_service.adapter.backend_name,
+        "lock_backend": agent_harness.lock_adapter.backend_name,
+        "telemetry_provider": logging_service.adapter.provider_name,
+        "llm_provider": lead_orchestrator._llm_client.provider,
     }
 
 
@@ -346,6 +347,20 @@ async def get_harness_status() -> Dict[str, Any]:
     return agent_harness.get_global_harness_status()
 
 
+@app.get("/api/preflight/cloud-status")
+async def get_cloud_provider_preflight_status(
+    cloud: str = "gcp",
+    region: str = "us-central1",
+    service: Optional[str] = None,
+) -> Dict[str, Any]:
+    """Pre-flight Cloud Provider regional outage check (`gcp` | `aws` | `azure`)."""
+    return cloud_status_service.check_region_status(
+        cloud_provider=cloud,
+        region=region,
+        service_hint=service,
+    )
+
+
 @app.get("/api/audit-events")
 async def get_audit_events() -> Dict[str, Any]:
     """Returns the chronological Audit & Event Tracker log of all detected issues, approvers, and timestamps."""
@@ -435,8 +450,13 @@ async def approve_incident_remedy(incident_id: str, req: ApproveRemedyRequest) -
         execution_mode=req.execution_mode,
         custom_kubectl=req.custom_kubectl,
     )
+    resp_status = (
+        "BLOCKED_PROVIDER_OUTAGE"
+        if updated_incident.get("status") == "BLOCKED_PROVIDER_OUTAGE"
+        else "REMEDIATION_COMPLETED_AND_VERIFIED"
+    )
     return {
-        "status": "REMEDIATION_COMPLETED_AND_VERIFIED",
+        "status": resp_status,
         "incident": updated_incident,
     }
 
@@ -516,9 +536,14 @@ async def deploy_chat_terraform(req: Optional[DeployChatTerraformRequest] = None
         or f"{lead_orchestrator.active_user.get('name', 'Hari')} (via Chat)"
     )
     result = await lead_orchestrator.execute_chat_terraform_deployment(approved_by=uname)
+    resp_status = (
+        "BLOCKED_PROVIDER_OUTAGE"
+        if result.get("status") == "BLOCKED_PROVIDER_OUTAGE"
+        else "TERRAFORM_EXECUTED_VIA_HARNESS"
+    )
     return {
-        "status": "TERRAFORM_EXECUTED_VIA_HARNESS",
-        **result,
+        "status": resp_status,
+        **{k: v for k, v in result.items() if k != "status"},
     }
 
 

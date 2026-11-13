@@ -16,6 +16,8 @@ import uuid
 from typing import Any, Callable, Coroutine, Dict, List, Optional
 from pydantic import BaseModel, Field
 
+from services.auth_broker import CloudAuthBroker, auth_broker
+
 
 JIT_SECRET_KEY = os.getenv("AAAS_JIT_SECRET", "aaas-triad-jit-ephemeral-secret-2026")
 
@@ -71,65 +73,62 @@ class A2ATaskResponse(BaseModel):
 
 
 class JITTokenBroker:
-    """Mints and validates 15-minute ephemeral HITL authorization tokens across Cloud Run services."""
+    """
+    Mints and validates 15-minute ephemeral HITL authorization tokens across Cloud Run/multi-cloud
+    services by delegating to `CloudAuthBroker` (GCP WIF, AWS STS, Azure Federated Credentials).
+    """
 
-    def __init__(self, secret: str = JIT_SECRET_KEY) -> None:
-        self._secret = secret.encode("utf-8")
-        self._active_tokens: Dict[str, Dict[str, Any]] = {}
-        self._revoked_tokens: set[str] = set()
+    def __init__(
+        self,
+        secret: str = JIT_SECRET_KEY,
+        broker: Optional[CloudAuthBroker] = None,
+    ) -> None:
+        if broker is not None:
+            self._broker = broker
+        elif secret == JIT_SECRET_KEY and auth_broker._jit_secret_str == secret:
+            self._broker = auth_broker
+        else:
+            self._broker = CloudAuthBroker(jit_secret=secret)
+        self._secret = self._broker._jit_secret
+        self._active_tokens: Dict[str, Dict[str, Any]] = self._broker._active_tokens
+        self._revoked_tokens: set[str] = self._broker._revoked_tokens
 
     def _compute_sig(self, incident_id: str, expires_epoch: int, nonce: str) -> str:
-        raw_msg = f"{incident_id}:{expires_epoch}:{nonce}".encode("utf-8")
-        return hmac.new(self._secret, raw_msg, hashlib.sha256).hexdigest()[:24]
+        return self._broker._compute_jit_sig(incident_id, expires_epoch, nonce)
 
-    def mint_token(self, incident_id: str, approved_by: str, scope: str, ttl_seconds: int = 900) -> Dict[str, Any]:
-        issued_at = datetime.datetime.now(datetime.timezone.utc)
-        expires_at = issued_at + datetime.timedelta(seconds=ttl_seconds)
-        expires_epoch = int(expires_at.timestamp())
-        nonce = uuid.uuid4().hex[:10]
-        signature = self._compute_sig(incident_id, expires_epoch, nonce)
-        token_id = f"jit-wif-{expires_epoch}-{nonce}-{signature}"
-
-        token_record = {
-            "token_id": token_id,
-            "incident_id": incident_id,
-            "approved_by": approved_by,
-            "scope": scope,
-            "ttl_seconds": ttl_seconds,
-            "issued_at": issued_at.isoformat(),
-            "expires_at": expires_at.isoformat(),
-            "expires_epoch": expires_epoch,
-            "revoked": False,
-        }
-        self._active_tokens[token_id] = token_record
-        return token_record
+    def mint_token(
+        self,
+        incident_id: str,
+        approved_by: str,
+        scope: str,
+        ttl_seconds: int = 900,
+        target_cloud: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        return self._broker.mint_jit_token(
+            incident_id=incident_id,
+            approved_by=approved_by,
+            scope=scope,
+            ttl_seconds=ttl_seconds,
+            target_cloud=target_cloud,
+        )
 
     def validate_token(self, token_id: str, incident_id: str) -> bool:
-        if not token_id or token_id in self._revoked_tokens:
-            return False
-        parts = token_id.split("-")
-        # Expected format: jit-wif-{expires_epoch}-{nonce}-{signature}
-        if len(parts) != 5 or parts[0] != "jit" or parts[1] != "wif":
-            return False
-        try:
-            expires_epoch = int(parts[2])
-        except ValueError:
-            return False
-        nonce = parts[3]
-        sig = parts[4]
-        now_epoch = int(datetime.datetime.now(datetime.timezone.utc).timestamp())
-        if now_epoch > expires_epoch:
-            return False
-        expected_sig = self._compute_sig(incident_id, expires_epoch, nonce)
-        return hmac.compare_digest(sig, expected_sig)
+        return self._broker.validate_jit_token(token_id, incident_id)
 
     def revoke_token(self, token_id: str) -> None:
-        self._revoked_tokens.add(token_id)
-        if token_id in self._active_tokens:
-            self._active_tokens[token_id]["revoked"] = True
-            self._active_tokens[token_id]["revoked_at"] = (
-                datetime.datetime.now(datetime.timezone.utc).isoformat()
-            )
+        self._broker.revoke_jit_token(token_id)
+
+    def exchange_token(
+        self,
+        token_record: Dict[str, Any],
+        target_cloud: Optional[str] = None,
+        execute_live: bool = False,
+    ) -> Dict[str, Any]:
+        return self._broker.exchange_jit_token(
+            jit_token_record=token_record,
+            target_cloud=target_cloud,
+            execute_live=execute_live,
+        )
 
 
 class A2AProtocolHub:

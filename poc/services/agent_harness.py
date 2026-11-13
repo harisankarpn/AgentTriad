@@ -22,10 +22,44 @@ import time
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
+from providers.base_state import DistributedLockAdapter
+from providers.generic.memory_state_adapters import InMemoryLockAdapter, LocalFileLockAdapter
+from providers.generic.redis_lock_adapter import RedisLockAdapter
+
 
 PROJECT_ID = os.getenv("GCP_PROJECT_ID", "agent-triad")
 STATE_BUCKET = os.getenv("AAAS_TF_STATE_BUCKET", "agent-triad-tf-state")
 LOCAL_LOCK_DIR = Path("/tmp/aaas_tf_locks")
+
+
+def create_lock_adapter(backend: Optional[str] = None) -> DistributedLockAdapter:
+    """
+    Factory returning a concrete `DistributedLockAdapter` controlled by
+    `AAAS_STATE_BACKEND=firestore|postgres|redis|memory` (with optional `AAAS_LOCK_BACKEND` override).
+    Defaults to `LocalFileLockAdapter` to preserve 100% existing `.tflock` & hysteresis behavior.
+    """
+    mode = (
+        backend
+        or os.getenv("AAAS_LOCK_BACKEND")
+        or os.getenv("AAAS_STATE_BACKEND")
+        or "firestore"
+    ).strip().lower()
+
+    if mode == "redis":
+        return RedisLockAdapter(state_bucket=STATE_BUCKET)
+    if mode in ("memory", "in-memory"):
+        return InMemoryLockAdapter(state_bucket=STATE_BUCKET)
+    if mode in ("postgres", "postgresql"):
+        if os.getenv("AAAS_REDIS_URL") or os.getenv("REDIS_URL"):
+            return RedisLockAdapter(state_bucket=STATE_BUCKET)
+        return LocalFileLockAdapter(lock_dir=LOCAL_LOCK_DIR, state_bucket=STATE_BUCKET, persist_to_disk=True)
+    if mode in ("firestore", "gcp", "local"):
+        return LocalFileLockAdapter(lock_dir=LOCAL_LOCK_DIR, state_bucket=STATE_BUCKET, persist_to_disk=True)
+
+    raise ValueError(
+        f"Unsupported AAAS_STATE_BACKEND={mode!r} for AgentHarnessEngine. "
+        "Expected one of: firestore, postgres, redis, memory."
+    )
 
 # Teammate / external resources that must NEVER be destructively modified or deleted
 PROTECTED_EXTERNAL_RESOURCES = {
@@ -68,8 +102,12 @@ class AgentHarnessEngine:
     OPA policy checks, Terraform dry-run validation, and 45s Watchdog rollbacks.
     """
 
-    def __init__(self) -> None:
-        LOCAL_LOCK_DIR.mkdir(parents=True, exist_ok=True)
+    def __init__(
+        self,
+        lock_adapter: Optional[DistributedLockAdapter] = None,
+        backend: Optional[str] = None,
+    ) -> None:
+        self.lock_adapter: DistributedLockAdapter = lock_adapter or create_lock_adapter(backend)
         self.active_locks: Dict[str, Dict[str, Any]] = {}
         self.hourly_mutation_ledger: List[Dict[str, Any]] = []
         self.temporal_hysteresis_freezes: Dict[str, float] = {}
@@ -108,7 +146,7 @@ class AgentHarnessEngine:
         return sanitized
 
     # ------------------------------------------------------------------
-    # 2. GCS / Local `.tflock` Concurrency Lock & Lease-Keeper Daemon
+    # 2. Pluggable `.tflock` Concurrency Lock & Lease-Keeper Daemon
     # ------------------------------------------------------------------
     def acquire_or_renew_state_lock(
         self,
@@ -120,59 +158,25 @@ class AgentHarnessEngine:
         ttl_seconds: int = 600,
     ) -> Dict[str, Any]:
         """
-        Acquires or renews a 10-minute Terraform remote state lock (`gs://.../.tflock`)
-        with 5-minute Lease-Keeper heartbeat renewal during Stage 2 HITL review.
+        Acquires or renews a 10-minute distributed state lock (`.tflock`) via the configured
+        `DistributedLockAdapter` (Local File, Redis, or In-Memory) during Stage 2 HITL review.
         """
         safe_key = re.sub(r"[^a-zA-Z0-9_.-]", "-", f"{cluster}-{namespace}-{workload}")
-        gcs_uri = f"gs://{STATE_BUCKET}/{safe_key}.tflock"
-        now = time.time()
-        now_iso = datetime.datetime.now(datetime.timezone.utc).isoformat()
-        expires_iso = datetime.datetime.fromtimestamp(
-            now + ttl_seconds, tz=datetime.timezone.utc
-        ).isoformat()
-
-        existing = self.active_locks.get(safe_key)
-        action = "RENEWED_5M_LEASE" if existing else "ACQUIRED_10M_LEASE"
-
-        lock_record = {
-            "lock_id": f"tflock-{hashlib.sha1(safe_key.encode()).hexdigest()[:10]}",
-            "lock_key": safe_key,
-            "gcs_uri": gcs_uri,
-            "incident_id": incident_id,
-            "holder": holder,
-            "status": "RENEWED" if existing else "ACQUIRED",
-            "action": action,
-            "acquired_at": existing["acquired_at"] if existing else now_iso,
-            "renewed_at": now_iso,
-            "expires_at": expires_iso,
-            "ttl_seconds": ttl_seconds,
-        }
+        lock_record = self.lock_adapter.acquire_or_renew_lock(
+            lock_key=safe_key,
+            incident_id=incident_id,
+            holder=holder,
+            ttl_seconds=ttl_seconds,
+            metadata={"cluster": cluster, "namespace": namespace, "workload": workload},
+        )
         self.active_locks[safe_key] = lock_record
-
-        try:
-            lock_file = LOCAL_LOCK_DIR / f"{safe_key}.tflock.json"
-            lock_file.write_text(json.dumps(lock_record, indent=2), encoding="utf-8")
-        except Exception:
-            pass
-
         return lock_record
 
     def release_state_lock(self, cluster: str, namespace: str, workload: str) -> Dict[str, Any]:
         safe_key = re.sub(r"[^a-zA-Z0-9_.-]", "-", f"{cluster}-{namespace}-{workload}")
-        record = self.active_locks.pop(safe_key, None)
-        try:
-            lock_file = LOCAL_LOCK_DIR / f"{safe_key}.tflock.json"
-            if lock_file.exists():
-                lock_file.unlink()
-        except Exception:
-            pass
-        return {
-            "lock_key": safe_key,
-            "gcs_uri": f"gs://{STATE_BUCKET}/{safe_key}.tflock",
-            "status": "RELEASED",
-            "released_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
-            "previous_lock": record,
-        }
+        release_info = self.lock_adapter.release_lock(safe_key)
+        self.active_locks.pop(safe_key, None)
+        return release_info
 
     # ------------------------------------------------------------------
     # 3. Deterministic OPA Policy Gate & Blast-Radius Governor
@@ -381,8 +385,14 @@ class AgentHarnessEngine:
                 "specialist": specialist_name,
             }
         )
-        # Apply 45-minute Temporal Hysteresis anti-flapping freeze
-        self.temporal_hysteresis_freezes[workload_clean] = now + (45 * 60)
+        # Apply 45-minute Temporal Hysteresis anti-flapping freeze via DistributedLockAdapter
+        freeze_until = self.lock_adapter.set_hysteresis_freeze(workload_clean, duration_seconds=45 * 60)
+        self.temporal_hysteresis_freezes[workload_clean] = freeze_until
+
+    def is_workload_in_hysteresis_freeze(self, workload: str) -> Optional[float]:
+        """Returns the active freeze expiration epoch for `workload`, or None if unfrozen."""
+        workload_clean = (workload or "").split("/")[-1].strip()
+        return self.lock_adapter.get_hysteresis_freeze(workload_clean)
 
     def build_incident_harness_bundle(
         self,
@@ -424,9 +434,13 @@ class AgentHarnessEngine:
         }
 
     def get_global_harness_status(self) -> Dict[str, Any]:
+        active_locks = self.lock_adapter.list_active_locks()
+        active_freezes = self.lock_adapter.list_hysteresis_freezes()
         return {
-            "active_locks_count": len(self.active_locks),
-            "active_locks": list(self.active_locks.values()),
+            "active_locks_count": len(active_locks),
+            "active_locks": active_locks,
+            "active_hysteresis_freezes_count": len(active_freezes),
+            "lock_backend": self.lock_adapter.get_status(),
             "policy_evaluations_count": self.policy_evaluations_count,
             "sanitized_logs_count": self.sanitized_logs_count,
             "hourly_mutations_count": len(self.hourly_mutation_ledger),

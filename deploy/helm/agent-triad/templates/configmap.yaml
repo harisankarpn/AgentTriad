@@ -1,0 +1,35 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "agent-triad.fullname" . }}-config
+  labels:
+    {{- include "agent-triad.labels" . | nindent 4 }}
+data:
+  HOME: "/tmp"
+  CLOUD_PROVIDER: {{ .Values.global.cloudProvider | quote }}
+  GCP_PROJECT_ID: {{ .Values.global.gcpProjectId | quote }}
+  GCP_LOCATION: {{ .Values.global.gcpRegion | quote }}
+  GCP_REGION: {{ .Values.global.gcpRegion | quote }}
+  AWS_REGION: {{ .Values.global.awsRegion | quote }}
+  AAAS_AZURE_SUBSCRIPTION_ID: {{ .Values.global.azureSubscriptionId | quote }}
+  AAAS_AZURE_RESOURCE_GROUP: {{ .Values.global.azureResourceGroup | quote }}
+  AAAS_CLOUD_STATUS_MODE: {{ .Values.global.cloudStatusMode | quote }}
+  AAAS_STATE_BACKEND: {{ .Values.state.backend | quote }}
+  AAAS_LOCK_BACKEND: {{ .Values.state.lockBackend | quote }}
+  AAAS_TELEMETRY_PROVIDER: {{ .Values.telemetry.provider | quote }}
+  AAAS_OTEL_LOKI_URL: {{ .Values.telemetry.lokiUrl | quote }}
+  AAAS_PROMETHEUS_ALERTMANAGER_URL: {{ .Values.telemetry.prometheusAlertmanagerUrl | quote }}
+  AAAS_LLM_PROVIDER: {{ .Values.llm.provider | quote }}
+  AAAS_LLM_MODEL: {{ .Values.llm.model | quote }}
+  AAAS_LLM_API_BASE: {{ .Values.llm.apiBase | quote }}
+  GOOGLE_GENAI_USE_VERTEXAI: {{ .Values.llm.googleGenaiUseVertexai | quote }}
+  AZURE_OPENAI_ENDPOINT: {{ .Values.llm.azureOpenaiEndpoint | quote }}
+  AZURE_OPENAI_DEPLOYMENT: {{ .Values.llm.azureOpenaiDeployment | quote }}
+  AAAS_AUTH_PROVIDER: {{ .Values.auth.provider | quote }}
+  AAAS_OIDC_JWKS_URL: {{ .Values.auth.oidcJwksUrl | quote }}
+  AAAS_OIDC_ISSUER: {{ .Values.auth.oidcIssuer | quote }}
+  AAAS_OIDC_AUDIENCE: {{ .Values.auth.oidcAudience | quote }}
+  AAAS_GITOPS_REPO: {{ .Values.gitops.repo | quote }}
+  AAAS_GITOPS_BASE_BRANCH: {{ .Values.gitops.baseBranch | quote }}
+  DATABASE_AGENT_URL: {{ printf "http://%s-db-agent:%v" (include "agent-triad.fullname" .) .Values.dbAgent.service.port | quote }}
+  INFRA_AGENT_URL: {{ printf "http://%s-infra-agent:%v" (include "agent-triad.fullname" .) .Values.infraAgent.service.port | quote }}

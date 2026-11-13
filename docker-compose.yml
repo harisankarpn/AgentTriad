@@ -1,0 +1,211 @@
+# AgentTriad (AaaS) — Cloud-Agnostic Local / Any-VM Stack
+# Run the complete stack (Control Plane + ADK Database Agent + ADK Infra Agent + PostgreSQL + Redis)
+# with zero cloud dependencies:
+#   cp .env.example .env
+#   docker compose up --build
+
+name: agent-triad
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: agent-triad-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-aaas}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-aaas_local_dev_password}
+      POSTGRES_DB: ${POSTGRES_DB:-agent_triad}
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - agent_triad_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-aaas} -d ${POSTGRES_DB:-agent_triad}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 5s
+    networks:
+      - agent-triad-net
+
+  redis:
+    image: redis:7-alpine
+    container_name: agent-triad-redis
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes"]
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
+    volumes:
+      - agent_triad_redisdata:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    networks:
+      - agent-triad-net
+
+  db-agent:
+    build:
+      context: ./agents/database_agent
+      dockerfile: Dockerfile
+    container_name: agent-triad-db-agent
+    restart: unless-stopped
+    ports:
+      - "${DB_AGENT_PORT:-8081}:8080"
+    environment:
+      PORT: "8080"
+      PYTHONPATH: "/opt/agent-triad/poc:/app"
+      SERVICE_URL: "http://db-agent:8080"
+      CLOUD_PROVIDER: ${CLOUD_PROVIDER:-gcp}
+      GCP_PROJECT_ID: ${GCP_PROJECT_ID:-agent-triad-local}
+      GCP_REGION: ${GCP_REGION:-us-central1}
+      GOOGLE_GENAI_USE_VERTEXAI: ${GOOGLE_GENAI_USE_VERTEXAI:-FALSE}
+      AAAS_LLM_PROVIDER: ${AAAS_LLM_PROVIDER:-openai}
+      AAAS_LLM_MODEL: ${AAAS_LLM_MODEL:-gpt-4o-mini}
+      AAAS_LLM_API_BASE: ${AAAS_LLM_API_BASE:-}
+      AAAS_LLM_API_KEY: ${AAAS_LLM_API_KEY:-}
+      AZURE_OPENAI_ENDPOINT: ${AZURE_OPENAI_ENDPOINT:-}
+      AZURE_OPENAI_API_KEY: ${AZURE_OPENAI_API_KEY:-}
+      AZURE_OPENAI_DEPLOYMENT: ${AZURE_OPENAI_DEPLOYMENT:-}
+      AWS_REGION: ${AWS_REGION:-us-east-1}
+      AAAS_DB_READONLY_DSN: ${AAAS_DB_READONLY_DSN:-}
+    volumes:
+      - ./poc:/opt/agent-triad/poc:ro
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request, sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8080/healthz', timeout=3).status == 200 else 1)",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 10s
+    networks:
+      - agent-triad-net
+
+  infra-agent:
+    build:
+      context: ./agents/infra_agent
+      dockerfile: Dockerfile
+    container_name: agent-triad-infra-agent
+    restart: unless-stopped
+    ports:
+      - "${INFRA_AGENT_PORT:-8082}:8080"
+    environment:
+      PORT: "8080"
+      PYTHONPATH: "/opt/agent-triad/poc:/app"
+      SERVICE_URL: "http://infra-agent:8080"
+      CLOUD_PROVIDER: ${CLOUD_PROVIDER:-gcp}
+      GCP_PROJECT_ID: ${GCP_PROJECT_ID:-agent-triad-local}
+      GCP_REGION: ${GCP_REGION:-us-central1}
+      GOOGLE_GENAI_USE_VERTEXAI: ${GOOGLE_GENAI_USE_VERTEXAI:-FALSE}
+      AAAS_LLM_PROVIDER: ${AAAS_LLM_PROVIDER:-openai}
+      AAAS_LLM_MODEL: ${AAAS_LLM_MODEL:-gpt-4o-mini}
+      AAAS_LLM_API_BASE: ${AAAS_LLM_API_BASE:-}
+      AAAS_LLM_API_KEY: ${AAAS_LLM_API_KEY:-}
+      AZURE_OPENAI_ENDPOINT: ${AZURE_OPENAI_ENDPOINT:-}
+      AZURE_OPENAI_API_KEY: ${AZURE_OPENAI_API_KEY:-}
+      AZURE_OPENAI_DEPLOYMENT: ${AZURE_OPENAI_DEPLOYMENT:-}
+      AWS_REGION: ${AWS_REGION:-us-east-1}
+      AAAS_GITOPS_REPO: ${AAAS_GITOPS_REPO:-harisankar/AgentTriad}
+      AAAS_GITOPS_BASE_BRANCH: ${AAAS_GITOPS_BASE_BRANCH:-main}
+    volumes:
+      - ./poc:/opt/agent-triad/poc:ro
+      - ./.git:/opt/agent-triad/.git:ro
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request, sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8080/healthz', timeout=3).status == 200 else 1)",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 10s
+    networks:
+      - agent-triad-net
+
+  control-plane:
+    build:
+      context: ./poc
+      dockerfile: Dockerfile
+    container_name: agent-triad-control-plane
+    restart: unless-stopped
+    ports:
+      - "${CONTROL_PLANE_PORT:-8080}:8080"
+    environment:
+      PORT: "8080"
+      CLOUD_PROVIDER: ${CLOUD_PROVIDER:-gcp}
+      GCP_PROJECT_ID: ${GCP_PROJECT_ID:-agent-triad-local}
+      GCP_LOCATION: ${GCP_REGION:-us-central1}
+      GOOGLE_GENAI_USE_VERTEXAI: ${GOOGLE_GENAI_USE_VERTEXAI:-FALSE}
+      # Cloud-agnostic State & Distributed Locking (PostgreSQL + Redis)
+      AAAS_STATE_BACKEND: ${AAAS_STATE_BACKEND:-postgres}
+      AAAS_LOCK_BACKEND: ${AAAS_LOCK_BACKEND:-redis}
+      AAAS_POSTGRES_DSN: "postgresql://${POSTGRES_USER:-aaas}:${POSTGRES_PASSWORD:-aaas_local_dev_password}@postgres:5432/${POSTGRES_DB:-agent_triad}"
+      AAAS_REDIS_URL: "redis://redis:6379/0"
+      # Cloud-agnostic Telemetry (OTel / Loki / Prometheus Alertmanager)
+      AAAS_TELEMETRY_PROVIDER: ${AAAS_TELEMETRY_PROVIDER:-otel}
+      AAAS_OTEL_LOKI_URL: ${AAAS_OTEL_LOKI_URL:-}
+      AAAS_PROMETHEUS_ALERTMANAGER_URL: ${AAAS_PROMETHEUS_ALERTMANAGER_URL:-}
+      # Pre-flight Cloud Provider Outage Guard (`offline` for zero-cloud local mode, `live` for public feeds)
+      AAAS_CLOUD_STATUS_MODE: ${AAAS_CLOUD_STATUS_MODE:-offline}
+      # Model-Agnostic LLM Routing (`vertex` | `gemini` | `litellm` | `bedrock` | `azure_openai` | `openai`)
+      AAAS_LLM_PROVIDER: ${AAAS_LLM_PROVIDER:-openai}
+      AAAS_LLM_MODEL: ${AAAS_LLM_MODEL:-gpt-4o-mini}
+      AAAS_LLM_API_BASE: ${AAAS_LLM_API_BASE:-}
+      AAAS_LLM_API_KEY: ${AAAS_LLM_API_KEY:-}
+      AZURE_OPENAI_ENDPOINT: ${AZURE_OPENAI_ENDPOINT:-}
+      AZURE_OPENAI_API_KEY: ${AZURE_OPENAI_API_KEY:-}
+      AZURE_OPENAI_DEPLOYMENT: ${AZURE_OPENAI_DEPLOYMENT:-}
+      AWS_REGION: ${AWS_REGION:-us-east-1}
+      # Pluggable OIDC / Auth Broker
+      AAAS_AUTH_PROVIDER: ${AAAS_AUTH_PROVIDER:-oidc}
+      AAAS_OIDC_JWKS_URL: ${AAAS_OIDC_JWKS_URL:-}
+      AAAS_OIDC_ISSUER: ${AAAS_OIDC_ISSUER:-}
+      AAAS_OIDC_AUDIENCE: ${AAAS_OIDC_AUDIENCE:-}
+      # Specialist A2A Endpoints (internal Docker DNS)
+      DATABASE_AGENT_URL: "http://db-agent:8080"
+      INFRA_AGENT_URL: "http://infra-agent:8080"
+      # GitOps Bidirectional PR Configuration
+      AAAS_GITOPS_REPO: ${AAAS_GITOPS_REPO:-harisankar/AgentTriad}
+      AAAS_GITOPS_BASE_BRANCH: ${AAAS_GITOPS_BASE_BRANCH:-main}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      db-agent:
+        condition: service_healthy
+      infra-agent:
+        condition: service_healthy
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request, sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8080/healthz', timeout=3).status == 200 else 1)",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 12s
+    networks:
+      - agent-triad-net
+
+volumes:
+  agent_triad_pgdata:
+    driver: local
+  agent_triad_redisdata:
+    driver: local
+
+networks:
+  agent-triad-net:
+    driver: bridge
