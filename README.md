@@ -1,26 +1,37 @@
 # Agent-Triad: Autonomous Cloud Operations (AaaS)
 
-Agent-Triad is an autonomous, cloud-agnostic, outcome-driven cloud support and operations platform built on the **Agent as a Service (AaaS)** architecture. Originally built on Google Cloud using the **Agent Development Kit (ADK)** and the **Agent2Agent (A2A) protocol**, it has evolved into a **Ports & Adapters multi-cloud platform** that runs seamlessly on **Google Cloud (Cloud Run / GKE)**, **AWS (EKS / RDS / EC2 / Bedrock)**, **Microsoft Azure (AKS / Azure SQL / VMs / Azure OpenAI)**, **Red Hat OpenShift**, or **zero-cloud local Docker Compose**. It transforms reactive SRE into a closed-loop perception-reasoning-action-validation framework with deterministic guardrails, **Google Identity Services / OIDC SSO**, **pluggable multi-session persistence (Firestore / PostgreSQL / Redis)**, **Proactive SRE Intelligence**, and Human-in-the-Loop (HITL) authorization.
+Agent-Triad is an autonomous, cloud-agnostic, outcome-driven cloud support and operations platform built on the **Agent as a Service (AaaS)** architecture. Originally built on Google Cloud using the **Agent Development Kit (ADK)** and the **Agent2Agent (A2A) protocol**, it has evolved into a **Ports & Adapters multi-cloud platform** that runs seamlessly on **Google Cloud (Cloud Run / GKE)**, **AWS (EKS / RDS / EC2 / Bedrock)**, **Microsoft Azure (AKS / Azure SQL / VMs / Azure OpenAI)**, **Red Hat OpenShift**, or a **self-hosted Docker Compose pilot stack**. It transforms reactive SRE into a closed-loop perception-reasoning-action-validation framework with deterministic guardrails, **Google Identity Services / OIDC SSO**, **pluggable multi-session persistence (Firestore / PostgreSQL / Redis)**, **Proactive SRE Intelligence**, and Human-in-the-Loop (HITL) authorization.
+
+> **Interactive Executive Briefing:** Open [`agent-triad-overview.html`](./agent-triad-overview.html) in any browser for a C-suite-ready visual walkthrough of business impact, a plain-English 2 AM incident recovery & Cloud Outage Safety Brake simulator, the 5-layer zero-trust model, and multi-cloud portability.
 
 ---
 
 ## High-Level Executive Summary
 
-**AgentTriad (AaaS Control Plane)** provides an autonomous, zero-trust cloud operations co-pilot (**Atlas**) that continuously observes live telemetry (Google Cloud Logging or OpenTelemetry / Loki / Prometheus), diagnoses root causes using live **Google ADK (`google-adk`)** specialist microservices across **GCP, AWS, and Azure**, correlates incidents with GitOps releases and cloud provider status feeds, persists per-user operational sessions (**Cloud Firestore**, **PostgreSQL**, or **Redis**), and executes human-approved remediations with built-in safety guardrails and automatic rollback protection.
+**AgentTriad (AaaS Control Plane)** pairs an always-on AI operations co-pilot (**Atlas**) with specialist cloud agents to move organizations from **4-hour war rooms to verified resolution in minutes**. It continuously observes live telemetry (Google Cloud Logging or OpenTelemetry / Loki / Prometheus), diagnoses root causes using live **Google ADK (`google-adk`)** specialist microservices across **GCP, AWS, and Azure**, correlates incidents with GitOps releases and cloud provider status feeds, persists per-user operational sessions (**Cloud Firestore**, **PostgreSQL**, or **Redis**), and executes human-approved remediations with built-in safety guardrails and automatic rollback protection.
+
+### Executive Value Snapshot
+
+| Dimension | Traditional Reactive Operations | Autonomous Agent-Triad |
+| :--- | :--- | :--- |
+| **Resolution Speed** | Hours to days of manual log-hunting and ticket handoffs | **Hours → Minutes** via parallel read-only specialist triage and 1-click approved remediation |
+| **Access Posture** | Always-on administrative accounts with broad blast radius | **Zero Standing Admin Access** — strictly read-only until verified SSO approval mints a 15-min single-use key |
+| **AI Economics** | Unfiltered alert floods or unpredictable LLM loops during fixes | **Bounded AI** — edge filtering removes noise *before* invoking LLMs; AI reasons on real incidents while deterministic automation executes fixes |
+| **Strategic Portability** | Tightly coupled to one cloud provider and one foundation model | **Any Cloud & Any Model** — runs across GCP, AWS, Azure, OpenShift & Vertex AI, Bedrock, Azure OpenAI, or private LLMs |
 
 ### Key Executive Highlights
 * **3-Stage Autonomous Triad Architecture**:
-  1. **Step 1 — Observe (`Heartbeat & Telemetry`)**: Continuously polls and SAIF-sanitizes live telemetry via pluggable `TelemetryIngestionAdapter` backends — **Google Cloud Logging** (`cloudsql_database`, `cloud-sql-proxy`, `gce_instance`, `cloud_run_revision`, `cloud_function`, `aiplatform.googleapis.com/ReasoningEngine`) or **OpenTelemetry / Grafana Loki / Prometheus Alertmanager / CloudWatch OTel** — suppressing routine edge noise at `$0` LLM cost and streaming 15-second health heartbeats.
+  1. **Step 1 — Observe (`Heartbeat & Telemetry`)**: Continuously polls and SAIF-sanitizes live telemetry via pluggable `TelemetryIngestionAdapter` backends — **Google Cloud Logging** (`cloudsql_database`, `cloud-sql-proxy`, `gce_instance`, `cloud_run_revision`, `cloud_function`, `aiplatform.googleapis.com/ReasoningEngine`) or **OpenTelemetry / Grafana Loki / Prometheus Alertmanager / CloudWatch OTel** — filtering out routine edge noise *before* invoking AI models and streaming 15-second health heartbeats.
   2. **Step 2 — Reason & Gate (`Atlas • AaaS Lead Orchestrator`)**: Model-agnostic root orchestrator (`AAAS_LLM_PROVIDER=vertex|gemini|bedrock|azure_openai|openai|litellm`, defaulting to **Vertex AI Gemini `gemini-2.5-flash`**) that correlates anomalies against Golden Remediation Playbooks (RAG), checks cloud provider regional status pre-flight, delegates deep domain diagnostics over **JSON-RPC 2.0 A2A** to live ADK Specialist Agents, and gates all mutations behind **Human-in-the-Loop (`I accept`)** approval tied to the authenticated SSO user.
-  3. **Step 3 — Remediate (`7-Agent Specialist Roster`)**: Combines live **ADK Specialist Microservices** (**Database Agent** for Cloud SQL / AWS RDS / Azure SQL & **Infra Agent** for GCE / AWS EC2 / Azure VMs / GKE / GitOps) with 5 deterministic domain execution harnesses (**Serverless**, **Networking**, **Data Analytics**, **Security**, and **Billing**) operating under **Zero-Standing Privilege** (`$0` extra LLM token cost during execution).
+  3. **Step 3 — Remediate (`7-Agent Specialist Roster`)**: Combines live **ADK Specialist Microservices** (**Database Agent** for Cloud SQL / AWS RDS / Azure SQL & **Infra Agent** for GCE / AWS EC2 / Azure VMs / GKE / GitOps) with 5 deterministic domain execution harnesses (**Serverless**, **Networking**, **Data Analytics**, **Security**, and **Billing**) operating under **Zero-Standing Privilege** with deterministic post-approval execution (no extra AI calls or guesswork during remediation).
 * **Cloud-Agnostic Ports & Adapters Portability (100% GCP Backward-Compatible)**:
   * **Zero Vendor Lock-In**: Swap telemetry (`gcp` | `otel`), session state (`firestore` | `postgres` | `redis` | `memory`), distributed locking (`local` | `redis` | `memory`), target cloud diagnostics (`gcp` | `aws` | `azure`), LLM inference (`vertex` | `gemini` | `bedrock` | `azure_openai` | `openai` | `litellm`), and identity federation (`GCP WIF` | `AWS STS` | `Azure Entra ID`) strictly via environment variables — while keeping **GCP Cloud Run + Vertex AI + Cloud Firestore** as the zero-config default.
-  * **Run Anywhere**: Deploy on GCP Cloud Run via [`terraform/main.tf`](./terraform/main.tf), locally or on any VM with zero cloud dependencies via [`docker-compose.yml`](./docker-compose.yml), or one-click to **AWS EKS**, **Azure AKS**, **Google GKE**, and **Red Hat OpenShift** via the Helm chart in [`deploy/helm/agent-triad/`](./deploy/helm/agent-triad/).
+  * **Run Anywhere**: Deploy serverless on GCP Cloud Run via [`terraform/main.tf`](./terraform/main.tf), run a self-hosted pilot or isolated evaluation stack via [`docker-compose.yml`](./docker-compose.yml), or deploy one-click to **AWS EKS**, **Azure AKS**, **Google GKE**, and **Red Hat OpenShift** via the Helm chart in [`deploy/helm/agent-triad/`](./deploy/helm/agent-triad/).
 * **All 4 Cloud Operations Scenarios Supported**:
   * **Scenario 1 (1-Line CLI / API Fix)**: Rapid root-cause analysis and single-command `gcloud` / `aws` / `az` / API remediation.
   * **Scenario 2 (Multi-Service Terraform Fix)**: Coordinated cross-domain remediation (e.g., IAM + VPC Firewall + Database) via a pre-validated **Terraform (`.tf`)** bundle and **Bidirectional GitOps Reconciliation PR** payloads.
   * **Scenario 3 (Terraform Stack Generator)**: On-demand generation, dry-run validation, and harnessed execution of production-ready **Terraform (`.tf`)** stacks from natural language chat.
-  * **Scenario 4 (Cloud How-To & Advisory)**: Instant architectural and operational guidance with `$0` sandbox overhead.
+  * **Scenario 4 (Cloud How-To & Advisory)**: Instant architectural and operational guidance with zero risk of production mutation.
 * **Enterprise Identity & Pluggable Multi-Session Workspace**:
   * **Google Identity Services (OAuth 2.0), IAP & Standard OIDC SSO**: Real Google Workspace sign-in, GCP IAP header auto-detection, and pluggable standard OIDC JWT verification (RS256/ES256 via JWKS or HS256) with dynamic user identity propagation across Atlas conversations, HITL approvals, and the Audit & Event Tracker.
   * **Multi-Session Chat History**: Persists up to **25 chat sessions per signed-in user** in **Cloud Firestore** (`aaas_user_sessions`, default), **PostgreSQL**, or **Redis** with instant session switching, auto-generated titles, reset/delete/clear-all controls, and local fallback caching.
@@ -36,7 +47,7 @@ Agent-Triad is an autonomous, cloud-agnostic, outcome-driven cloud support and o
 
 ## Cloud-Agnostic Architecture & 5-Phase Evolution
 
-Agent-Triad was refactored across **5 engineering phases** into a clean **Ports & Adapters (Hexagonal) architecture** inside [`poc/providers/`](./poc/providers/) and [`poc/services/`](./poc/services/), preserving 100% backward compatibility with the existing GCP Cloud Run deployment while unlocking full multi-cloud and zero-cloud portability.
+Agent-Triad was refactored across **5 engineering phases** into a clean **Ports & Adapters (Hexagonal) architecture** inside [`poc/providers/`](./poc/providers/) and [`poc/services/`](./poc/services/), preserving 100% backward compatibility with the existing GCP Cloud Run deployment while unlocking full multi-cloud, OpenShift, and self-hosted portability.
 
 ### Phase 1 — Pluggable Telemetry, State Persistence & Distributed Locking Ports
 Decoupled GCP-specific logging, Firestore session storage, and local `.tflock` locking behind abstract ports:
@@ -85,9 +96,9 @@ Added three production SRE intelligence engines wired directly into Watcher, Atl
    * Enforces `is_strictly_readonly_introspection_sql()` (blocking any DML/DDL or admin functions such as `INSERT`, `UPDATE`, `DELETE`, `DROP`, `ALTER`, `TRUNCATE`, `GRANT`, `pg_terminate_backend`, `pg_cancel_backend`) and executes `SET SESSION CHARACTERISTICS AS TRANSACTION READ ONLY`.
    * Defaults to **Zero-Standing-Privilege out-of-band slow-query log inspection** (identifying long-running SQL, lock waits, and deadlocks without TCP/5432 socket access); optionally connects to live `pg_stat_activity` / `pg_stat_statements` only when `AAAS_DB_READONLY_DSN` is explicitly configured. Any recommended SQL fix (`CREATE INDEX CONCURRENTLY`, etc.) is returned strictly as an HITL-gated advisory proposal.
 
-### Phase 5 — Portable Zero-Cloud Local & Multi-Cluster Kubernetes / OpenShift Deployment
+### Phase 5 — Self-Hosted Pilot & Multi-Cluster Kubernetes / OpenShift Deployment
 * **Unified Health Probe (`GET /healthz`)**: Added to `agent-triad-control-plane` (matching `db-agent` and `infra-agent`), reporting live `state_backend`, `lock_backend`, `telemetry_provider`, and `llm_provider`.
-* **Zero-Cloud Docker Compose Stack** ([`docker-compose.yml`](./docker-compose.yml) + [`.env.example`](./.env.example)): Runs all 5 services (`control-plane`, `db-agent`, `infra-agent`, `postgres:16-alpine`, `redis:7-alpine`) locally or on any VM with healthchecks and zero cloud accounts required.
+* **Self-Hosted Pilot & Evaluation Stack (Docker Compose)** ([`docker-compose.yml`](./docker-compose.yml) + [`.env.example`](./.env.example)): Runs all 5 services (`control-plane`, `db-agent`, `infra-agent`, `postgres:16-alpine`, `redis:7-alpine`) in an isolated VPC, private host, or local environment with healthchecks and no external cloud accounts required for evaluation.
 * **Portable Kubernetes & Red Hat OpenShift Helm Chart** ([`deploy/helm/agent-triad/`](./deploy/helm/agent-triad/)): Production Helm v2 chart (17 templates) supporting **AWS EKS** (IRSA + Bedrock + ALB Ingress), **Azure AKS** (Workload Identity + Azure OpenAI + NGINX/AGIC), **Google GKE** (Workload Identity + Vertex AI + GCE Ingress), and **Red Hat OpenShift** (`openshift.enabled=true` for `restricted-v2` SCC compliance + edge-terminated TLS `Route`), plus optional `HorizontalPodAutoscaler`, `NetworkPolicy`, in-cluster or managed PostgreSQL/Redis, and `existingSecret` integration.
 
 ---
@@ -161,8 +172,8 @@ To prevent autonomous SRE failure modes in production, the Agent Harness ([`poc/
 3. **Bifurcated Rollback Engine (Stateless Auto-Rollback vs. Stateful Safe-Mode Isolation)**:
    * **Stateless Workloads (`STATELESS_CANARY_ROLLBACK`)**: Cloud Run revisions, Kubernetes deployments, and VM guest metadata support atomic rollback to the prior healthy revision/state.
    * **Stateful Workloads (`STATEFUL_SAFE_MODE_ISOLATION`)**: Automated destructive rollbacks are **strictly forbidden** on stateful resources (`Cloud SQL`, `RDS`, `Azure SQL`, `AlloyDB`, `Spanner`, Persistent Disks). All generated Terraform HCL enforces `deletion_protection = true` and `lifecycle { prevent_destroy = true }`, and [`validate_terraform_dry_run()`](./poc/services/agent_harness.py) rejects (`FAILED`) any HCL with `deletion_protection = false` or `force_destroy = true`.
-4. **Zero-SPOF Degraded Mode (`$0` LLM Deterministic Fallback & Direct Specialist Endpoints)**:
-   * If the configured LLM provider (Vertex AI, Bedrock, Azure OpenAI, OpenAI, or LiteLLM) experiences quota exhaustion (`429`), an outage, or has no API key configured, `Atlas`, `db-agent`, and `infra-agent` automatically bypass the LLM and execute their **deterministic Cloud API tools and Golden Playbooks at `0` LLM tokens**.
+4. **Zero-SPOF Degraded Mode (Deterministic Playbook Fallback & Direct Specialist Endpoints)**:
+   * If the configured LLM provider (Vertex AI, Bedrock, Azure OpenAI, OpenAI, or LiteLLM) experiences quota exhaustion (`429`), an outage, or has no API key configured, `Atlas`, `db-agent`, and `infra-agent` automatically bypass the LLM and execute their **deterministic Cloud API tools and Golden Playbooks** so critical operations never stall.
    * Each specialist microservice also exposes an independent `POST /diagnose` endpoint so monitoring webhooks or SREs can invoke domain diagnostics directly even if `agent-triad-control-plane` is unreachable.
 5. **Hub-and-Spoke Multi-Project / Multi-Account Readiness**:
    * Every ADK tool accepts a dynamic `project_id` / account / subscription parameter and optional `target_cloud`, supporting centralized **Hub-and-Spoke** operations across GCP Projects (with VPC-SC), AWS Accounts (via cross-account IRSA roles), and Azure Subscriptions.
@@ -196,7 +207,7 @@ The Control Plane ([`poc/app.py`](./poc/app.py), [`poc/static/index.html`](./poc
 
 ### 4. Live Telemetry Triage & Edge Noise Filtering
 * **`cloud-sql-proxy` & OTel Log Capture**: Captures `logName:"cloud-sql-proxy"` connectivity failures (`CLOUDSQL_PROXY_CONNECTION_TIMEOUT`, `Connection Refused`, `timeout expired`, `Re-occured`, port `3306` / direct-IP timeouts) alongside `cloudsql_database` `FATAL`/`ERROR` logs, as well as normalized OpenTelemetry / Grafana Loki / Prometheus Alertmanager anomalies.
-* **Edge Noise Suppression & Deduplication**: Suppresses routine GKE Composer noise, `GCEGuestAgent`, `ops-agent-health`, `LogPingOpsAgent`, healthcheck probes (`kube-probe/`, `ELB-HealthChecker`), deprecation warnings, and internal `AAAS_AUDIT_EVENT` loops at `$0` LLM cost while deduplicating burst stack traces by `signature_key`.
+* **Edge Noise Suppression & Deduplication**: Suppresses routine GKE Composer noise, `GCEGuestAgent`, `ops-agent-health`, `LogPingOpsAgent`, healthcheck probes (`kube-probe/`, `ELB-HealthChecker`), deprecation warnings, and internal `AAAS_AUDIT_EVENT` loops before invoking AI models while deduplicating burst stack traces by `signature_key`.
 * **Newest-First Anomaly Prioritization**: `POST /api/poll-cloud-logging` sorts live anomalies by **newest timestamp descending** (with database priority tie-breaking) so freshly occurring incidents surface immediately.
 
 ---
@@ -295,7 +306,7 @@ All Control Plane endpoints are served by [`poc/app.py`](./poc/app.py):
 
 ## 4. Environment Configuration Reference
 
-All cloud-agnostic adapters default to GCP Cloud Run compatibility when unset. See [`.env.example`](./.env.example) for a complete zero-cloud local template:
+All cloud-agnostic adapters default to GCP Cloud Run compatibility when unset. See [`.env.example`](./.env.example) for a complete self-hosted pilot / local evaluation template:
 
 | Category | Variable | Supported Values / Default | Purpose |
 | :--- | :--- | :--- | :--- |
@@ -322,8 +333,9 @@ All cloud-agnostic adapters default to GCP Cloud Run compatibility when unset. S
 
 ```text
 AgentTriad/
-├── .env.example                                   # Zero-cloud local / any-VM configuration template
-├── docker-compose.yml                             # 5-service zero-cloud local stack (Control Plane, DB/Infra Agents, Postgres, Redis)
+├── .env.example                                   # Self-hosted pilot / local evaluation configuration template
+├── docker-compose.yml                             # 5-service self-hosted stack (Control Plane, DB/Infra Agents, Postgres, Redis)
+├── agent-triad-overview.html                      # Interactive C-suite Executive Briefing (impact, 2 AM story, safety & multi-cloud)
 ├── deploy/
 │   └── helm/
 │       └── agent-triad/                           # Portable Kubernetes & OpenShift Helm v2 Chart
@@ -396,8 +408,8 @@ AgentTriad/
 
 ## 6. Deployment Options, Local Development & Testing
 
-### Option A — Zero-Cloud Local / Any-VM Stack (Docker Compose)
-Run the complete 5-service stack (`control-plane` on `:8080`, `db-agent` on `:8081`, `infra-agent` on `:8082`, `postgres:16-alpine`, `redis:7-alpine`) with **zero cloud accounts or API keys required**:
+### Option A — Self-Hosted Pilot & Evaluation Stack (Docker Compose)
+Run the complete 5-service stack (`control-plane` on `:8080`, `db-agent` on `:8081`, `infra-agent` on `:8082`, `postgres:16-alpine`, `redis:7-alpine`) in an isolated VPC, private host, or local environment with **no external cloud accounts required for evaluation**:
 ```bash
 cp .env.example .env
 docker compose up --build
