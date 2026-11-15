@@ -36,10 +36,14 @@ def run_e2e_tests() -> None:
         "nav-roster",
         "nav-audit",
         "nav-logs",
+        "nav-features",
         "view-command",
         "view-roster",
         "view-audit",
         "view-logs",
+        "view-features",
+        "platformCloudTabs",
+        "platformCloudMatrixGrid",
         "btnOpenDirectChat",
         "btnPollLiveLogs",
         "themeBtnAuto",
@@ -65,8 +69,18 @@ def run_e2e_tests() -> None:
         "recheckIncidentProvider",
         "BLOCKED_PROVIDER_OUTAGE",
         "Zero JIT Token Minted",
+        "renderLiveDispatchTrackerCard",
+        "renderCompletedDispatchStepper",
+        "renderDispatchReceiptCard",
+        "startIncidentDispatchTracker",
+        "startInlineChatDispatch",
+        "selectPlatformCloudTab",
+        "launchWorkflowMode",
+        "Cloud Outage Safety Brake",
+        "Five-Layer Zero-Trust Protection",
+        "Bounded AI",
     ):
-        assert p4_ui_token in res_ui.text, f"Missing Multi-Cloud / Phase 4 UI handler {p4_ui_token} in Dashboard UI"
+        assert p4_ui_token in res_ui.text, f"Missing Multi-Cloud / Phase 4 / Dispatch UI token {p4_ui_token} in Dashboard UI"
     assert "Sign in to AaaS Command Center" in res_ui.text
     assert "Continue with Google SSO" in res_ui.text
     assert "accounts.google.com/gsi/client" in res_ui.text
@@ -142,6 +156,9 @@ def run_e2e_tests() -> None:
     assert howto_json["action_taken"] == "DIRECT_ATLAS_CHAT_REPLY"
     assert howto_json["scenario_type"] == "SCENARIO_4_HOW_TO"
     assert howto_json["specialist_worker"]["name"] == "Database Agent"
+    assert howto_json.get("dispatch_telemetry") is not None
+    assert howto_json["dispatch_telemetry"]["primary_specialist"] == "Database Agent"
+    assert howto_json["messages"][-1].get("dispatch_telemetry") is not None
     assert len(howto_json["messages"]) >= 3
     print(f"[PASS] Scenario 4 (GCP How-To, $0 Sandbox) verified: routed to {howto_json['specialist_worker']['name']}")
 
@@ -202,6 +219,9 @@ def run_e2e_tests() -> None:
     tf_deploy_json = tf_deploy_res.json()
     assert tf_deploy_json["status"] == "TERRAFORM_EXECUTED_VIA_HARNESS"
     assert tf_deploy_json["execution_result"]["status"] == "SUCCEEDED"
+    assert tf_deploy_json.get("dispatch_telemetry") is not None
+    assert tf_deploy_json["dispatch_telemetry"]["mode"] == "HARNESS_EXECUTED"
+    assert tf_deploy_json["dispatch_telemetry"]["jit_token_id"].startswith("jit-wif-")
     print(
         f"[PASS] Scenario 3 (Terraform .tf Generation & Agent Harness Execution) verified: "
         f"deployment_id={tf_deploy_json['deployment_id']}"

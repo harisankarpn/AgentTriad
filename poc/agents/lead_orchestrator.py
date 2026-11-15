@@ -2030,6 +2030,16 @@ class LeadOrchestratorAgent:
                 "specialist_worker": primary_spec,
                 "coordinated_specialists": coord_specs,
                 "scenario_badge": scen_badge,
+                "dispatch_telemetry": {
+                    "mode": "HARNESS_BLOCKED_OUTAGE",
+                    "status": "BLOCKED_PROVIDER_OUTAGE",
+                    "target_cloud": resolved_cloud,
+                    "region": preflight_status.get("region") or cluster,
+                    "primary_specialist": primary_spec.get("name"),
+                    "coordinated_specialists": [s.get("name") for s in coord_specs],
+                    "jit_token_id": None,
+                    "mutations_allowed": False,
+                },
                 "text": blocked_msg,
                 "timestamp": datetime.datetime.now(datetime.timezone.utc).isoformat(),
             }
@@ -2110,6 +2120,20 @@ class LeadOrchestratorAgent:
             f"• **45s Telemetry Watchdog**: `{verify_resp.result.get('status', 'VERIFIED_HEALTHY')}`"
         )
 
+        dispatch_telemetry = {
+            "mode": "HARNESS_EXECUTED",
+            "status": verify_resp.result.get("status", "VERIFIED_HEALTHY"),
+            "target_cloud": resolved_cloud,
+            "region": cluster,
+            "workload": workload,
+            "primary_specialist": primary_spec.get("name"),
+            "coordinated_specialists": [s.get("name") for s in coord_specs],
+            "jit_token_id": jit_token["token_id"],
+            "reconciliation_pr": exec_result.get("reconciliation_pr"),
+            "resources_reconciled": tf_resources,
+            "watchdog_status": verify_resp.result.get("status", "VERIFIED_HEALTHY"),
+            "mutations_allowed": True,
+        }
         reply_msg = {
             "role": "assistant",
             "sender": f"Atlas • AaaS Lead (with {coord_names})",
@@ -2117,6 +2141,7 @@ class LeadOrchestratorAgent:
             "specialist_worker": primary_spec,
             "coordinated_specialists": coord_specs,
             "scenario_badge": scen_badge,
+            "dispatch_telemetry": dispatch_telemetry,
             "text": confirm_text,
             "timestamp": datetime.datetime.now(datetime.timezone.utc).isoformat(),
         }
@@ -2159,6 +2184,7 @@ class LeadOrchestratorAgent:
             "specialist_worker": primary_spec,
             "coordinated_specialists": coord_specs,
             "execution_result": exec_result,
+            "dispatch_telemetry": dispatch_telemetry,
             "active_session_id": self.active_session_id,
             "messages": list(self.general_chat_messages),
         }
@@ -2495,6 +2521,25 @@ class LeadOrchestratorAgent:
                 "coordinated_specialists": coordinated_specialists,
             }
 
+        tools_invoked: List[str] = list(
+            (live_db_diagnosis or {}).get("tools_invoked")
+            or (live_infra_diagnosis or {}).get("tools_invoked")
+            or []
+        )
+        dispatch_telemetry = {
+            "mode": (
+                "LIVE_A2A_SPECIALIST"
+                if (live_db_diagnosis or live_infra_diagnosis)
+                else ("TERRAFORM_PROPOSAL" if terraform_bundle else "ATLAS_ADVISORY")
+            ),
+            "status": "COMPLETED",
+            "target_cloud": resolved_cloud,
+            "primary_specialist": specialist.get("name"),
+            "coordinated_specialists": [s.get("name") for s in coordinated_specialists],
+            "tools_invoked": tools_invoked,
+            "read_only": not bool(terraform_bundle),
+            "scenario_badge": scenario_badge,
+        }
         reply_msg = {
             "role": "assistant",
             "sender": f"Atlas • AaaS Lead (with {coord_names})",
@@ -2505,6 +2550,8 @@ class LeadOrchestratorAgent:
             "scenario_badge": scenario_badge,
             "terraform_bundle": terraform_bundle,
             "live_database_agent_diagnosis": live_db_diagnosis,
+            "live_infra_agent_diagnosis": live_infra_diagnosis,
+            "dispatch_telemetry": dispatch_telemetry,
             "text": reply_text,
             "timestamp": datetime.datetime.now(datetime.timezone.utc).isoformat(),
         }
@@ -2521,6 +2568,8 @@ class LeadOrchestratorAgent:
             "consulted_specialist": specialist,
             "terraform_bundle": terraform_bundle,
             "live_database_agent_diagnosis": live_db_diagnosis,
+            "live_infra_agent_diagnosis": live_infra_diagnosis,
+            "dispatch_telemetry": dispatch_telemetry,
             "active_session_id": self.active_session_id,
             "messages": list(self.general_chat_messages),
         }
