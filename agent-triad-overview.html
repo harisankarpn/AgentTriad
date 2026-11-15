@@ -1117,9 +1117,9 @@
           <div class="stat-desc">Agents operate strictly read-only until an authorized human grants a 15-minute single-use key.</div>
         </div>
         <div class="stat-card" style="--stat-color:var(--g-yellow)">
-          <div class="stat-figure">$0 AI Cost</div>
-          <div class="stat-title">During Fix Execution</div>
-          <div class="stat-desc">AI handles reasoning; deterministic policy engines execute changes predictably with zero token sprawl.</div>
+          <div class="stat-figure">Bounded AI</div>
+          <div class="stat-title">Predictable AI Economics</div>
+          <div class="stat-desc">Noise is filtered before AI runs; models reason on real incidents only, while deterministic automation executes approved fixes.</div>
         </div>
         <div class="stat-card" style="--stat-color:var(--g-red)">
           <div class="stat-figure">Any Cloud</div>
@@ -1453,7 +1453,7 @@
         <div class="cta-banner">
           <div class="eyebrow" style="margin-bottom:0.5rem;">Ready for Production Rollout</div>
           <h2>Adopt at Your Pace — From Pilot to Multi-Cloud Scale</h2>
-          <p>Start with a zero-risk local evaluation or deploy straight into your existing cloud governance footprint with no re-platforming required.</p>
+          <p>Start with an isolated self-hosted pilot or deploy straight into your existing cloud governance footprint with no re-platforming required.</p>
           <div class="deploy-options">
             <div class="deploy-card">
               <h4>1. Serverless Managed Cloud</h4>
@@ -1464,8 +1464,8 @@
               <p>Standardized one-click enterprise packaging ready for AWS EKS, Azure AKS, Google GKE, and Red Hat OpenShift security standards.</p>
             </div>
             <div class="deploy-card">
-              <h4>3. Zero-Cloud Private Sandbox</h4>
-              <p>Spin up the complete platform locally or in an isolated private environment in minutes — zero external cloud accounts required for evaluation.</p>
+              <h4>3. Self-Hosted Pilot &amp; Evaluation</h4>
+              <p>Run a complete, self-contained evaluation inside an isolated VPC, private data center, or staging environment before connecting production cloud accounts.</p>
             </div>
           </div>
         </div>
@@ -1551,7 +1551,7 @@
         summary: 'At 2:04 AM, checkout latency spikes due to database connection exhaustion. Agent-Triad isolates the customer-impacting failure immediately while automatically ignoring dozens of routine background messages.',
         points: [
           { h: 'Instant Signal Clarity', p: 'Ingests live operational telemetry across clouds and elevates newly occurring production failures first.' },
-          { h: 'Alert Fatigue Eliminated', p: 'Automatically suppresses routine health-check chatter and duplicate error bursts at zero AI cost.' },
+          { h: 'Alert Fatigue Eliminated', p: 'Automatically suppresses routine health-check chatter and duplicate error bursts before invoking AI models.' },
           { h: 'Hostile Payload Shield', p: 'Scrubs untrusted log text before AI analysis so bad data can never manipulate agent behavior.' }
         ],
         status: 'Anomaly Escalated',
@@ -1611,17 +1611,17 @@
         badge: 'Stage 4 of 5 • Governed Execution & GitOps Sync',
         badgeClass: 'badge-green',
         title: 'Safe Remediation Applied & Code Automatically Synced',
-        summary: 'Deterministic policy engines validate safety rules, lock the asset against concurrent edits, execute the approved fix at $0 AI cost, and open a Pull Request so version control never drifts.',
+        summary: 'Deterministic policy engines validate safety rules, lock the asset against concurrent edits, execute the approved fix without extra AI calls, and open a Pull Request so version control never drifts.',
         points: [
           { h: 'Automated Policy Gate', p: 'Strictly blocks destructive operations and protects unrelated services owned by neighboring teams.' },
-          { h: 'Zero-Cost Deterministic Execution', p: 'No unpredictable AI improvisation during execution — vetted automation runs cleanly every time.' },
+          { h: 'Deterministic Execution (No AI Guesswork)', p: 'Once approved, vetted automation applies the change predictably — no AI improvisation or extra inference loops.' },
           { h: 'Bidirectional GitOps Pull Request', p: 'Generates a clean Pull Request capturing the exact infrastructure change for permanent governance.' }
         ],
         status: 'Fix Applied & Synced',
         statusClass: 'badge-green',
         cards: [
           { label: 'Safety Policy & Lock Check', val: 'Passed • Collision lock acquired' },
-          { label: 'AI Token Cost During Execution', val: '$0 (Deterministic Harness)' },
+          { label: 'Execution Engine', val: 'Deterministic Policy Harness (No Extra AI Calls)' },
           { label: 'Governance Output', val: 'Audit-ready GitOps Pull Request created' }
         ],
         outcomeTitle: 'Executive Takeaway',
@@ -1764,7 +1764,7 @@
       gcp: {
         pillars: [
           { label: 'Managed Cloud Coverage', val: 'Google Cloud Native', desc: 'Deep operational visibility across Cloud SQL, Compute Engine, GKE, Cloud Run, and Cloud Logging.' },
-          { label: 'AI Reasoning Engine', val: 'Vertex AI & Gemini', desc: 'Enterprise Gemini models with built-in zero-cost playbook fallback for uninterrupted resilience.' },
+          { label: 'AI Reasoning Engine', val: 'Vertex AI & Gemini', desc: 'Enterprise Gemini models with built-in deterministic playbook fallback for uninterrupted resilience.' },
           { label: 'Identity & Governance', val: 'Google SSO, IAP & WIF', desc: 'Zero-standing privilege federation with named human approvals and full Cloud audit trails.' },
           { label: 'Deployment Footprint', val: 'Serverless Cloud Run or GKE', desc: 'Scale-to-zero serverless hosting with zero idle cost, or standard enterprise GKE clusters.' }
         ],
@@ -1793,7 +1793,7 @@
           { label: 'Managed Cloud Coverage', val: 'Hybrid, OpenShift & OpenTelemetry', desc: 'Ingests vendor-neutral OpenTelemetry, Prometheus, and Loki streams across on-prem and multi-cloud estates.' },
           { label: 'AI Reasoning Engine', val: 'Private & Open-Weight Models', desc: 'Routes to private AI gateways, self-hosted LLMs, or air-gapped deterministic playbook execution.' },
           { label: 'Identity & Governance', val: 'Okta, Keycloak & Standards OIDC', desc: 'Works with any enterprise identity provider and complies with strict OpenShift container security controls.' },
-          { label: 'Deployment Footprint', val: 'OpenShift or Zero-Cloud Sandbox', desc: 'Runs inside regulated private clusters or spins up locally with zero external cloud dependencies.' }
+          { label: 'Deployment Footprint', val: 'OpenShift & Self-Hosted Environments', desc: 'Runs inside regulated private clusters or self-contained pilot environments with full data sovereignty.' }
         ],
         takeaway: '<strong>Built for Regulated & Hybrid Enterprises:</strong> Full data sovereignty on Red Hat OpenShift or private infrastructure — evaluate safely before touching any production cloud.'
       }
