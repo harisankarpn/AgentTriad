@@ -52,8 +52,21 @@ def run_e2e_tests() -> None:
         "btnToggleSessionHistory",
         "btnClearAllSessions",
         "atlasSessionHistoryPanel",
+        "targetCloudSwitcher",
+        "cloudBtnGcp",
+        "cloudBtnAws",
+        "cloudBtnAzure",
+        "metricCardProviderHealth",
     ):
-        assert nav_id in res_ui.text, f"Missing sidebar/view/theme/SSO/session element {nav_id} in Dashboard UI"
+        assert nav_id in res_ui.text, f"Missing sidebar/view/theme/SSO/session/cloud element {nav_id} in Dashboard UI"
+    for p4_ui_token in (
+        "renderOutageBlockedCard",
+        "renderPhase4IntelligencePanels",
+        "recheckIncidentProvider",
+        "BLOCKED_PROVIDER_OUTAGE",
+        "Zero JIT Token Minted",
+    ):
+        assert p4_ui_token in res_ui.text, f"Missing Multi-Cloud / Phase 4 UI handler {p4_ui_token} in Dashboard UI"
     assert "Sign in to AaaS Command Center" in res_ui.text
     assert "Continue with Google SSO" in res_ui.text
     assert "accounts.google.com/gsi/client" in res_ui.text
@@ -816,6 +829,136 @@ def run_e2e_tests() -> None:
         f"[PASS] Phase 5 Portable Deployment verified: /healthz=200, "
         f"docker-compose={len(expected_services)} services, "
         f"helm-chart={len(required_templates)} validated templates (EKS/AKS/GKE/OpenShift), terraform/main.tf intact"
+    )
+
+    # 12. Multi-Cloud UI & Backend Control Plane Integration (platform_runtime, target-cloud switcher, fault attribution, query_introspection, recheck-provider)
+    st_rt = client.get("/api/state").json()
+    pr = st_rt.get("platform_runtime")
+    assert pr is not None, "Missing platform_runtime in /api/state"
+    assert pr["cloud_provider"] == "gcp", pr
+    for rt_key in (
+        "default_cloud_provider",
+        "region",
+        "llm_provider",
+        "llm_model",
+        "telemetry_provider",
+        "state_backend",
+        "lock_backend",
+        "auth_provider",
+        "cloud_provider_status",
+    ):
+        assert rt_key in pr and pr[rt_key], f"Missing platform_runtime.{rt_key}: {pr}"
+    assert pr["cloud_provider_status"]["mutations_allowed"] is True
+
+    # Target Cloud Switcher API (gcp -> aws -> azure -> invalid 400 -> gcp)
+    for target_c, expected_region in (("aws", "us-east-1"), ("azure", "eastus")):
+        sw_res = client.post("/api/platform/target-cloud", json={"target_cloud": target_c})
+        assert sw_res.status_code == 200, sw_res.text
+        sw_body = sw_res.json()
+        assert sw_body["status"] == "TARGET_CLOUD_UPDATED"
+        assert sw_body["target_cloud"] == target_c
+        assert sw_body["platform_runtime"]["cloud_provider"] == target_c
+        assert sw_body["platform_runtime"]["region"] == expected_region
+
+    bad_sw = client.post("/api/platform/target-cloud", json={"target_cloud": "oracle-cloud"})
+    assert bad_sw.status_code == 400
+
+    # Reset back to GCP and verify explicit target_cloud override on /api/atlas/chat
+    reset_sw = client.post("/api/platform/target-cloud", json={"target_cloud": "gcp"})
+    assert reset_sw.status_code == 200 and reset_sw.json()["target_cloud"] == "gcp"
+
+    aws_chat = client.post(
+        "/api/atlas/chat",
+        json={
+            "message": "How do I configure AWS STS AssumeRoleWithWebIdentity for 15-minute JIT tokens?",
+            "target_cloud": "aws",
+        },
+    )
+    assert aws_chat.status_code == 200, aws_chat.text
+    assert aws_chat.json()["target_cloud"] == "aws"
+
+    # Fault Attribution (External App/DB Fault) + Read-Only Query Introspection lifting on incident
+    ext_db_log = {
+        "log_id": "p4-ext-db-test-1",
+        "timestamp": "2026-11-15T16:10:00+00:00",
+        "severity": "ERROR",
+        "source": "cloudsql_database",
+        "cluster": "us-central1",
+        "namespace": "production",
+        "workload": "cloudsql/testdbinstance1",
+        "pod": "agent-triad:testdbinstance1",
+        "error_code": "SQL_CONNECTION_DROP",
+        "title": "Cloud SQL Connection Drop & Slow Query Lock",
+        "message": (
+            "FATAL: remaining connection slots are reserved; "
+            "duration: 3120.45 ms  statement: SELECT * FROM orders WHERE account_id = 8812 FOR UPDATE"
+        ),
+        "is_anomaly": True,
+        "cloud_provider": "gcp",
+    }
+    asyncio.run(app_watcher_agent.detect_and_report_anomaly(ext_db_log))
+    ext_state = client.get("/api/state").json()
+    ext_inc = next((i for i in ext_state["incidents"] if i["incident_id"] == "p4-ext-db-test-1"), None)
+    assert ext_inc is not None, "Expected p4-ext-db-test-1 in incidents"
+    assert ext_inc["fault_attribution"]["origin"] == "EXTERNAL_APP_WORKLOAD", ext_inc["fault_attribution"]
+    assert ext_inc["fault_attribution"]["mutations_allowed"] is True
+    assert ext_inc["query_introspection"] is not None
+    assert ext_inc["query_introspection"]["read_only_enforced"] is True
+    assert ext_inc["query_introspection"]["summary"]["slow_query_count"] >= 1
+
+    # Internal Provider Outage -> BLOCKED_PROVIDER_OUTAGE -> /recheck-provider (still blocked -> clears -> AWAITING_HITL_APPROVAL)
+    try:
+        cloud_status_service.inject_simulated_outage(
+            cloud_provider="gcp",
+            region="us-central1",
+            service="Google Cloud SQL",
+            title="Simulated GCP Cloud SQL Control Plane Disruption",
+            severity="HIGH",
+        )
+        int_outage_log = {
+            "log_id": "p4-recheck-test-1",
+            "timestamp": "2026-11-15T16:12:00+00:00",
+            "severity": "CRITICAL",
+            "source": "cloud_run_revision",
+            "cluster": "us-central1",
+            "namespace": "production",
+            "workload": "service/checkout-api",
+            "pod": "checkout-api-00012",
+            "error_code": "GCP_REGION_503",
+            "title": "Regional Service Disruption in us-central1",
+            "message": "503 Service Unavailable during active regional control plane disruption.",
+            "is_anomaly": True,
+            "cloud_provider": "gcp",
+        }
+        asyncio.run(app_watcher_agent.detect_and_report_anomaly(int_outage_log))
+        outage_inc = next(i for i in client.get("/api/state").json()["incidents"] if i["incident_id"] == "p4-recheck-test-1")
+        assert outage_inc["fault_attribution"]["origin"] == "INTERNAL_CLOUD_PROVIDER_OUTAGE"
+
+        blk_res = client.post(
+            "/api/incidents/p4-recheck-test-1/approve",
+            json={"approved_by": "Hari", "execution_mode": "sandbox"},
+        )
+        assert blk_res.status_code == 200 and blk_res.json()["status"] == "BLOCKED_PROVIDER_OUTAGE"
+        assert blk_res.json()["incident"]["jit_token"] is None
+
+        still_blk = client.post("/api/incidents/p4-recheck-test-1/recheck-provider")
+        assert still_blk.status_code == 200
+        assert still_blk.json()["status"] == "BLOCKED_PROVIDER_OUTAGE"
+        assert still_blk.json()["cloud_provider_status"]["mutations_allowed"] is False
+    finally:
+        cloud_status_service.clear_simulated_outages()
+
+    cleared_recheck = client.post("/api/incidents/p4-recheck-test-1/recheck-provider")
+    assert cleared_recheck.status_code == 200, cleared_recheck.text
+    cleared_body = cleared_recheck.json()
+    assert cleared_body["status"] == "AWAITING_HITL_APPROVAL", cleared_body
+    assert cleared_body["incident"]["status"] == "AWAITING_HITL_APPROVAL"
+    assert cleared_body["cloud_provider_status"]["mutations_allowed"] is True
+    assert cleared_body["fault_attribution"]["origin"] == "EXTERNAL_APP_WORKLOAD"
+    print(
+        "[PASS] Multi-Cloud Control Plane & Phase 4 UI/Backend Wiring verified: "
+        "platform_runtime, target-cloud switcher (GCP/AWS/Azure), fault_attribution (External vs Internal), "
+        "read-only query_introspection, and /recheck-provider outage recovery!"
     )
 
 

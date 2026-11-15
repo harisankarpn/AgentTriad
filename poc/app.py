@@ -26,6 +26,7 @@ from agents.a2a_protocol import A2AProtocolHub, A2ATaskRequest
 from agents.gke_assist_agent import GKEAssistAgent
 from agents.lead_orchestrator import LeadOrchestratorAgent, WORKER_AGENT_BOUTIQUE
 from agents.watcher_agent import CloudLoggingWatcherAgent
+from providers.cloud_factory import normalize_target_cloud
 from services.agent_harness import agent_harness
 from services.auth_broker import AuthVerificationError, auth_broker
 from services.cloud_logging_service import CloudLoggingService
@@ -68,11 +69,17 @@ class ApproveRemedyRequest(BaseModel):
 class IncidentChatRequest(BaseModel):
     message: str
     user_name: Optional[str] = None
+    target_cloud: Optional[str] = None
 
 
 class DeployChatTerraformRequest(BaseModel):
     approved_by: Optional[str] = None
     hcl_code: Optional[str] = None
+    target_cloud: Optional[str] = None
+
+
+class SetTargetCloudRequest(BaseModel):
+    target_cloud: str
 
 
 class GoogleSSOLoginRequest(BaseModel):
@@ -313,6 +320,35 @@ async def sync_real_logs_from_watcher(
     return logs
 
 
+def _default_region_for_cloud(cloud: str) -> str:
+    if cloud == "aws":
+        return os.getenv("AWS_REGION") or os.getenv("AWS_DEFAULT_REGION") or "us-east-1"
+    if cloud == "azure":
+        return os.getenv("AZURE_LOCATION") or "eastus"
+    return os.getenv("GCP_LOCATION") or "us-central1"
+
+
+def _build_platform_runtime() -> Dict[str, Any]:
+    active_cloud = lead_orchestrator.active_target_cloud
+    default_region = _default_region_for_cloud(active_cloud)
+    provider_status = cloud_status_service.check_region_status(
+        cloud_provider=active_cloud,
+        region=default_region,
+    )
+    return {
+        "cloud_provider": active_cloud,
+        "default_cloud_provider": normalize_target_cloud(os.getenv("CLOUD_PROVIDER", "gcp")),
+        "region": default_region,
+        "llm_provider": lead_orchestrator._llm_client.provider,
+        "llm_model": lead_orchestrator._llm_client.model_name,
+        "telemetry_provider": logging_service.adapter.provider_name,
+        "state_backend": session_store_service.adapter.backend_name,
+        "lock_backend": agent_harness.lock_adapter.backend_name,
+        "auth_provider": auth_broker.auth_provider,
+        "cloud_provider_status": provider_status,
+    }
+
+
 @app.get("/api/state")
 async def get_system_state() -> Dict[str, Any]:
     """Returns real-time state of all 3 agents, live GCP Cloud Logging stream, incidents, audit tracker, and A2A traces."""
@@ -326,6 +362,7 @@ async def get_system_state() -> Dict[str, Any]:
             "suppressed_routine_logs": logging_service.suppressed_routine_logs_count,
             "heartbeat_metric": "custom.googleapis.com/aaas/heartbeat_tick (15s PASS)",
         },
+        "platform_runtime": _build_platform_runtime(),
         "agents": [card.model_dump() for card in a2a_hub.agents.values()],
         "worker_boutique": WORKER_AGENT_BOUTIQUE,
         "agent_harness_status": agent_harness.get_global_harness_status(),
@@ -345,6 +382,20 @@ async def get_system_state() -> Dict[str, Any]:
 async def get_harness_status() -> Dict[str, Any]:
     """Returns live Agent Harness telemetry (`.tflock` leases, OPA evaluations, SAIF sanitization count, and 45s Watchdog)."""
     return agent_harness.get_global_harness_status()
+
+
+@app.post("/api/platform/target-cloud")
+async def set_platform_target_cloud(req: SetTargetCloudRequest) -> Dict[str, Any]:
+    """Switches the active target cloud (`gcp` | `aws` | `azure`) for AaaS Command Center routing."""
+    try:
+        updated_cloud = lead_orchestrator.set_target_cloud(req.target_cloud)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return {
+        "status": "TARGET_CLOUD_UPDATED",
+        "target_cloud": updated_cloud,
+        "platform_runtime": _build_platform_runtime(),
+    }
 
 
 @app.get("/api/preflight/cloud-status")
@@ -485,6 +536,23 @@ async def reopen_incident_remedy(incident_id: str) -> Dict[str, Any]:
     }
 
 
+@app.post("/api/incidents/{incident_id}/recheck-provider")
+async def recheck_incident_provider(incident_id: str) -> Dict[str, Any]:
+    """
+    Re-checks regional cloud provider health for an incident.
+    Unlocks `BLOCKED_PROVIDER_OUTAGE` back to `AWAITING_HITL_APPROVAL` once the outage clears.
+    """
+    if incident_id not in lead_orchestrator.incidents:
+        raise HTTPException(status_code=404, detail=f"Incident {incident_id} not found")
+    updated = await lead_orchestrator.recheck_incident_provider_status(incident_id=incident_id)
+    return {
+        "status": updated.get("status", "AWAITING_HITL_APPROVAL"),
+        "incident": updated,
+        "cloud_provider_status": updated.get("cloud_provider_status"),
+        "fault_attribution": updated.get("fault_attribution"),
+    }
+
+
 @app.post("/api/incidents/{incident_id}/chat")
 async def chat_about_incident(incident_id: str, req: IncidentChatRequest) -> Dict[str, Any]:
     """
@@ -515,10 +583,14 @@ async def chat_general_atlas(req: IncidentChatRequest) -> Dict[str, Any]:
     """
     if not req.message or not req.message.strip():
         raise HTTPException(status_code=400, detail="Message cannot be empty")
-    result = await lead_orchestrator.chat_general_with_atlas(
-        user_message=req.message,
-        user_name=req.user_name,
-    )
+    try:
+        result = await lead_orchestrator.chat_general_with_atlas(
+            user_message=req.message,
+            user_name=req.user_name,
+            target_cloud=req.target_cloud,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     return {
         "status": "CHAT_UPDATED",
         **result,
@@ -535,7 +607,10 @@ async def deploy_chat_terraform(req: Optional[DeployChatTerraformRequest] = None
         (req.approved_by if req and req.approved_by else None)
         or f"{lead_orchestrator.active_user.get('name', 'Hari')} (via Chat)"
     )
-    result = await lead_orchestrator.execute_chat_terraform_deployment(approved_by=uname)
+    result = await lead_orchestrator.execute_chat_terraform_deployment(
+        approved_by=uname,
+        target_cloud=req.target_cloud if req else None,
+    )
     resp_status = (
         "BLOCKED_PROVIDER_OUTAGE"
         if result.get("status") == "BLOCKED_PROVIDER_OUTAGE"

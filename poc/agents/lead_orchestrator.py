@@ -38,6 +38,7 @@ from providers.model_router import (
 )
 from services.agent_harness import agent_harness, inspect_agent_harness_policy_tool
 from services.cloud_status_service import cloud_status_service
+from services.db_query_introspection import analyze_pg_stat_activity_and_slow_queries
 from services.gitops_correlator import correlate_gitops_deployments_tool, gitops_correlator
 from services.playbook_rag import (
     RAG_PLAYBOOK_CATALOG,
@@ -170,6 +171,7 @@ class LeadOrchestratorAgent:
         self.logging_service = logging_service
         self.incidents: Dict[str, Dict[str, Any]] = {}
         self.audit_events: Dict[str, Dict[str, Any]] = {}
+        self.active_target_cloud: str = normalize_target_cloud(os.getenv("CLOUD_PROVIDER", "gcp"))
         self.active_user: Dict[str, str] = {
             "name": "Hari",
             "email": "harisankar@google.com",
@@ -254,6 +256,74 @@ class LeadOrchestratorAgent:
             )
         except Exception:
             return None
+
+    def set_target_cloud(self, target_cloud: str) -> str:
+        """Sets the active target cloud (`gcp` | `aws` | `azure`) for AaaS Control Plane operations."""
+        normalized = normalize_target_cloud(target_cloud)
+        self.active_target_cloud = normalized
+        return normalized
+
+    @staticmethod
+    def classify_fault_attribution(
+        cloud_provider_status: Optional[Dict[str, Any]],
+        log_entry: Optional[Dict[str, Any]] = None,
+        specialist: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
+        """
+        Distinguishes whether an incident stems from:
+          - `INTERNAL_CLOUD_PROVIDER_OUTAGE`: An active regional cloud provider service outage
+            where Atlas engages the Safety Brake and blocks workload mutations (zero JIT minted).
+          - `EXTERNAL_APP_WORKLOAD`: An application, database, or customer workload fault while
+            the underlying cloud provider region is operational (safe for HITL-gated remediation).
+        """
+        status_doc = cloud_provider_status or {}
+        mutations_allowed = bool(status_doc.get("mutations_allowed", True))
+        cloud_code = str(
+            status_doc.get("cloud_provider")
+            or (log_entry or {}).get("cloud_provider")
+            or "gcp"
+        ).strip().lower()
+        cloud_upper = cloud_code.upper()
+        region = str(status_doc.get("region") or (log_entry or {}).get("cluster") or "us-central1")
+        provider_status = str(status_doc.get("status") or "OPERATIONAL")
+        active_incidents = status_doc.get("active_incidents") or []
+        spec_name = (specialist or {}).get("name") or "Specialist Agent"
+
+        if not mutations_allowed or provider_status == "ACTIVE_PROVIDER_OUTAGE":
+            first_inc_title = (
+                active_incidents[0].get("title")
+                if active_incidents and isinstance(active_incidents[0], dict)
+                else f"Active {cloud_upper} regional outage in {region}"
+            )
+            return {
+                "origin": "INTERNAL_CLOUD_PROVIDER_OUTAGE",
+                "scope": "INTERNAL_CLOUD_SERVICE",
+                "label": f"Internal • {cloud_upper} Provider Outage",
+                "summary": (
+                    f"{cloud_upper} regional service incident detected in `{region}` ({first_inc_title}). "
+                    f"Safety Brake active — automated mutations held until provider recovers."
+                ),
+                "cloud_provider": cloud_code,
+                "region": region,
+                "provider_status": provider_status,
+                "mutations_allowed": False,
+                "active_incident_count": int(status_doc.get("active_incident_count") or len(active_incidents) or 1),
+            }
+
+        return {
+            "origin": "EXTERNAL_APP_WORKLOAD",
+            "scope": "EXTERNAL_APPLICATION",
+            "label": "External • App / Workload Fault",
+            "summary": (
+                f"{cloud_upper} `{region}` control plane is operational ({provider_status}). "
+                f"Fault attributed to customer workload/configuration — eligible for {spec_name} HITL remediation."
+            ),
+            "cloud_provider": cloud_code,
+            "region": region,
+            "provider_status": provider_status,
+            "mutations_allowed": True,
+            "active_incident_count": 0,
+        }
 
     async def _run_cloud_provider_preflight_check(
         self,
@@ -744,7 +814,7 @@ class LeadOrchestratorAgent:
             live_db_diag: Optional[Dict[str, Any]] = None
             live_infra_diag: Optional[Dict[str, Any]] = None
             raw_cloud = str(log_entry.get("cloud_provider") or "").strip().lower()
-            event_cloud = raw_cloud if raw_cloud in ("gcp", "aws", "azure") else None
+            event_cloud = raw_cloud if raw_cloud in ("gcp", "aws", "azure") else self.active_target_cloud
             if specialist.get("id") == "database-agent":
                 target_inst = str(log_entry.get("pod") or "testdbinstance1").split(":")[-1]
                 live_db_diag = self._invoke_live_database_agent_a2a(
@@ -819,13 +889,42 @@ class LeadOrchestratorAgent:
             occurred_at = log_entry.get("timestamp") or data.get("detected_at") or now_iso
             detected_at = data.get("detected_at") or now_iso
 
-            # Phase 4: Pre-flight Cloud Provider Status Check snapshot
+            # Phase 4: Pre-flight Cloud Provider Status Check snapshot & Fault Attribution
             cloud_provider_status = data.get("cloud_provider_status") or await self._run_cloud_provider_preflight_check(
                 cloud_provider=event_cloud or "gcp",
                 region=cluster,
                 service_hint=str(log_entry.get("source") or ""),
             )
             impact_and_remedy["cloud_provider_status"] = cloud_provider_status
+            fault_attribution = self.classify_fault_attribution(
+                cloud_provider_status=cloud_provider_status,
+                log_entry=log_entry,
+                specialist=specialist,
+            )
+            impact_and_remedy["fault_attribution"] = fault_attribution
+
+            # Phase 4: Read-Only DB Query Introspection (lifted from live DB Agent or out-of-band slow-query log analysis)
+            query_introspection: Optional[Dict[str, Any]] = None
+            if live_db_diag and isinstance(live_db_diag.get("query_introspection"), dict):
+                query_introspection = live_db_diag["query_introspection"]
+            elif specialist.get("id") == "database-agent":
+                raw_log_lines = [
+                    str(line)
+                    for line in (
+                        [log_entry.get("message")]
+                        + (log_entry.get("slow_query_logs") or [])
+                    )
+                    if line
+                ]
+                if raw_log_lines:
+                    target_inst = str(log_entry.get("pod") or workload.split("/")[-1] or "testdbinstance1").split(":")[-1]
+                    query_introspection = analyze_pg_stat_activity_and_slow_queries(
+                        instance_name=target_inst,
+                        target_cloud=event_cloud or "gcp",
+                        log_lines=raw_log_lines,
+                    )
+            if query_introspection is not None:
+                impact_and_remedy["query_introspection"] = query_introspection
 
             # Phase 4: GitOps / Recent Deployment Correlation & Bidirectional GitOps PR Payload (Infra/Serverless path)
             gitops_correlation: Optional[Dict[str, Any]] = None
@@ -914,7 +1013,10 @@ class LeadOrchestratorAgent:
                 "error_code": log_entry.get("error_code", "GCP_ERROR"),
                 "log_entry": log_entry,
                 "impact_analysis": impact_and_remedy,
+                "target_cloud": event_cloud or "gcp",
                 "cloud_provider_status": cloud_provider_status,
+                "fault_attribution": fault_attribution,
+                "query_introspection": query_introspection,
                 "gitops_correlation": gitops_correlation,
                 "gitops_pr_payload": gitops_pr_payload,
                 "chat_messages": chat_messages,
@@ -1177,7 +1279,12 @@ class LeadOrchestratorAgent:
         if not incident:
             raise ValueError(f"Incident {incident_id} not found")
 
-        raw_cloud = str((incident.get("log_entry") or {}).get("cloud_provider") or "gcp").strip().lower()
+        raw_cloud = str(
+            (incident.get("log_entry") or {}).get("cloud_provider")
+            or incident.get("target_cloud")
+            or self.active_target_cloud
+            or "gcp"
+        ).strip().lower()
         target_cloud = raw_cloud if raw_cloud in ("gcp", "aws", "azure") else "gcp"
 
         # 0. Pre-flight Cloud Provider Status Check (blocks mutations during active regional provider outages)
@@ -1187,6 +1294,14 @@ class LeadOrchestratorAgent:
             service_hint=str((incident.get("log_entry") or {}).get("source") or ""),
         )
         incident["cloud_provider_status"] = preflight_status
+        incident["fault_attribution"] = self.classify_fault_attribution(
+            cloud_provider_status=preflight_status,
+            log_entry=incident.get("log_entry") or {},
+            specialist=incident.get("specialist_worker") or {},
+        )
+        if isinstance(incident.get("impact_analysis"), dict):
+            incident["impact_analysis"]["cloud_provider_status"] = preflight_status
+            incident["impact_analysis"]["fault_attribution"] = incident["fault_attribution"]
         if not preflight_status.get("mutations_allowed", True) and not force_override_outage:
             blocked_at = datetime.datetime.now(datetime.timezone.utc).isoformat()
             outage_summary = preflight_status.get("recommendation") or (
@@ -1435,6 +1550,94 @@ class LeadOrchestratorAgent:
             }
         )
         self._upsert_audit_event(incident, event_type="REOPENED_FOR_APPROVAL")
+        return incident
+
+    async def recheck_incident_provider_status(self, incident_id: str) -> Dict[str, Any]:
+        """
+        Re-runs the Phase 4 Pre-Flight Cloud Provider Status Check for an incident.
+        If the incident was `BLOCKED_PROVIDER_OUTAGE` and the regional outage has now cleared,
+        transitions it back to `AWAITING_HITL_APPROVAL` and re-acquires `.tflock`.
+        """
+        incident = self.incidents.get(incident_id)
+        if not incident:
+            raise ValueError(f"Incident {incident_id} not found")
+
+        raw_cloud = str(
+            (incident.get("log_entry") or {}).get("cloud_provider")
+            or incident.get("target_cloud")
+            or self.active_target_cloud
+            or "gcp"
+        ).strip().lower()
+        target_cloud = raw_cloud if raw_cloud in ("gcp", "aws", "azure") else "gcp"
+        region = str(incident.get("cluster") or "us-central1")
+        service_hint = str((incident.get("log_entry") or {}).get("source") or "")
+
+        preflight_status = await self._run_cloud_provider_preflight_check(
+            cloud_provider=target_cloud,
+            region=region,
+            service_hint=service_hint,
+        )
+        now_iso = datetime.datetime.now(datetime.timezone.utc).isoformat()
+        uname = self.active_user.get("name") or "Hari"
+
+        incident["cloud_provider_status"] = preflight_status
+        incident["fault_attribution"] = self.classify_fault_attribution(
+            cloud_provider_status=preflight_status,
+            log_entry=incident.get("log_entry") or {},
+            specialist=incident.get("specialist_worker") or {},
+        )
+        if isinstance(incident.get("impact_analysis"), dict):
+            incident["impact_analysis"]["cloud_provider_status"] = preflight_status
+            incident["impact_analysis"]["fault_attribution"] = incident["fault_attribution"]
+        incident["updated_at"] = now_iso
+
+        was_blocked = incident.get("status") == "BLOCKED_PROVIDER_OUTAGE"
+        mutations_allowed = bool(preflight_status.get("mutations_allowed", True))
+
+        if was_blocked and mutations_allowed:
+            incident["status"] = "AWAITING_HITL_APPROVAL"
+            incident["execution_result"] = None
+            agent_harness.acquire_or_renew_state_lock(
+                incident_id=incident_id,
+                cluster=region,
+                namespace=incident.get("namespace", "default"),
+                workload=incident.get("workload", "service"),
+            )
+            incident.setdefault("timeline", []).append(
+                {
+                    "timestamp": now_iso,
+                    "agent": "Atlas • Pre-Flight Outage Guard",
+                    "event": (
+                        f"Re-check passed for {target_cloud.upper()}/{preflight_status.get('region')} "
+                        f"({preflight_status.get('status')}). Safety Brake lifted and `.tflock` re-acquired "
+                        "for HITL approval."
+                    ),
+                }
+            )
+            incident.setdefault("chat_messages", []).append(
+                {
+                    "role": "assistant",
+                    "sender": "Atlas • AaaS Lead",
+                    "text": (
+                        f"✅ **Cloud Provider Outage Cleared**, {uname}!\n"
+                        f"• **Cloud / Region**: `{target_cloud.upper()}` / `{preflight_status.get('region')}` is now **`{preflight_status.get('status')}`**.\n"
+                        "• **Safety Brake Lifted**: You can now click **I accept** whenever you are ready to mint a 15-minute JIT token and remediate the workload."
+                    ),
+                    "timestamp": now_iso,
+                }
+            )
+            self._upsert_audit_event(incident, event_type="PROVIDER_OUTAGE_CLEARED")
+        elif not mutations_allowed:
+            incident.setdefault("timeline", []).append(
+                {
+                    "timestamp": now_iso,
+                    "agent": "Atlas • Pre-Flight Outage Guard",
+                    "event": (
+                        f"Re-check confirmed active {target_cloud.upper()}/{preflight_status.get('region')} outage "
+                        f"({preflight_status.get('active_incident_count', 1)} incident(s)). Safety Brake remains engaged."
+                    ),
+                }
+            )
         return incident
 
     def list_incidents(self) -> List[Dict[str, Any]]:
@@ -1753,6 +1956,7 @@ class LeadOrchestratorAgent:
     async def execute_chat_terraform_deployment(
         self,
         approved_by: str = "Hari (via Chat)",
+        target_cloud: Optional[str] = None,
     ) -> Dict[str, Any]:
         """
         Executes the most recent Scenario 2 / Scenario 3 Terraform bundle from Direct Atlas Chat:
@@ -1761,6 +1965,7 @@ class LeadOrchestratorAgent:
           3. Verifies 45s post-deployment telemetry with Heartbeat & Telemetry.
           4. Records the auditable event in the Audit & Event Tracker.
         """
+        resolved_cloud = normalize_target_cloud(target_cloud or self.active_target_cloud)
         latest_tf_msg = next(
             (m for m in reversed(self.general_chat_messages) if m.get("terraform_bundle")),
             None,
@@ -1809,7 +2014,7 @@ class LeadOrchestratorAgent:
 
         # Pre-flight Cloud Provider Status Check before minting JIT token for Terraform mutation
         preflight_status = await self._run_cloud_provider_preflight_check(
-            cloud_provider="gcp",
+            cloud_provider=resolved_cloud,
             region=cluster,
             service_hint="terraform",
         )
@@ -1834,6 +2039,7 @@ class LeadOrchestratorAgent:
                 "deployment_id": incident_id,
                 "action_taken": "BLOCKED_PROVIDER_OUTAGE",
                 "status": "BLOCKED_PROVIDER_OUTAGE",
+                "target_cloud": resolved_cloud,
                 "cloud_provider_status": preflight_status,
                 "reply": blocked_msg,
                 "specialist_worker": primary_spec,
@@ -1850,7 +2056,7 @@ class LeadOrchestratorAgent:
         jit_token = self.a2a_hub.jit_broker.mint_token(
             incident_id=incident_id,
             approved_by=approved_by,
-            scope=f"gcp:{cluster}:{namespace}:{workload}",
+            scope=f"{resolved_cloud}:{cluster}:{namespace}:{workload}",
             ttl_seconds=900,
         )
 
@@ -1867,9 +2073,10 @@ class LeadOrchestratorAgent:
                 "cluster": cluster,
                 "namespace": namespace,
                 "workload": workload,
+                "target_cloud": resolved_cloud,
                 "specialist_worker": primary_spec,
                 "coordinated_specialists": coord_specs,
-                "log_entry": {"title": scen_badge, "workload": workload},
+                "log_entry": {"title": scen_badge, "workload": workload, "cloud_provider": resolved_cloud},
             },
             summary=f"Atlas authorized Terraform execution ({scen_badge}) with JIT token {jit_token['token_id'][:16]}...",
         )
@@ -1947,6 +2154,7 @@ class LeadOrchestratorAgent:
         return {
             "deployment_id": incident_id,
             "action_taken": "TERRAFORM_APPROVED_AND_EXECUTED",
+            "target_cloud": resolved_cloud,
             "reply": confirm_text,
             "specialist_worker": primary_spec,
             "coordinated_specialists": coord_specs,
@@ -1959,18 +2167,20 @@ class LeadOrchestratorAgent:
         self,
         user_message: str,
         user_name: Optional[str] = None,
+        target_cloud: Optional[str] = None,
     ) -> Dict[str, Any]:
         """
         Handles manual/direct user conversations with Atlas across all 4 Customer Scenarios:
           - Scenario 1: Simple 1-line CLI/API troubleshooting
           - Scenario 2: Complex multi-service (IAM + VPC Firewall + API/DB) Terraform fix
           - Scenario 3: Customer asks Atlas to generate/deploy a Terraform (.tf) script
-          - Scenario 4: Simple GCP 'How-To' questions ($0 execution sandbox overhead)
+          - Scenario 4: Simple Cloud 'How-To' questions ($0 execution sandbox overhead)
         """
         clean_msg = user_message.strip()
         if not clean_msg:
             raise ValueError("Message cannot be empty")
 
+        resolved_cloud = normalize_target_cloud(target_cloud or self.active_target_cloud)
         uname = (user_name or self.active_user.get("name") or "Hari").strip()
         now_iso = datetime.datetime.now(datetime.timezone.utc).isoformat()
         self.general_chat_messages.append(
@@ -1978,6 +2188,7 @@ class LeadOrchestratorAgent:
                 "role": "user",
                 "sender": uname,
                 "text": clean_msg,
+                "target_cloud": resolved_cloud,
                 "timestamp": now_iso,
             }
         )
@@ -1985,7 +2196,10 @@ class LeadOrchestratorAgent:
         lower_msg = clean_msg.lower()
         # If user says "I accept" or "deploy terraform" after a Terraform bundle was generated in chat
         if any(p in lower_msg for p in ("i accept", "deploy terraform", "apply terraform", "execute terraform")) and "?" not in lower_msg:
-            return await self.execute_chat_terraform_deployment(approved_by=f"{uname} (via Chat)")
+            return await self.execute_chat_terraform_deployment(
+                approved_by=f"{uname} (via Chat)",
+                target_cloud=resolved_cloud,
+            )
 
         # If Hari asks about the scenarios / capabilities Atlas supports
         if any(
@@ -2030,6 +2244,7 @@ class LeadOrchestratorAgent:
             self._persist_active_session()
             return {
                 "action_taken": "DIRECT_ATLAS_CHAT_REPLY",
+                "target_cloud": resolved_cloud,
                 "scenario_type": "SCENARIO_4_HOW_TO",
                 "scenario_badge": "All 4 AaaS Scenarios",
                 "reply": scenarios_text,
@@ -2077,6 +2292,7 @@ class LeadOrchestratorAgent:
             live_db_diagnosis = self._invoke_live_database_agent_a2a(
                 prompt=contextual_prompt,
                 instance_name="auto",
+                target_cloud=resolved_cloud,
             )
             if live_db_diagnosis:
                 prop = live_db_diagnosis.get("remediation_proposal") or {}
@@ -2104,6 +2320,7 @@ class LeadOrchestratorAgent:
             live_infra_diagnosis = self._invoke_live_infra_agent_a2a(
                 prompt=contextual_prompt,
                 target_instance="auto",
+                target_cloud=resolved_cloud,
             )
             if live_infra_diagnosis:
                 prop = live_infra_diagnosis.get("remediation_proposal") or {}
@@ -2179,13 +2396,17 @@ class LeadOrchestratorAgent:
             reply_text = "\n".join(header_lines) + "\n\n" + str(live_infra_diagnosis["infra_reasoning_report"])
         elif self._llm_client.is_available:
             try:
+                cloud_cli_hint = {"gcp": "gcloud", "aws": "aws", "azure": "az"}.get(resolved_cloud, "gcloud")
+                cloud_label = {"gcp": "Google Cloud (`agent-triad`)", "aws": "AWS", "azure": "Microsoft Azure"}.get(
+                    resolved_cloud, "Google Cloud (`agent-triad`)"
+                )
                 prompt = (
-                    "You are Atlas, the Single Authorizing ADK Root Gemini Agent for Hari's Google Cloud project (`agent-triad`).\n"
+                    f"You are Atlas, the Single Authorizing ADK Root Agent operating on {cloud_label} (active target cloud: {resolved_cloud.upper()}).\n"
                     f"Classified Scenario: {scenario_badge}\n"
                     f"Coordinated Domain Specialists: {coord_names}\n"
                     f"Recent Conversation:\n{history_text}\n\n"
-                    "Provide a clear, practical, and concise answer (3-5 bullet points) tailored to Hari's request. "
-                    "Include exact `gcloud` commands or explain how the coordinated specialists and Agent Harness handle this."
+                    "Provide a clear, practical, and concise answer (3-5 bullet points) tailored to the operator's request. "
+                    f"Include exact `{cloud_cli_hint}` commands or explain how the coordinated specialists and Agent Harness handle this."
                 )
                 generated = self._llm_client.generate_text(prompt)
                 if generated:
@@ -2291,6 +2512,7 @@ class LeadOrchestratorAgent:
         self._persist_active_session()
         return {
             "action_taken": "DIRECT_ATLAS_CHAT_REPLY",
+            "target_cloud": resolved_cloud,
             "scenario_type": scenario_type,
             "scenario_badge": scenario_badge,
             "reply": reply_text,

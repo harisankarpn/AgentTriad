@@ -372,6 +372,13 @@
           </div>
         </div>
         <div class="flex flex-wrap items-center gap-2.5 shrink-0">
+          <!-- Multi-Cloud Target Switcher Pill (GCP Default | AWS | Azure) -->
+          <div id="targetCloudSwitcher" class="inline-flex items-center p-0.5 rounded-full bg-slate-900 border border-slate-800 text-[11px] font-semibold" role="group" aria-label="Target Cloud Provider" title="Switch Active Target Cloud (GCP / AWS / Azure)">
+            <button type="button" id="cloudBtnGcp" onclick="setTargetCloud('gcp')" class="g-btn-blue px-2.5 py-1 rounded-full text-[10px] font-bold transition cursor-pointer">GCP</button>
+            <button type="button" id="cloudBtnAws" onclick="setTargetCloud('aws')" class="px-2.5 py-1 rounded-full text-[10px] text-slate-400 hover:text-white transition cursor-pointer">AWS</button>
+            <button type="button" id="cloudBtnAzure" onclick="setTargetCloud('azure')" class="px-2.5 py-1 rounded-full text-[10px] text-slate-400 hover:text-white transition cursor-pointer">Azure</button>
+          </div>
+
           <!-- Theme Mode Segmented Control: Simplified Icon-Only Auto (Gear) / Dark (Moon) / Light (Sun) -->
           <div class="inline-flex items-center p-0.5 rounded-full bg-slate-900 border border-slate-800" role="group" aria-label="Theme Mode">
             <button type="button" id="themeBtnAuto" onclick="setThemeMode('auto')" title="Auto (System)" aria-label="Auto System Theme" class="w-7 h-7 rounded-full text-slate-400 hover:text-white transition cursor-pointer flex items-center justify-center">
@@ -421,42 +428,42 @@
 
           <!-- 1. Compact 4-Metric Status Strip -->
           <section class="grid grid-cols-2 lg:grid-cols-4 gap-3">
-            <div class="glass border border-slate-800 rounded-2xl px-3.5 py-2.5 flex items-center justify-between gap-2.5" title="Read-only discovery &amp; telemetry across Compute Engine, Cloud SQL, Cloud Run, Cloud Monitoring, and Cloud Logging APIs">
+            <div id="metricCardDiscovery" class="glass border border-slate-800 rounded-2xl px-3.5 py-2.5 flex items-center justify-between gap-2.5" title="Read-only discovery &amp; telemetry across Compute Engine, Cloud SQL, Cloud Run, Cloud Monitoring, and Cloud Logging APIs">
               <div class="min-w-0">
-                <div class="text-[10px] font-medium text-slate-400">GCP Discovery</div>
-                <div class="text-sm font-bold text-white truncate">5 APIs Live</div>
+                <div id="metricCloudDiscoveryLabel" class="text-[10px] font-medium text-slate-400">GCP Discovery</div>
+                <div id="metricCloudDiscoveryValue" class="text-sm font-bold text-white truncate">5 APIs Live</div>
               </div>
               <div class="w-8 h-8 rounded-xl g-badge-blue flex items-center justify-center shrink-0">
                 <i class="fa-solid fa-cloud-bolt text-xs"></i>
               </div>
             </div>
 
-            <div class="glass border border-slate-800 rounded-2xl px-3.5 py-2.5 flex items-center justify-between gap-2.5" title="Live Google ADK microservices running on Cloud Run: Database Agent &amp; Infra Agent">
+            <div id="metricCardRuntime" class="glass border border-slate-800 rounded-2xl px-3.5 py-2.5 flex items-center justify-between gap-2.5" title="Live ADK Specialist microservices &amp; Model-Agnostic LLM Router">
               <div class="min-w-0">
-                <div class="text-[10px] font-medium text-slate-400">Cloud Run ADK</div>
-                <div class="text-sm font-bold text-white truncate">2 Agents Online</div>
+                <div id="metricRuntimeLabel" class="text-[10px] font-medium text-slate-400">ADK Specialists</div>
+                <div id="metricRuntimeValue" class="text-sm font-bold text-white truncate">2 Agents Online</div>
               </div>
               <div class="w-8 h-8 rounded-xl g-badge-green flex items-center justify-center shrink-0">
                 <i class="fa-solid fa-cubes text-xs"></i>
               </div>
             </div>
 
-            <div class="glass border border-slate-800 rounded-2xl px-3.5 py-2.5 flex items-center justify-between gap-2.5" title="Blocks destructive commands, protects shared services, and locks target resources for 10m during fixes">
+            <div id="metricCardProviderHealth" class="glass border border-slate-800 rounded-2xl px-3.5 py-2.5 flex items-center justify-between gap-2.5" title="Live Pre-Flight Cloud Provider Regional Status Check (auto-blocks mutations during active provider outages)">
               <div class="min-w-0">
-                <div class="text-[10px] font-medium text-slate-400">Safety Policy</div>
-                <div class="text-sm font-bold text-white truncate">Guardrails Active</div>
+                <div id="metricProviderHealthLabel" class="text-[10px] font-medium text-slate-400">Cloud Health</div>
+                <div id="metricProviderHealthValue" class="text-sm font-bold text-white truncate">GCP • Operational</div>
               </div>
-              <div class="w-8 h-8 rounded-xl g-badge-yellow flex items-center justify-center shrink-0">
-                <i class="fa-solid fa-lock text-xs"></i>
+              <div id="metricProviderHealthBadge" class="w-8 h-8 rounded-xl g-badge-green flex items-center justify-center shrink-0">
+                <i id="metricProviderHealthIcon" class="fa-solid fa-heart-pulse text-xs"></i>
               </div>
             </div>
 
-            <div class="glass border border-slate-800 rounded-2xl px-3.5 py-2.5 flex items-center justify-between gap-2.5" title="45s direct API liveness probe + 3m Cloud Monitoring metric window; Safe-Mode Isolation for databases">
+            <div id="metricCardSafety" class="glass border border-slate-800 rounded-2xl px-3.5 py-2.5 flex items-center justify-between gap-2.5" title="OPA Guardrails, 10m state lock, 45s direct API liveness probe + 3m metric window; Safe-Mode Isolation for databases">
               <div class="min-w-0">
-                <div class="text-[10px] font-medium text-slate-400">Post-Fix Verify</div>
-                <div class="text-sm font-bold text-white truncate">45s + 3m Watchdog</div>
+                <div id="metricSafetyLabel" class="text-[10px] font-medium text-slate-400">Safety &amp; Verify</div>
+                <div id="metricSafetyValue" class="text-sm font-bold text-white truncate">45s + 3m Watchdog</div>
               </div>
-              <div class="w-8 h-8 rounded-xl g-badge-red flex items-center justify-center shrink-0">
+              <div class="w-8 h-8 rounded-xl g-badge-yellow flex items-center justify-center shrink-0">
                 <i class="fa-solid fa-shield-halved text-xs"></i>
               </div>
             </div>
@@ -938,6 +945,9 @@
         <p class="text-xs text-slate-400">
           Authenticate with your Google Workspace identity to authorize HITL approvals and 15-minute WIF JIT tokens.
         </p>
+        <p class="text-[10px] text-slate-500">
+          Self-hosted &amp; multi-cloud deployments also support enterprise OIDC (Okta, Microsoft Entra ID, Auth0, Keycloak) and federated JIT credentials (GCP WIF / AWS STS / Azure).
+        </p>
       </div>
 
       <!-- Real Google OAuth 2.0 Sign-In Action -->
@@ -1000,6 +1010,167 @@
 
   <script>
     let latestState = null;
+    let activeTargetCloud = 'gcp';
+    let targetCloudRequestInFlight = false;
+
+    const CLOUD_SERVICE_PROFILES = {
+      gcp: {
+        label: 'GCP',
+        fullName: 'Google Cloud',
+        discoveryLabel: 'GCP Discovery',
+        discoveryValue: '5 APIs Live',
+        defaultRegion: 'us-central1',
+        chatPlaceholder: 'Ask a GCP question, inspect live Cloud SQL / VMs, or request Terraform...',
+        healthyPrompt: 'Scan live GCP logs for alerts, or open chat to inspect Cloud SQL, Compute VMs, and Terraform fixes.',
+        domains: {
+          'serverless-agent': 'Cloud Run & Cloud Functions',
+          'database-agent': 'Cloud SQL, AlloyDB & Spanner',
+          'infra-agent': 'GKE, Compute Engine & Terraform IaC',
+          'networking-agent': 'VPC, Load Balancing & DNS',
+          'data-analytics-agent': 'BigQuery, Dataflow & Pub/Sub',
+          'security-agent': 'IAM, Cloud Armor & Secret Manager',
+          'billing-agent': 'Cloud Billing, Quotas & FinOps'
+        }
+      },
+      aws: {
+        label: 'AWS',
+        fullName: 'Amazon Web Services',
+        discoveryLabel: 'AWS Discovery',
+        discoveryValue: 'RDS • EC2 • CW',
+        defaultRegion: 'us-east-1',
+        chatPlaceholder: 'Ask an AWS question, inspect RDS / EC2 / EKS, or request Terraform...',
+        healthyPrompt: 'Monitor AWS CloudWatch / OTel telemetry, or open chat to inspect RDS, EC2, EKS, and Terraform fixes.',
+        domains: {
+          'serverless-agent': 'AWS Lambda & ECS Fargate',
+          'database-agent': 'Amazon RDS, Aurora & DynamoDB',
+          'infra-agent': 'Amazon EKS, EC2 & Terraform IaC',
+          'networking-agent': 'VPC, Security Groups, ALB & Route 53',
+          'data-analytics-agent': 'Bedrock, Redshift & Kinesis',
+          'security-agent': 'IAM STS, AWS WAF & Secrets Manager',
+          'billing-agent': 'Cost Explorer, Budgets & FinOps'
+        }
+      },
+      azure: {
+        label: 'Azure',
+        fullName: 'Microsoft Azure',
+        discoveryLabel: 'Azure Discovery',
+        discoveryValue: 'SQL • VM • Monitor',
+        defaultRegion: 'eastus',
+        chatPlaceholder: 'Ask an Azure question, inspect Azure SQL / VMs / AKS, or request Terraform...',
+        healthyPrompt: 'Monitor Azure Monitor / OTel telemetry, or open chat to inspect Azure SQL, VMs, AKS, and Terraform fixes.',
+        domains: {
+          'serverless-agent': 'Azure Container Apps & Functions',
+          'database-agent': 'Azure SQL, Flexible Postgres & Cosmos DB',
+          'infra-agent': 'AKS, Azure VMs & Terraform IaC',
+          'networking-agent': 'VNet, NSG, Front Door & Azure DNS',
+          'data-analytics-agent': 'Azure OpenAI, Synapse & Event Hubs',
+          'security-agent': 'Entra ID, Key Vault & Azure WAF',
+          'billing-agent': 'Azure Cost Management & FinOps'
+        }
+      }
+    };
+
+    function getCloudProfile(cloudCode) {
+      const code = String(cloudCode || activeTargetCloud || 'gcp').toLowerCase();
+      return CLOUD_SERVICE_PROFILES[code] || CLOUD_SERVICE_PROFILES.gcp;
+    }
+
+    function updateTargetCloudSwitcherUI() {
+      const map = { gcp: 'cloudBtnGcp', aws: 'cloudBtnAws', azure: 'cloudBtnAzure' };
+      Object.entries(map).forEach(([code, btnId]) => {
+        const el = document.getElementById(btnId);
+        if (!el) return;
+        if (code === activeTargetCloud) {
+          el.className = 'g-btn-blue px-2.5 py-1 rounded-full text-[10px] font-bold transition cursor-pointer';
+        } else {
+          el.className = 'px-2.5 py-1 rounded-full text-[10px] text-slate-400 hover:text-white transition cursor-pointer';
+        }
+      });
+    }
+
+    function updatePlatformRuntimeUI(runtime) {
+      if (!runtime) return;
+      if (runtime.cloud_provider && !targetCloudRequestInFlight) {
+        activeTargetCloud = String(runtime.cloud_provider).toLowerCase();
+      }
+      updateTargetCloudSwitcherUI();
+
+      const profile = getCloudProfile(activeTargetCloud);
+      const discLabel = document.getElementById('metricCloudDiscoveryLabel');
+      const discVal = document.getElementById('metricCloudDiscoveryValue');
+      const discCard = document.getElementById('metricCardDiscovery');
+      if (discLabel) discLabel.textContent = profile.discoveryLabel;
+      if (discVal) discVal.textContent = profile.discoveryValue;
+      if (discCard) {
+        discCard.title = `Active Target Cloud: ${profile.fullName} (${runtime.region || profile.defaultRegion}) • Telemetry: ${runtime.telemetry_provider || 'gcp'}`;
+      }
+
+      const rtCard = document.getElementById('metricCardRuntime');
+      if (rtCard) {
+        rtCard.title = `LLM Router: ${runtime.llm_provider || 'vertex'} (${runtime.llm_model || 'gemini'}) • Live ADK Specialists: Database Agent & Infra Agent`;
+      }
+
+      const healthStatus = runtime.cloud_provider_status || {};
+      const mutationsAllowed = healthStatus.mutations_allowed !== false;
+      const healthRegion = healthStatus.region || runtime.region || profile.defaultRegion;
+      const healthLabel = document.getElementById('metricProviderHealthLabel');
+      const healthVal = document.getElementById('metricProviderHealthValue');
+      const healthBadge = document.getElementById('metricProviderHealthBadge');
+      const healthIcon = document.getElementById('metricProviderHealthIcon');
+      const healthCard = document.getElementById('metricCardProviderHealth');
+
+      if (healthLabel) healthLabel.textContent = `Cloud Health (${healthRegion})`;
+      if (healthVal) {
+        healthVal.textContent = mutationsAllowed
+          ? `${profile.label} • Operational`
+          : `${profile.label} • Outage Brake`;
+      }
+      if (healthBadge) {
+        healthBadge.className = mutationsAllowed
+          ? 'w-8 h-8 rounded-xl g-badge-green flex items-center justify-center shrink-0'
+          : 'w-8 h-8 rounded-xl g-badge-red flex items-center justify-center shrink-0';
+      }
+      if (healthIcon) {
+        healthIcon.className = mutationsAllowed
+          ? 'fa-solid fa-heart-pulse text-xs'
+          : 'fa-solid fa-triangle-exclamation text-xs';
+      }
+      if (healthCard) {
+        healthCard.title = healthStatus.recommendation || `Pre-Flight Cloud Status for ${profile.label}/${healthRegion}: ${healthStatus.status || 'OPERATIONAL'}`;
+      }
+
+      const safetyCard = document.getElementById('metricCardSafety');
+      if (safetyCard) {
+        safetyCard.title = `State: ${runtime.state_backend || 'firestore'} • Lock: ${runtime.lock_backend || 'memory'} • Auth: ${runtime.auth_provider || 'gcp'} • 45s + 3m Watchdog`;
+      }
+    }
+
+    async function setTargetCloud(cloudCode) {
+      const normalized = String(cloudCode || 'gcp').toLowerCase();
+      if (!CLOUD_SERVICE_PROFILES[normalized]) return;
+      activeTargetCloud = normalized;
+      targetCloudRequestInFlight = true;
+      updateTargetCloudSwitcherUI();
+      try {
+        const res = await fetch('/api/platform/target-cloud', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ target_cloud: normalized })
+        });
+        if (res.ok) {
+          const payload = await res.json();
+          if (payload.platform_runtime) {
+            updatePlatformRuntimeUI(payload.platform_runtime);
+          }
+        }
+      } catch (err) {
+        console.error('Failed to switch target cloud:', err);
+      } finally {
+        targetCloudRequestInFlight = false;
+        lastStageSignature = '';
+        await fetchState(true);
+      }
+    }
 
     // =====================================================================
     // GOOGLE SSO IDENTITY & SESSION MANAGEMENT (REAL OAUTH 2.0 + IAP)
@@ -1495,8 +1666,10 @@
           : (activeSpecialist ? [activeSpecialist] : [])
         ).map(s => s.id)
       );
+      const profile = getCloudProfile(activeTargetCloud);
       container.innerHTML = SPECIALIST_ROSTER_CATALOG.map(spec => {
         const isSelected = coordIds.has(spec.id);
+        const domainText = (profile.domains && profile.domains[spec.id]) || spec.domain;
         return `
           <div class="glass ${spec.cardBorder} p-4 rounded-2xl border transition ${isSelected ? 'agent-active' : 'border-slate-800'} flex flex-col justify-between gap-3">
             <div>
@@ -1507,7 +1680,7 @@
                   </div>
                   <div>
                     <div class="text-xs font-bold text-white">${escapeHtml(spec.name)}</div>
-                    <div class="text-[10px] text-slate-400">${escapeHtml(spec.domain)}</div>
+                    <div class="text-[10px] text-slate-400">${escapeHtml(domainText)}</div>
                   </div>
                 </div>
                 ${isSelected
@@ -1518,7 +1691,7 @@
               <p class="text-[11px] text-slate-300 leading-relaxed">${escapeHtml(spec.desc)}</p>
             </div>
             <div class="pt-2.5 border-t border-slate-800/80 flex items-center justify-between text-[10px] mono text-slate-400">
-              <span class="${(spec.id === 'database-agent' || spec.id === 'infra-agent') ? 'text-[#34A853] font-semibold' : 'text-[#4285F4]'}">${(spec.id === 'database-agent' || spec.id === 'infra-agent') ? '● Live ADK Cloud Run' : 'Deterministic Harness'}</span>
+              <span class="${(spec.id === 'database-agent' || spec.id === 'infra-agent') ? 'text-[#34A853] font-semibold' : 'text-[#4285F4]'}">${(spec.id === 'database-agent' || spec.id === 'infra-agent') ? `● Live ADK (${escapeHtml(profile.label)})` : 'Deterministic Harness'}</span>
               <button type="button" onclick="consultSpecialistInChat('${escapeHtml(spec.id)}')"
                 class="g-badge-blue px-2.5 py-0.5 rounded-full text-[10px] font-sans font-semibold cursor-pointer hover:opacity-90 transition">
                 Consult in Chat →
@@ -1582,17 +1755,38 @@
     }
 
     function consultSpecialistInChat(specId) {
-      const prompts = {
-        'database-agent': 'Troubleshoot our live Cloud SQL database testdbinstance1 in agent-triad. What do the live instance state, Cloud Monitoring metrics, and PostgreSQL logs show?',
-        'infra-agent': 'What Compute Engine VMs are currently running in my project agent-triad, and what are the live CPU, uptime, and network metrics for testinstance1?',
-        'serverless-agent': 'My Cloud Run service has intermittent latency and cold-start timeouts. Give me a 1-line CLI fix.',
-        'networking-agent': 'How do I diagnose and fix VPC firewall egress rules and Serverless VPC Access connector timeouts in agent-triad?',
-        'data-analytics-agent': 'How do I inspect and recover a Vertex AI Reasoning Engine or BigQuery slot contention issue?',
-        'security-agent': 'How do I configure Workload Identity Federation (WIF) and least-privilege IAM roles in Google Cloud?',
-        'billing-agent': 'How do we enforce FinOps max-instance scaling ceilings and API quota guardrails across Cloud Run?'
+      const promptsByCloud = {
+        gcp: {
+          'database-agent': 'Troubleshoot our live Cloud SQL database testdbinstance1 in agent-triad. What do the live instance state, Cloud Monitoring metrics, and PostgreSQL logs show?',
+          'infra-agent': 'What Compute Engine VMs are currently running in my project agent-triad, and what are the live CPU, uptime, and network metrics for testinstance1?',
+          'serverless-agent': 'My Cloud Run service has intermittent latency and cold-start timeouts. Give me a 1-line CLI fix.',
+          'networking-agent': 'How do I diagnose and fix VPC firewall egress rules and Serverless VPC Access connector timeouts in agent-triad?',
+          'data-analytics-agent': 'How do I inspect and recover a Vertex AI Reasoning Engine or BigQuery slot contention issue?',
+          'security-agent': 'How do I configure Workload Identity Federation (WIF) and least-privilege IAM roles in Google Cloud?',
+          'billing-agent': 'How do we enforce FinOps max-instance scaling ceilings and API quota guardrails across Cloud Run?'
+        },
+        aws: {
+          'database-agent': 'Inspect our Amazon RDS PostgreSQL instance in us-east-1. Check instance health, slow query logs, and connection pool saturation.',
+          'infra-agent': 'Inspect our Amazon EC2 / EKS compute fleet in us-east-1 and summarize CPU, uptime, and recent GitOps deployment drift.',
+          'serverless-agent': 'My AWS Lambda / ECS Fargate service has cold-start latency spikes. Give me a safe 1-line AWS CLI remediation.',
+          'networking-agent': 'Diagnose AWS VPC Security Group egress rules and ALB 504 gateway timeouts.',
+          'data-analytics-agent': 'How do I troubleshoot Amazon Bedrock throttling and Kinesis shard iterator lag?',
+          'security-agent': 'How do I configure AWS STS AssumeRoleWithWebIdentity for short-lived 15-minute JIT remediation tokens?',
+          'billing-agent': 'How do we enforce AWS Cost Explorer anomaly guardrails and autoscaling ceilings?'
+        },
+        azure: {
+          'database-agent': 'Inspect our Azure Database for PostgreSQL Flexible Server in eastus. Check server status, slow query activity, and locks.',
+          'infra-agent': 'Inspect our Azure VM / AKS workloads in eastus and correlate recent GitOps deployments with CPU or restart spikes.',
+          'serverless-agent': 'My Azure Container Apps revision has cold-start latency spikes. Give me a safe 1-line az CLI fix.',
+          'networking-agent': 'Diagnose Azure VNet NSG egress rules and Azure Front Door 502/504 backend timeouts.',
+          'data-analytics-agent': 'How do I troubleshoot Azure OpenAI rate limits and Event Hubs consumer lag?',
+          'security-agent': 'How do I configure Microsoft Entra ID Federated Credentials for short-lived 15-minute JIT remediation?',
+          'billing-agent': 'How do we enforce Azure Cost Management budgets and autoscaling guardrails?'
+        }
       };
+      const prompts = promptsByCloud[activeTargetCloud] || promptsByCloud.gcp;
       openDirectAtlasChat();
-      const q = prompts[specId] || `Help me troubleshoot an issue with ${specId}.`;
+      const q = prompts[specId] || `Help me troubleshoot an issue with ${specId} on ${activeTargetCloud.toUpperCase()}.`;
       setTimeout(() => {
         askGeneralQuickQuestion(q);
       }, 80);
@@ -1657,14 +1851,18 @@
       if (data && data.active_user && !currentSsoUser) {
         currentSsoUser = data.active_user;
       }
+      if (data && data.platform_runtime) {
+        updatePlatformRuntimeUI(data.platform_runtime);
+      }
       updateHeaderUserBadge();
       const incidents = data.incidents || [];
       const chosenIncident = selectedIncidentId
         ? incidents.find(i => i.incident_id === selectedIncidentId)
         : null;
-      const pending = (chosenIncident && chosenIncident.status === 'AWAITING_HITL_APPROVAL')
+      const isActionableStatus = st => st === 'AWAITING_HITL_APPROVAL' || st === 'BLOCKED_PROVIDER_OUTAGE';
+      const pending = (chosenIncident && isActionableStatus(chosenIncident.status))
         ? chosenIncident
-        : incidents.find(i => i.status === 'AWAITING_HITL_APPROVAL');
+        : incidents.find(i => isActionableStatus(i.status));
       const latestIncident = chosenIncident || incidents[0];
 
       // Update Agent Cards visual state
@@ -1729,6 +1927,24 @@
           navBadgeCommand.textContent = pending ? '1 Alert' : 'Chatting';
           navBadgeCommand.className = 'g-badge-blue px-2 py-0.5 text-[10px] font-semibold rounded-full shrink-0';
         }
+      } else if (activeInc && activeInc.status === 'BLOCKED_PROVIDER_OUTAGE') {
+        orchCard.classList.add('agent-active');
+        document.getElementById('badge-orchestrator').textContent = 'Outage Blocked';
+        document.getElementById('badge-orchestrator').className = 'g-badge-red text-[10px] font-semibold px-2.5 py-0.5 rounded-full';
+        document.getElementById('badge-worker').textContent = 'Safety Brake';
+        document.getElementById('badge-worker').className = 'g-badge-red text-[10px] font-semibold px-2.5 py-0.5 rounded-full';
+        if (compactOrch) {
+          compactOrch.textContent = '(Outage Blocked)';
+          compactOrch.className = 'text-[10px] text-[#EA4335] font-semibold';
+        }
+        if (compactWorker) {
+          compactWorker.textContent = '(Safety Brake • 0 JIT)';
+          compactWorker.className = 'text-[10px] text-[#EA4335] font-medium';
+        }
+        if (navBadgeCommand) {
+          navBadgeCommand.textContent = 'Outage';
+          navBadgeCommand.className = 'g-badge-red px-2 py-0.5 text-[10px] font-semibold rounded-full shrink-0';
+        }
       } else if (activeInc && activeInc.status === 'AWAITING_HITL_APPROVAL') {
         orchCard.classList.add('agent-active');
         document.getElementById('badge-orchestrator').textContent = 'Awaiting Review';
@@ -1786,11 +2002,14 @@
       // Render Center Stage only when state signature changes so typing in chat is never interrupted
       const chatSessions = data.chat_sessions || [];
       const activeSessId = data.active_session_id || 'default';
+      const incOutageSig = activeInc && activeInc.cloud_provider_status
+        ? `${activeInc.cloud_provider_status.status || ''}:${activeInc.cloud_provider_status.mutations_allowed}`
+        : 'none';
       const stageSig = directChatMode
-        ? `direct:${activeSessId}:${generalMsgs.length}:${chatSessions.length}:${sessionHistoryOpen}:${pending ? pending.incident_id : 'none'}`
+        ? `direct:${activeTargetCloud}:${activeSessId}:${generalMsgs.length}:${chatSessions.length}:${sessionHistoryOpen}:${pending ? pending.incident_id : 'none'}`
         : (activeInc
-            ? `${activeInc.incident_id}:${activeInc.status}:${(activeInc.chat_messages || []).length}`
-            : `healthy:${generalMsgs.length}`);
+            ? `${activeTargetCloud}:${activeInc.incident_id}:${activeInc.status}:${incOutageSig}:${(activeInc.chat_messages || []).length}:${(activeInc.timeline || []).length}`
+            : `healthy:${activeTargetCloud}:${generalMsgs.length}`);
 
       const stageEl = document.getElementById('centerStage');
       if (forceRender || stageSig !== lastStageSignature) {
@@ -1800,6 +2019,8 @@
 
         if (directChatMode) {
           stageEl.innerHTML = renderDirectAtlasChatCard(generalMsgs, pending);
+        } else if (activeInc && activeInc.status === 'BLOCKED_PROVIDER_OUTAGE') {
+          stageEl.innerHTML = renderOutageBlockedCard(activeInc);
         } else if (activeInc && activeInc.status === 'AWAITING_HITL_APPROVAL') {
           stageEl.innerHTML = renderCustomerApprovalCard(activeInc);
         } else if (activeInc && activeInc.status === 'SKIPPED_MANUAL') {
@@ -2433,6 +2654,225 @@
       }).join('');
     }
 
+    function renderPhase4IntelligencePanels(inc) {
+      if (!inc) return '';
+      const impact = inc.impact_analysis || {};
+      const cloudStatus = inc.cloud_provider_status || impact.cloud_provider_status || null;
+      const attribution = inc.fault_attribution || impact.fault_attribution || null;
+      const queryIntro = inc.query_introspection || impact.query_introspection || null;
+      const gitopsCorr = inc.gitops_correlation || impact.gitops_correlation || null;
+      const gitopsPr = (inc.execution_result && inc.execution_result.gitops_pr_payload) || inc.gitops_pr_payload || impact.gitops_pr_payload || null;
+
+      if (!cloudStatus && !attribution && !queryIntro && !gitopsCorr && !gitopsPr) {
+        return '';
+      }
+
+      const blocks = [];
+
+      // 1. Fault Attribution & Cloud Provider Regional Health Panel
+      if (attribution || cloudStatus) {
+        const isInternalOutage = (attribution && attribution.origin === 'INTERNAL_CLOUD_PROVIDER_OUTAGE')
+          || (cloudStatus && cloudStatus.mutations_allowed === false);
+        const cloudName = String((attribution && attribution.cloud_provider) || (cloudStatus && cloudStatus.cloud_provider) || inc.target_cloud || 'gcp').toUpperCase();
+        const region = (attribution && attribution.region) || (cloudStatus && cloudStatus.region) || inc.cluster || 'us-central1';
+        const attrLabel = (attribution && attribution.label)
+          || (isInternalOutage ? `Internal • ${cloudName} Provider Outage` : 'External • App / Workload Fault');
+        const attrSummary = (attribution && attribution.summary)
+          || (cloudStatus && cloudStatus.recommendation)
+          || '';
+        const providerState = (cloudStatus && cloudStatus.status) || (isInternalOutage ? 'ACTIVE_PROVIDER_OUTAGE' : 'OPERATIONAL');
+
+        blocks.push(`
+          <div class="rounded-2xl bg-slate-950/85 border ${isInternalOutage ? 'border-[#EA4335]/50' : 'border-slate-800'} px-3.5 py-2.5 text-left space-y-1.5">
+            <div class="flex flex-wrap items-center justify-between gap-1.5">
+              <div class="flex flex-wrap items-center gap-1.5">
+                <span class="${isInternalOutage ? 'g-badge-red' : 'g-badge-yellow'} px-2.5 py-0.5 rounded-full text-[10px] font-semibold inline-flex items-center gap-1">
+                  <i class="fa-solid ${isInternalOutage ? 'fa-cloud-bolt' : 'fa-microchip'} text-[9px]"></i>
+                  <span>${escapeHtml(attrLabel)}</span>
+                </span>
+                <span class="${isInternalOutage ? 'g-badge-red' : 'g-badge-green'} px-2.5 py-0.5 rounded-full text-[10px] font-semibold inline-flex items-center gap-1">
+                  <i class="fa-solid ${isInternalOutage ? 'fa-triangle-exclamation' : 'fa-circle-check'} text-[9px]"></i>
+                  <span>${escapeHtml(cloudName)} ${escapeHtml(region)}: ${escapeHtml(providerState)}</span>
+                </span>
+              </div>
+              <span class="text-[10px] mono text-slate-400">Pre-Flight Attribution</span>
+            </div>
+            ${attrSummary ? `<div class="text-[11px] text-slate-300 leading-relaxed">${escapeHtml(attrSummary)}</div>` : ''}
+          </div>
+        `);
+      }
+
+      // 2. Read-Only DB Query Introspection Panel
+      if (queryIntro) {
+        const qSum = queryIntro.summary || {};
+        const topSlow = (queryIntro.top_slow_queries || [])[0] || (queryIntro.long_running_queries || [])[0] || null;
+        const blocking = (queryIntro.blocking_chains || [])[0] || null;
+        const lockWarns = queryIntro.lock_warnings_in_logs || [];
+        const recs = queryIntro.dba_recommendations || [];
+        const hasFindings = Boolean(
+          topSlow || blocking || lockWarns.length || recs.length
+          || (qSum.slow_query_count || 0) > 0
+          || (qSum.blocked_session_count || 0) > 0
+          || (qSum.idle_in_transaction_count || 0) > 0
+        );
+
+        if (hasFindings) {
+          blocks.push(`
+            <div class="rounded-2xl bg-slate-950/85 border border-slate-800 px-3.5 py-2.5 text-left space-y-1.5">
+              <div class="flex flex-wrap items-center justify-between gap-1.5">
+                <div class="flex flex-wrap items-center gap-1.5">
+                  <span class="g-badge-blue px-2.5 py-0.5 rounded-full text-[10px] font-semibold inline-flex items-center gap-1">
+                    <i class="fa-solid fa-database text-[9px]"></i>
+                    <span>DB Query Introspection</span>
+                  </span>
+                  <span class="g-badge-green px-2 py-0.5 rounded-full text-[10px] font-semibold">Read-Only Enforced</span>
+                  ${qSum.max_query_duration_ms ? `<span class="g-badge-yellow px-2 py-0.5 rounded-full text-[10px] mono">Max ${escapeHtml(qSum.max_query_duration_ms)}ms</span>` : ''}
+                  ${blocking ? `<span class="g-badge-red px-2 py-0.5 rounded-full text-[10px] mono">Blocked PID ${escapeHtml(blocking.blocked_pid)} ← ${escapeHtml(blocking.blocker_pid)}</span>` : ''}
+                  ${lockWarns.length ? `<span class="g-badge-red px-2 py-0.5 rounded-full text-[10px] font-semibold">${lockWarns.length} Lock/Deadlock Alert</span>` : ''}
+                </div>
+                <span class="text-[10px] mono text-slate-400">${escapeHtml(queryIntro.introspection_mode || 'out_of_band')}</span>
+              </div>
+              ${topSlow ? `<div class="mono text-[10px] text-slate-300 bg-slate-900 border border-slate-800 rounded-xl px-2.5 py-1.5 overflow-x-auto">${escapeHtml(topSlow.query_fingerprint || topSlow.query || '')}</div>` : ''}
+              ${recs.length ? `<div class="text-[11px] text-slate-300"><strong class="text-white">Advisory (HITL-Gated):</strong> ${escapeHtml(recs[0].proposed_action || recs[0].summary || '')}</div>` : ''}
+            </div>
+          `);
+        }
+      }
+
+      // 3. GitOps Suspect Commit & Bidirectional Reconciliation PR Panel
+      if (gitopsCorr || gitopsPr) {
+        const suspect = (gitopsCorr && gitopsCorr.highest_confidence_match) || null;
+        blocks.push(`
+          <div class="rounded-2xl bg-slate-950/85 border border-slate-800 px-3.5 py-2.5 text-left space-y-1.5">
+            <div class="flex flex-wrap items-center justify-between gap-1.5">
+              <div class="flex flex-wrap items-center gap-1.5">
+                <span class="g-badge-blue px-2.5 py-0.5 rounded-full text-[10px] font-semibold inline-flex items-center gap-1">
+                  <i class="fa-solid fa-code-branch text-[9px]"></i>
+                  <span>GitOps &amp; Drift Reconciliation</span>
+                </span>
+                ${suspect ? `
+                  <span class="g-badge-yellow px-2 py-0.5 rounded-full text-[10px] mono font-semibold">
+                    Suspect ${escapeHtml(suspect.short_sha || (suspect.commit_sha || '').slice(0, 8))} (${escapeHtml(suspect.confidence || 'MATCH')})
+                  </span>
+                ` : ''}
+                ${gitopsPr && gitopsPr.head_branch ? `
+                  <span class="g-badge-green px-2 py-0.5 rounded-full text-[10px] mono">
+                    PR → ${escapeHtml(gitopsPr.head_branch)}
+                  </span>
+                ` : ''}
+              </div>
+              <span class="text-[10px] mono text-slate-400">Bidirectional GitOps</span>
+            </div>
+            ${suspect ? `<div class="text-[11px] text-slate-300"><strong>Recent Commit:</strong> ${escapeHtml(suspect.subject || '')} <span class="text-slate-400">(${escapeHtml(suspect.delta_minutes_before_incident)}m before incident)</span></div>` : ''}
+            ${gitopsPr && gitopsPr.revert_command ? `<div class="mono text-[10px] text-slate-300">Revert Ready: <code>${escapeHtml(gitopsPr.revert_command)}</code> • ${(gitopsPr.files || []).length} reconciliation file(s)</div>` : ''}
+          </div>
+        `);
+      }
+
+      if (!blocks.length) return '';
+      return `<div class="space-y-2">${blocks.join('')}</div>`;
+    }
+
+    function renderOutageBlockedCard(inc) {
+      const copy = getCustomerCopy(inc);
+      const cloudStatus = inc.cloud_provider_status || (inc.impact_analysis && inc.impact_analysis.cloud_provider_status) || {};
+      const cloudUpper = String(cloudStatus.cloud_provider || inc.target_cloud || 'gcp').toUpperCase();
+      const region = cloudStatus.region || inc.cluster || 'us-central1';
+      const activeOutages = cloudStatus.active_incidents || [];
+      const recommendation = cloudStatus.recommendation
+        || (inc.execution_result && inc.execution_result.reason)
+        || `Active ${cloudUpper} regional outage detected in ${region}. Automated mutations are held to prevent compounding blast radius.`;
+      const messages = inc.chat_messages || [];
+
+      const outageItemsHtml = activeOutages.length
+        ? activeOutages.map(item => `
+            <div class="p-3 rounded-2xl bg-slate-900/90 border border-[#EA4335]/40 space-y-1 text-left">
+              <div class="flex flex-wrap items-center justify-between gap-2">
+                <span class="text-xs font-bold text-white">${escapeHtml(item.title || 'Active Cloud Provider Incident')}</span>
+                <span class="g-badge-red px-2 py-0.5 rounded-full text-[10px] font-semibold">${escapeHtml(item.severity || 'HIGH')}</span>
+              </div>
+              <div class="text-[11px] text-slate-300">${escapeHtml(item.summary || item.service || '')}</div>
+            </div>
+          `).join('')
+        : `
+            <div class="p-3 rounded-2xl bg-slate-900/90 border border-[#EA4335]/40 text-xs text-slate-200 text-left">
+              ${escapeHtml(recommendation)}
+            </div>
+          `;
+
+      return `
+        <div id="outageBlockedCard" class="glass g-card-red border border-[#EA4335]/50 rounded-3xl p-5 sm:p-6 space-y-4">
+          <!-- Safety Brake Header -->
+          <div class="flex flex-wrap items-center justify-between gap-2 pb-3.5 border-b border-slate-800">
+            <div class="flex items-center gap-3">
+              <div class="w-11 h-11 rounded-2xl g-badge-red flex items-center justify-center text-base shrink-0">
+                <i class="fa-solid fa-hand"></i>
+              </div>
+              <div>
+                <div class="flex items-center gap-1.5 flex-wrap">
+                  <span class="g-badge-red px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider">Safety Brake Active</span>
+                  <span class="g-badge-yellow px-2.5 py-0.5 rounded-full text-[10px] font-semibold">
+                    <i class="fa-solid fa-key mr-1 text-[9px]"></i>Zero JIT Token Minted
+                  </span>
+                  <span class="g-badge-blue px-2.5 py-0.5 rounded-full text-[10px] mono font-semibold">
+                    ${escapeHtml(cloudUpper)} • ${escapeHtml(region)}
+                  </span>
+                </div>
+                <h2 class="text-sm sm:text-base font-bold text-white mt-1">
+                  Mutation Held — Active ${escapeHtml(cloudUpper)} Provider Outage
+                </h2>
+                <div class="text-xs text-slate-300">${escapeHtml(copy.headline)}</div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Phase 4 Fault Attribution & Intelligence -->
+          ${renderPhase4IntelligencePanels(inc)}
+
+          <!-- Active Cloud Provider Incident Details -->
+          <div class="space-y-2">
+            <div class="text-[11px] font-bold text-slate-300 flex items-center gap-1.5">
+              <i class="fa-solid fa-tower-broadcast text-[#EA4335]"></i>
+              <span>Active Provider Outage Feed (${activeOutages.length || 1})</span>
+            </div>
+            ${outageItemsHtml}
+          </div>
+
+          <!-- Action Buttons: Re-Check Cloud Health / Skip / Open Chat -->
+          <div class="flex flex-col sm:flex-row items-stretch gap-2.5 pt-2 border-t border-slate-800">
+            <button id="btnRecheckProvider" type="button" onclick="recheckIncidentProvider('${escapeHtml(inc.incident_id)}')"
+              class="g-btn-blue flex-1 py-3 px-5 rounded-full font-bold text-xs sm:text-sm transition cursor-pointer flex items-center justify-center gap-2">
+              <i class="fa-solid fa-arrows-rotate"></i>
+              <span>Re-Check Cloud Provider Status</span>
+            </button>
+            <button type="button" onclick="skipIncident('${escapeHtml(inc.incident_id)}')"
+              class="py-3 px-4 rounded-full bg-slate-900 hover:bg-slate-800 text-slate-200 border border-slate-800 font-medium text-xs transition cursor-pointer flex items-center justify-center gap-2">
+              <i class="fa-regular fa-clock"></i>
+              <span>Skip (Manual)</span>
+            </button>
+            <button type="button" onclick="openDirectAtlasChat()"
+              class="py-3 px-4 rounded-full bg-slate-900 hover:bg-slate-800 text-slate-200 border border-slate-800 font-medium text-xs transition cursor-pointer flex items-center justify-center gap-2">
+              <i class="fa-regular fa-comment-dots text-[#4285F4]"></i>
+              <span>Ask Atlas</span>
+            </button>
+          </div>
+
+          <!-- Collapsible Atlas Safety Brake Audit Thread -->
+          ${messages.length ? `
+            <details class="pt-1">
+              <summary class="text-[11px] text-slate-400 hover:text-slate-200 cursor-pointer flex items-center justify-between">
+                <span>View Atlas Safety Brake Thread (${messages.length} messages)</span>
+                <i class="fa-solid fa-chevron-down text-[10px]"></i>
+              </summary>
+              <div class="mt-2.5 space-y-3 max-h-56 overflow-y-auto pr-1">
+                ${renderChatBubbles(messages)}
+              </div>
+            </details>
+          ` : ''}
+        </div>
+      `;
+    }
+
     function renderCustomerApprovalCard(inc) {
       const copy = getCustomerCopy(inc);
       const impact = inc.impact_analysis || {};
@@ -2489,6 +2929,9 @@
 
           <!-- Compact Agent Harness Status Strip (.tflock, OPA PASS, RAG Score, 45s Watchdog) -->
           ${renderHarnessStatusStrip(inc)}
+
+          <!-- Phase 4 Intelligence Panels (Fault Attribution, DB Introspection, GitOps) -->
+          ${renderPhase4IntelligencePanels(inc)}
 
           <!-- Interactive Chat Conversation Thread -->
           <div id="chatMessagesContainer" class="space-y-3 max-h-64 overflow-y-auto pr-1 py-1">
@@ -2582,6 +3025,76 @@
       const activeSessionId = (latestState && latestState.active_session_id) || '';
       const activeSessionObj = sessions.find(s => s.session_id === activeSessionId) || sessions[0] || { title: 'New Chat Session' };
       const storeInfo = (latestState && latestState.session_store) || { status: 'CLOUD_FIRESTORE_SYNCED' };
+      const cloudProfile = getCloudProfile(activeTargetCloud);
+      const quickChipsByCloud = {
+        gcp: `
+            <button type="button" onclick="askGeneralQuickQuestion('What scenarios do you support?')"
+              class="g-badge-blue px-3 py-1 rounded-full text-[11px] font-semibold transition cursor-pointer">
+              What scenarios do you support?
+            </button>
+            <button type="button" onclick="askGeneralQuickQuestion('Troubleshoot our live Cloud SQL database testdbinstance1 in agent-triad. Why are database connections failing and what do the live logs and instance state show?')"
+              class="g-badge-green px-3 py-1 rounded-full text-[11px] font-semibold transition cursor-pointer">
+              <i class="fa-solid fa-database mr-1"></i>Cloud SQL Check
+            </button>
+            <button type="button" onclick="askGeneralQuickQuestion('What Compute Engine VMs are currently running in my project agent-triad, and what are the live CPU, uptime, and network metrics for testinstance1?')"
+              class="g-badge-green px-3 py-1 rounded-full text-[11px] font-semibold transition cursor-pointer">
+              <i class="fa-solid fa-server mr-1"></i>Compute VMs &amp; Metrics
+            </button>
+            <button type="button" onclick="askGeneralQuickQuestion('My Cloud Run service has intermittent latency and cold-start timeouts not showing in logs. Give me a 1-line CLI fix.')"
+              class="px-3 py-1 rounded-full bg-slate-900 hover:bg-slate-800 border border-slate-800 text-[11px] text-slate-200 transition cursor-pointer">
+              1-Line CLI Fix
+            </button>
+            <button type="button" onclick="askGeneralQuickQuestion('We have a multi-service failure: Cloud Run cannot reach Cloud SQL due to missing IAM roles, VPC firewall egress rules, and connection pool exhaustion. Generate a coordinated Multi-Service Terraform fix.')"
+              class="g-badge-blue px-3 py-1 rounded-full text-[11px] font-semibold transition cursor-pointer">
+              Multi-Service Terraform
+            </button>
+            <button type="button" onclick="askGeneralQuickQuestion('Generate a production-ready Terraform (.tf) script to deploy a new Cloud Run service with least-privilege IAM and Cloud SQL connectivity.')"
+              class="px-3 py-1 rounded-full bg-slate-900 hover:bg-slate-800 border border-slate-800 text-[11px] text-slate-200 transition cursor-pointer">
+              New Cloud Run (.tf)
+            </button>
+            <button type="button" onclick="askGeneralQuickQuestion('How do I configure Workload Identity Federation (WIF) and least-privilege IAM on Google Cloud?')"
+              class="px-3 py-1 rounded-full bg-slate-900 hover:bg-slate-800 border border-slate-800 text-[11px] text-slate-200 transition cursor-pointer">
+              WIF &amp; IAM Guide
+            </button>
+        `,
+        aws: `
+            <button type="button" onclick="askGeneralQuickQuestion('Inspect our Amazon RDS PostgreSQL instance in us-east-1. Check status, slow query logs, and connection saturation.')"
+              class="g-badge-green px-3 py-1 rounded-full text-[11px] font-semibold transition cursor-pointer">
+              <i class="fa-solid fa-database mr-1"></i>RDS Postgres Check
+            </button>
+            <button type="button" onclick="askGeneralQuickQuestion('Inspect our Amazon EC2 and EKS compute workloads in us-east-1 and check recent GitOps deployment correlation.')"
+              class="g-badge-green px-3 py-1 rounded-full text-[11px] font-semibold transition cursor-pointer">
+              <i class="fa-solid fa-server mr-1"></i>EC2 / EKS &amp; GitOps
+            </button>
+            <button type="button" onclick="askGeneralQuickQuestion('Generate a coordinated multi-service Terraform remediation bundle for AWS ECS, RDS, and VPC Security Groups.')"
+              class="g-badge-blue px-3 py-1 rounded-full text-[11px] font-semibold transition cursor-pointer">
+              AWS Terraform Fix
+            </button>
+            <button type="button" onclick="askGeneralQuickQuestion('How do I configure AWS STS AssumeRoleWithWebIdentity for 15-minute JIT remediation tokens?')"
+              class="px-3 py-1 rounded-full bg-slate-900 hover:bg-slate-800 border border-slate-800 text-[11px] text-slate-200 transition cursor-pointer">
+              AWS STS JIT Guide
+            </button>
+        `,
+        azure: `
+            <button type="button" onclick="askGeneralQuickQuestion('Inspect our Azure Database for PostgreSQL Flexible Server in eastus. Check status, slow queries, and lock contention.')"
+              class="g-badge-green px-3 py-1 rounded-full text-[11px] font-semibold transition cursor-pointer">
+              <i class="fa-solid fa-database mr-1"></i>Azure SQL Check
+            </button>
+            <button type="button" onclick="askGeneralQuickQuestion('Inspect our Azure VM and AKS compute workloads in eastus and check recent GitOps deployment correlation.')"
+              class="g-badge-green px-3 py-1 rounded-full text-[11px] font-semibold transition cursor-pointer">
+              <i class="fa-solid fa-server mr-1"></i>AKS / VM &amp; GitOps
+            </button>
+            <button type="button" onclick="askGeneralQuickQuestion('Generate a coordinated multi-service Terraform remediation bundle for Azure Container Apps, Azure SQL, and NSG rules.')"
+              class="g-badge-blue px-3 py-1 rounded-full text-[11px] font-semibold transition cursor-pointer">
+              Azure Terraform Fix
+            </button>
+            <button type="button" onclick="askGeneralQuickQuestion('How do I configure Microsoft Entra ID Federated Credentials for 15-minute JIT remediation tokens?')"
+              class="px-3 py-1 rounded-full bg-slate-900 hover:bg-slate-800 border border-slate-800 text-[11px] text-slate-200 transition cursor-pointer">
+              Entra ID JIT Guide
+            </button>
+        `
+      };
+      const activeQuickChipsHtml = quickChipsByCloud[activeTargetCloud] || quickChipsByCloud.gcp;
 
       const sessionRowsHtml = sessions.map(s => {
         const isCurrent = s.session_id === activeSessionId || s.is_active;
@@ -2630,6 +3143,9 @@
                   <span class="text-sm sm:text-base font-bold text-white">Atlas • Cloud Co-Pilot</span>
                   <span class="g-badge-blue px-2.5 py-0.5 rounded-full text-[10px] font-semibold">
                     Gemini latest
+                  </span>
+                  <span class="g-badge-yellow px-2 py-0.5 rounded-full text-[10px] font-semibold mono">
+                    Target: ${escapeHtml(cloudProfile.label)}
                   </span>
                   ${specPills}
                 </div>
@@ -2704,40 +3220,13 @@
           <!-- Quick Starter Chips -->
           <div class="flex flex-wrap items-center gap-1.5 pt-1">
             <span class="text-[10px] font-semibold text-slate-400 mr-1">Quick Actions:</span>
-            <button type="button" onclick="askGeneralQuickQuestion('What scenarios do you support?')"
-              class="g-badge-blue px-3 py-1 rounded-full text-[11px] font-semibold transition cursor-pointer">
-              What scenarios do you support?
-            </button>
-            <button type="button" onclick="askGeneralQuickQuestion('Troubleshoot our live Cloud SQL database testdbinstance1 in agent-triad. Why are database connections failing and what do the live logs and instance state show?')"
-              class="g-badge-green px-3 py-1 rounded-full text-[11px] font-semibold transition cursor-pointer">
-              <i class="fa-solid fa-database mr-1"></i>Cloud SQL Check
-            </button>
-            <button type="button" onclick="askGeneralQuickQuestion('What Compute Engine VMs are currently running in my project agent-triad, and what are the live CPU, uptime, and network metrics for testinstance1?')"
-              class="g-badge-green px-3 py-1 rounded-full text-[11px] font-semibold transition cursor-pointer">
-              <i class="fa-solid fa-server mr-1"></i>Compute VMs &amp; Metrics
-            </button>
-            <button type="button" onclick="askGeneralQuickQuestion('My Cloud Run service has intermittent latency and cold-start timeouts not showing in logs. Give me a 1-line CLI fix.')"
-              class="px-3 py-1 rounded-full bg-slate-900 hover:bg-slate-800 border border-slate-800 text-[11px] text-slate-200 transition cursor-pointer">
-              1-Line CLI Fix
-            </button>
-            <button type="button" onclick="askGeneralQuickQuestion('We have a multi-service failure: Cloud Run cannot reach Cloud SQL due to missing IAM roles, VPC firewall egress rules, and connection pool exhaustion. Generate a coordinated Multi-Service Terraform fix.')"
-              class="g-badge-blue px-3 py-1 rounded-full text-[11px] font-semibold transition cursor-pointer">
-              Multi-Service Terraform
-            </button>
-            <button type="button" onclick="askGeneralQuickQuestion('Generate a production-ready Terraform (.tf) script to deploy a new Cloud Run service with least-privilege IAM and Cloud SQL connectivity.')"
-              class="px-3 py-1 rounded-full bg-slate-900 hover:bg-slate-800 border border-slate-800 text-[11px] text-slate-200 transition cursor-pointer">
-              New Cloud Run (.tf)
-            </button>
-            <button type="button" onclick="askGeneralQuickQuestion('How do I configure Workload Identity Federation (WIF) and least-privilege IAM on Google Cloud?')"
-              class="px-3 py-1 rounded-full bg-slate-900 hover:bg-slate-800 border border-slate-800 text-[11px] text-slate-200 transition cursor-pointer">
-              WIF &amp; IAM Guide
-            </button>
+            ${activeQuickChipsHtml}
           </div>
 
           <!-- Free-text Chat Input -->
           <form onsubmit="sendGeneralAtlasChat(event)" class="flex items-center gap-2">
             <input id="generalChatInput" type="text"
-              placeholder="Ask a GCP question, inspect live Cloud SQL / VMs, or request Terraform..."
+              placeholder="${escapeHtml(cloudProfile.chatPlaceholder)}"
               class="flex-1 bg-slate-950/90 border border-slate-800 focus:border-[#4285F4] rounded-full px-4 py-2.5 text-xs sm:text-sm text-white placeholder-slate-500 focus:outline-none" />
             <button id="btnSendGeneralChat" type="submit"
               class="g-btn-blue px-5 py-2.5 rounded-full font-semibold text-xs transition cursor-pointer flex items-center gap-1.5 shrink-0">
@@ -2775,7 +3264,8 @@
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             approved_by: `${getCurrentUserName()} (${getCurrentUserEmail()})`,
-            hcl_code: hclCode
+            hcl_code: hclCode,
+            target_cloud: activeTargetCloud
           })
         });
         await fetchState(true);
@@ -2851,6 +3341,8 @@
             </p>
           </div>
 
+          ${renderPhase4IntelligencePanels(inc)}
+
           <details class="text-left pt-2 border-t border-slate-800">
             <summary class="text-xs text-slate-400 hover:text-slate-200 cursor-pointer flex items-center justify-center gap-1.5">
               <span>View more (Execution Steps, Agent Harness &amp; What ${escapeHtml(spec.name)} did)</span>
@@ -2868,6 +3360,7 @@
 
     function renderHealthyCard() {
       const uname = getCurrentUserName();
+      const cloudProfile = getCloudProfile(activeTargetCloud);
       return `
         <div class="glass g-card-fourcolor border border-slate-800 rounded-3xl p-6 sm:p-7 text-center space-y-3">
           <div class="w-12 h-12 rounded-2xl bg-slate-900 border border-slate-800 flex items-center justify-center text-lg mx-auto p-1.5 shadow-sm">
@@ -2875,11 +3368,11 @@
           </div>
           <div class="inline-flex items-center gap-1.5 g-badge-green px-3 py-0.5 rounded-full text-[11px] font-semibold">
             <i class="fa-solid fa-circle-check text-[10px]"></i>
-            <span>All Cloud Services Healthy</span>
+            <span>All Cloud Services Healthy • ${escapeHtml(cloudProfile.label)}</span>
           </div>
           <h2 class="text-lg sm:text-xl font-bold text-white">Ready to Assist, ${escapeHtml(uname)}</h2>
           <p class="text-xs sm:text-sm text-slate-400 max-w-md mx-auto">
-            Scan live GCP logs for alerts, or open chat to inspect Cloud SQL, Compute VMs, and Terraform fixes.
+            ${escapeHtml(cloudProfile.healthyPrompt)}
           </p>
           <div class="pt-1 flex flex-wrap items-center justify-center gap-2.5">
             <button type="button" onclick="pollLiveCloudLogging()" class="px-4 py-2 rounded-full bg-slate-900 hover:bg-slate-800 border border-slate-700 text-xs font-semibold text-white transition cursor-pointer inline-flex items-center gap-1.5">
@@ -2912,7 +3405,11 @@
         await fetch('/api/atlas/chat', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ message: userText, user_name: getCurrentUserName() })
+          body: JSON.stringify({
+            message: userText,
+            user_name: getCurrentUserName(),
+            target_cloud: activeTargetCloud
+          })
         });
         await fetchState(true);
       } catch (err) {
@@ -3084,6 +3581,28 @@
         await fetchState(true);
       } catch (err) {
         console.error('Reopen failed:', err);
+      }
+    }
+
+    async function recheckIncidentProvider(incidentId) {
+      const btn = document.getElementById('btnRecheckProvider');
+      if (btn) {
+        btn.disabled = true;
+        btn.innerHTML = `<i class="fa-solid fa-spinner fa-spin"></i><span>Checking Cloud Provider Status...</span>`;
+      }
+      try {
+        await fetch(`/api/incidents/${encodeURIComponent(incidentId)}/recheck-provider`, {
+          method: 'POST'
+        });
+        lastStageSignature = '';
+        await fetchState(true);
+      } catch (err) {
+        console.error('Provider recheck failed:', err);
+      } finally {
+        if (btn) {
+          btn.disabled = false;
+          btn.innerHTML = `<i class="fa-solid fa-arrows-rotate"></i><span>Re-Check Cloud Provider Status</span>`;
+        }
       }
     }
 
