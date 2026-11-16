@@ -66,6 +66,16 @@ def run_e2e_tests() -> None:
         "cloudBtnAws",
         "cloudBtnAzure",
         "metricCardProviderHealth",
+        "logBulkActionBar",
+        "logSelectAllCheckbox",
+        "logServiceFilter",
+        "logTriageFilter",
+        "logIgnoreReasonSelect",
+        "logIgnoreSimilarCheckbox",
+        "btnBulkIgnoreLogs",
+        "btnBulkFixLogsViaChat",
+        "btnBulkQueueSeparate",
+        "multiAlertOptionsRow",
     ):
         assert nav_id in res_ui.text, f"Missing sidebar/view/theme/SSO/session/cloud element {nav_id} in Dashboard UI"
     for p4_ui_token in (
@@ -85,6 +95,15 @@ def run_e2e_tests() -> None:
         "updateCloudHealthCard",
         "renderSidePanelDispatchView",
         "focusActiveCloudIssue",
+        "markSelectedLogsSafeToIgnore",
+        "fixSelectedLogsViaChat",
+        "selectVisibleLogsBySeverity",
+        "markSingleLogSafeToIgnore",
+        "fixSingleLogViaChat",
+        "restoreSingleLog",
+        "Mark Safe to Ignore",
+        "Fix via AaaS Chat",
+        "Queue Separately",
         "Post-Fix Auto-Rollback",
         "Live Health Watch",
         "Provider:",
@@ -996,6 +1015,138 @@ def run_e2e_tests() -> None:
         "[PASS] Multi-Cloud Control Plane & Phase 4 UI/Backend Wiring verified: "
         "platform_runtime, target-cloud switcher (GCP/AWS/Azure), fault_attribution (External vs Internal), "
         "read-only query_introspection, and /recheck-provider outage recovery!"
+    )
+
+    # 13. Live Log Alert Triage: Mark Safe to Ignore, Restore, and Fix via AaaS Chat (single & batch)
+    from app import logging_service as app_logging_service
+
+    triage_log_1 = {
+        "log_id": "triage-test-log-1",
+        "timestamp": "2026-11-16T05:15:00+00:00",
+        "severity": "ERROR",
+        "source": "gcp:cloud_run_revision",
+        "cluster": "us-central1",
+        "namespace": "cloud-run",
+        "workload": "service/orders-api",
+        "pod": "orders-api-00011",
+        "error_code": "CLOUD_RUN_RUNTIME_ERROR",
+        "title": "Cloud Run (orders-api): Upstream connection reset by peer",
+        "message": "Upstream connection reset by peer while calling inventory-svc",
+        "is_anomaly": True,
+        "cloud_provider": "gcp",
+    }
+    triage_log_2 = {
+        "log_id": "triage-test-log-2",
+        "signature_key": "cloudsql:testdbinstance1:SQL_SLOW_QUERY",
+        "timestamp": "2026-11-16T05:16:00+00:00",
+        "severity": "WARNING",
+        "source": "gcp:cloudsql_database",
+        "cluster": "us-central1",
+        "namespace": "cloud-sql",
+        "workload": "cloudsql/testdbinstance1",
+        "pod": "agent-triad:testdbinstance1",
+        "error_code": "SQL_SLOW_QUERY",
+        "title": "Cloud SQL (testdbinstance1): Slow query lock wait detected",
+        "message": "duration: 1850.00 ms  statement: SELECT * FROM orders WHERE status = 'PENDING'",
+        "is_anomaly": True,
+        "cloud_provider": "gcp",
+    }
+    triage_log_2_dup = {
+        "log_id": "triage-test-log-2-dup",
+        "signature_key": "cloudsql:testdbinstance1:SQL_SLOW_QUERY",
+        "timestamp": "2026-11-16T05:16:30+00:00",
+        "severity": "WARNING",
+        "source": "gcp:cloudsql_database",
+        "cluster": "us-central1",
+        "namespace": "cloud-sql",
+        "workload": "cloudsql/testdbinstance1",
+        "pod": "agent-triad:testdbinstance1",
+        "error_code": "SQL_SLOW_QUERY",
+        "title": "Cloud SQL (testdbinstance1): Slow query lock wait detected (sibling)",
+        "message": "duration: 1920.00 ms  statement: SELECT * FROM orders WHERE status = 'PENDING'",
+        "is_anomaly": True,
+        "cloud_provider": "gcp",
+    }
+    app_logging_service._local_logs.insert(0, triage_log_2_dup)
+    app_logging_service._local_logs.insert(0, triage_log_2)
+    app_logging_service._local_logs.insert(0, triage_log_1)
+
+    # 13a. Mark single log as Safe to Ignore -> reflected in /api/state
+    ign_res = client.post(
+        "/api/logs/ignore",
+        json={"log_ids": ["triage-test-log-1"], "reason": "Expected / Benign Noise"},
+    )
+    assert ign_res.status_code == 200, ign_res.text
+    assert ign_res.json()["status"] == "LOGS_MARKED_SAFE_TO_IGNORE"
+    assert "triage-test-log-1" in ign_res.json()["ignored_ids"]
+
+    state_ign = client.get("/api/state").json()
+    assert "triage-test-log-1" in state_ign.get("ignored_log_ids", [])
+    ign_entry = next(l for l in state_ign["logs"] if l["log_id"] == "triage-test-log-1")
+    assert ign_entry["ignored"] is True
+    assert ign_entry["triage_status"] == "IGNORED"
+    assert ign_entry["ignored_reason"] == "Expected / Benign Noise"
+
+    # 13a-ii. Storm suppression: ignore_similar_signatures=True also suppresses matching sibling alerts
+    sim_ign_res = client.post(
+        "/api/logs/ignore",
+        json={
+            "log_ids": ["triage-test-log-2"],
+            "reason": "Duplicate of Active Alert",
+            "ignore_similar_signatures": True,
+        },
+    )
+    assert sim_ign_res.status_code == 200, sim_ign_res.text
+    assert sim_ign_res.json()["similar_expanded_count"] >= 1
+    assert "triage-test-log-2-dup" in sim_ign_res.json()["ignored_ids"]
+
+    # 13b. Restore ignored logs back to active alerts
+    unign_res = client.post(
+        "/api/logs/unignore",
+        json={"log_ids": ["triage-test-log-1", "triage-test-log-2", "triage-test-log-2-dup"]},
+    )
+    assert unign_res.status_code == 200, unign_res.text
+    assert "triage-test-log-1" in unign_res.json()["restored_ids"]
+    state_unign = client.get("/api/state").json()
+    unign_entry = next(l for l in state_unign["logs"] if l["log_id"] == "triage-test-log-1")
+    assert unign_entry["ignored"] is False
+    assert unign_entry["triage_status"] == "OPEN"
+
+    # 13c. Single log -> Fix via AaaS Chat (escalates to dedicated Incident Remediation Chat)
+    fix_single_res = client.post("/api/logs/fix-via-chat", json={"log_ids": ["triage-test-log-1"]})
+    assert fix_single_res.status_code == 200, fix_single_res.text
+    fix_single_body = fix_single_res.json()
+    assert fix_single_body["status"] == "ESCALATED_TO_AAAS_CHAT"
+    assert fix_single_body["mode"] == "incident"
+    assert fix_single_body["incident_id"] == "triage-test-log-1"
+    assert fix_single_body["incident"]["status"] == "AWAITING_HITL_APPROVAL"
+
+    # 13d. Multiple logs -> Fix All Together in AaaS Chat (unified Direct Atlas Chat diagnosis)
+    fix_batch_res = client.post(
+        "/api/logs/fix-via-chat",
+        json={"log_ids": ["triage-test-log-1", "triage-test-log-2"], "strategy": "auto"},
+    )
+    assert fix_batch_res.status_code == 200, fix_batch_res.text
+    fix_batch_body = fix_batch_res.json()
+    assert fix_batch_body["status"] == "SENT_TO_AAAS_CHAT"
+    assert fix_batch_body["mode"] == "direct_chat"
+    assert fix_batch_body["log_count"] == 2
+    assert fix_batch_body["chat_result"]["action_taken"] == "DIRECT_ATLAS_CHAT_REPLY"
+
+    # 13e. Multiple logs -> Queue Separately (parallel HITL incident cards in Command Center)
+    queue_sep_res = client.post(
+        "/api/logs/fix-via-chat",
+        json={"log_ids": ["triage-test-log-1", "triage-test-log-2"], "strategy": "separate_incidents"},
+    )
+    assert queue_sep_res.status_code == 200, queue_sep_res.text
+    queue_sep_body = queue_sep_res.json()
+    assert queue_sep_body["status"] == "QUEUED_SEPARATE_INCIDENTS"
+    assert queue_sep_body["mode"] == "separate_incidents"
+    assert queue_sep_body["queued_count"] == 2
+    assert set(queue_sep_body["incident_ids"]) == {"triage-test-log-1", "triage-test-log-2"}
+    print(
+        "[PASS] Graceful Multi-Alert Live Log Triage verified: /api/logs/ignore (+similar storm suppression), "
+        "/api/logs/unignore, single-alert incident handoff, unified multi-alert AaaS Chat, and separate-incident queuing!"
     )
 
 

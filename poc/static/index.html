@@ -765,8 +765,8 @@
               </div>
             </div>
 
-            <!-- Unified Log Search, Severity, Date/Time Range & Sort Toolbar -->
-            <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-6 gap-2.5 p-3 rounded-2xl bg-slate-950/80 border border-slate-800 text-xs">
+            <!-- Unified Log Search, Severity, Service, Triage, Date/Time Range & Sort Toolbar -->
+            <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-8 gap-2.5 p-3 rounded-2xl bg-slate-950/80 border border-slate-800 text-xs">
               <!-- Search String Input -->
               <div class="lg:col-span-2 relative">
                 <i class="fa-solid fa-magnifying-glass text-slate-400 text-[11px] absolute left-3.5 top-1/2 -translate-y-1/2"></i>
@@ -785,6 +785,25 @@
                   <option value="ERROR">ERROR</option>
                   <option value="WARNING">WARNING</option>
                   <option value="INFO">INFO / OK</option>
+                </select>
+              </div>
+
+              <!-- Dynamic Service / Resource Filter -->
+              <div>
+                <select id="logServiceFilter" onchange="applyLogAndA2AFilters()"
+                  class="w-full bg-slate-900 border border-slate-800 focus:border-[#4285F4] rounded-full px-3 py-1.5 text-xs text-slate-200 focus:outline-none">
+                  <option value="ALL">All Services</option>
+                </select>
+              </div>
+
+              <!-- Triage Status Filter -->
+              <div>
+                <select id="logTriageFilter" onchange="applyLogAndA2AFilters()"
+                  class="w-full bg-slate-900 border border-slate-800 focus:border-[#4285F4] rounded-full px-3 py-1.5 text-xs text-slate-200 focus:outline-none">
+                  <option value="ALL">Triage: All Logs</option>
+                  <option value="ACTIVE_ALERTS">Open Alerts Only</option>
+                  <option value="HIDE_IGNORED">Hide Safe to Ignore</option>
+                  <option value="IGNORED">Safe to Ignore Only</option>
                 </select>
               </div>
 
@@ -824,6 +843,89 @@
               </div>
             </div>
 
+            <!-- Alert Selection & Graceful Multi-Alert Bulk Triage Bar (Safe to Ignore / Fix via AaaS Chat / Queue Separately) -->
+            <div id="logBulkActionBar" class="rounded-2xl bg-slate-950/90 border border-slate-800 text-xs overflow-hidden">
+              <div class="flex flex-wrap items-center justify-between gap-2.5 px-3.5 py-2.5">
+                <div class="flex flex-wrap items-center gap-2">
+                  <span class="text-[11px] font-semibold text-slate-200 flex items-center gap-1.5">
+                    <i class="fa-solid fa-list-check text-[#4285F4]"></i>
+                    <span id="logTriageSummaryText">0 open alerts • 0 safe to ignore</span>
+                  </span>
+                  <div class="flex flex-wrap items-center gap-1">
+                    <span class="text-[10px] text-slate-500 mr-0.5">Quick select:</span>
+                    <button type="button" onclick="selectAllVisibleAlertLogs()"
+                      class="px-2.5 py-0.5 rounded-full bg-slate-900 hover:bg-slate-800 border border-slate-700 text-[10px] font-semibold text-slate-200 transition cursor-pointer">
+                      Open Alerts
+                    </button>
+                    <button type="button" onclick="selectVisibleLogsBySeverity('ERRORS_ONLY')"
+                      class="px-2.5 py-0.5 rounded-full bg-slate-900 hover:bg-slate-800 border border-[#EA4335]/40 text-[10px] font-semibold text-[#EA4335] transition cursor-pointer">
+                      Errors
+                    </button>
+                    <button type="button" onclick="selectVisibleLogsBySeverity('WARNING')"
+                      class="px-2.5 py-0.5 rounded-full bg-slate-900 hover:bg-slate-800 border border-[#FBBC04]/40 text-[10px] font-semibold text-[#FBBC04] transition cursor-pointer">
+                      Warnings
+                    </button>
+                  </div>
+                  <span id="selectedLogsCountLabel" class="hidden g-badge-blue px-2.5 py-0.5 rounded-full text-[10px] font-bold mono">0 selected</span>
+                </div>
+                <div class="flex flex-wrap items-center gap-2">
+                  <button type="button" id="btnBulkIgnoreLogs" onclick="markSelectedLogsSafeToIgnore()" disabled
+                    class="px-3 py-1.5 rounded-full bg-slate-900 hover:bg-slate-800 border border-slate-700 text-[11px] font-semibold text-slate-200 disabled:opacity-40 disabled:cursor-not-allowed transition cursor-pointer flex items-center gap-1.5"
+                    title="Mark selected log alert(s) as Safe to Ignore and remove them from the active alert counter">
+                    <i class="fa-solid fa-eye-slash text-[#34A853] text-[10px]"></i>
+                    <span>Mark Safe to Ignore</span>
+                  </button>
+                  <button type="button" id="btnBulkFixLogsViaChat" onclick="fixSelectedLogsViaChat('auto')" disabled
+                    class="g-btn-blue px-3.5 py-1.5 rounded-full text-[11px] font-semibold disabled:opacity-40 disabled:cursor-not-allowed transition cursor-pointer flex items-center gap-1.5"
+                    title="Send selected log alert(s) directly to Atlas in AaaS Chat for root-cause diagnosis and safe remediation">
+                    <i class="fa-solid fa-wand-magic-sparkles text-[10px]"></i>
+                    <span id="btnBulkFixLogsLabel">Fix via AaaS Chat</span>
+                  </button>
+                  <button type="button" id="btnBulkQueueSeparate" onclick="fixSelectedLogsViaChat('separate_incidents')"
+                    class="hidden px-3 py-1.5 rounded-full bg-slate-900 hover:bg-slate-800 border border-[#4285F4]/50 text-[11px] font-semibold text-[#4285F4] transition cursor-pointer flex items-center gap-1.5"
+                    title="Escalate each selected alert (up to 5) as its own separate HITL remediation card in Command Center">
+                    <i class="fa-solid fa-layer-group text-[10px]"></i>
+                    <span>Queue Separately</span>
+                  </button>
+                  <button type="button" id="btnBulkRestoreLogs" onclick="restoreSelectedLogs()"
+                    class="hidden px-3 py-1.5 rounded-full bg-slate-900 hover:bg-slate-800 border border-[#34A853]/50 text-[11px] font-semibold text-[#34A853] transition cursor-pointer flex items-center gap-1.5">
+                    <i class="fa-solid fa-rotate-left text-[10px]"></i>
+                    <span>Restore Selected</span>
+                  </button>
+                  <button type="button" id="btnClearLogSelection" onclick="clearSelectedLogs()"
+                    class="hidden px-2.5 py-1.5 rounded-full bg-slate-900 hover:bg-slate-800 border border-slate-800 text-[10px] text-slate-400 hover:text-white transition cursor-pointer">
+                    Clear
+                  </button>
+                </div>
+              </div>
+
+              <!-- Contextual Multi-Alert Options Drawer (visible whenever >=1 alert is selected) -->
+              <div id="multiAlertOptionsRow" class="hidden flex flex-wrap items-center justify-between gap-2.5 px-3.5 py-2 border-t border-slate-800/80 bg-slate-900/50 text-[11px]">
+                <div class="flex flex-wrap items-center gap-2.5">
+                  <label class="flex items-center gap-1.5 text-slate-300">
+                    <span class="text-[10px] uppercase tracking-wider text-slate-400 font-semibold">Ignore Reason:</span>
+                    <select id="logIgnoreReasonSelect"
+                      class="bg-slate-950 border border-slate-700 focus:border-[#4285F4] rounded-full px-2.5 py-0.5 text-[11px] text-slate-200 focus:outline-none">
+                      <option value="Expected / Benign Noise">Expected / Benign Noise</option>
+                      <option value="Planned Maintenance Window">Planned Maintenance Window</option>
+                      <option value="Duplicate of Active Alert">Duplicate of Active Alert</option>
+                      <option value="Handled Externally">Handled Externally</option>
+                    </select>
+                  </label>
+                  <label class="inline-flex items-center gap-1.5 text-slate-300 cursor-pointer select-none"
+                    title="When marking Safe to Ignore, automatically suppress sibling alerts with the exact same service &amp; error signature">
+                    <input type="checkbox" id="logIgnoreSimilarCheckbox"
+                      class="w-3.5 h-3.5 rounded border-slate-600 bg-slate-950 accent-[#34A853] cursor-pointer" />
+                    <span>Also ignore similar alerts (same service/signature)</span>
+                  </label>
+                </div>
+                <span id="multiAlertHintText" class="text-[10px] text-slate-400">
+                  Tip: Select multiple alerts to correlate them in one AaaS Chat turn, queue separately, or bulk-silence noise.
+                </span>
+              </div>
+            </div>
+            <div id="logTriageFeedbackBanner" class="hidden px-3.5 py-2 rounded-xl border text-xs flex items-center justify-between gap-2"></div>
+
             <div class="grid grid-cols-1 lg:grid-cols-3 gap-4">
               <!-- Sortable & Searchable Cloud Logging Explorer Table (2/3 width on desktop) -->
               <div class="lg:col-span-2 bg-slate-950/90 border border-slate-800 rounded-2xl p-4">
@@ -834,21 +936,29 @@
                   </span>
                   <span id="filteredLogsCountBadge" class="text-[10px] mono g-badge-blue px-2.5 py-0.5 rounded-full">Heartbeat &amp; Telemetry</span>
                 </div>
-                <div class="overflow-x-auto max-h-96 overflow-y-auto pr-1">
+                <div class="overflow-x-auto max-h-[30rem] overflow-y-auto pr-1">
                   <table class="w-full text-left border-collapse">
                     <thead>
                       <tr class="text-[10px] font-bold uppercase tracking-wider text-slate-400 border-b border-slate-800 select-none">
+                        <th class="py-2 pr-2 w-8 text-center">
+                          <input type="checkbox" id="logSelectAllCheckbox" onchange="toggleSelectAllVisibleLogs(this.checked)"
+                            title="Select / deselect all visible logs"
+                            class="w-3.5 h-3.5 rounded border-slate-600 bg-slate-900 accent-[#4285F4] cursor-pointer" />
+                        </th>
                         <th onclick="sortLogsByColumn('severity')" class="py-2 pr-2 cursor-pointer hover:text-white transition w-24">
                           <span>Severity</span> <span id="logSortIcon-severity" class="text-slate-500 ml-0.5">↕</span>
                         </th>
-                        <th onclick="sortLogsByColumn('workload')" class="py-2 px-2 cursor-pointer hover:text-white transition w-40">
+                        <th onclick="sortLogsByColumn('workload')" class="py-2 px-2 cursor-pointer hover:text-white transition w-36">
                           <span>Service / Resource</span> <span id="logSortIcon-workload" class="text-slate-500 ml-0.5">↕</span>
                         </th>
                         <th onclick="sortLogsByColumn('message')" class="py-2 px-2 cursor-pointer hover:text-white transition">
                           <span>Log Message (Click to Expand)</span> <span id="logSortIcon-message" class="text-slate-500 ml-0.5">↕</span>
                         </th>
-                        <th onclick="sortLogsByColumn('timestamp')" class="py-2 pl-2 cursor-pointer hover:text-white transition text-right w-36">
+                        <th onclick="sortLogsByColumn('timestamp')" class="py-2 px-2 cursor-pointer hover:text-white transition text-right w-32">
                           <span>Date &amp; Time</span> <span id="logSortIcon-timestamp" class="text-[#4285F4] ml-0.5">↓</span>
+                        </th>
+                        <th class="py-2 pl-2 text-right w-40">
+                          <span>Triage Action</span>
                         </th>
                       </tr>
                     </thead>
@@ -1334,7 +1444,13 @@
       );
       const openIds = new Set(openServiceIssues.map(i => i.incident_id));
       const unresolvedLogAlerts = allLogs.filter(
-        l => l && l.is_anomaly && !handledLogIds.has(l.log_id) && !openIds.has(l.log_id)
+        l =>
+          l &&
+          l.is_anomaly &&
+          !l.ignored &&
+          l.triage_status !== 'IGNORED' &&
+          !handledLogIds.has(l.log_id) &&
+          !openIds.has(l.log_id)
       );
 
       const healthLabel = document.getElementById('metricProviderHealthLabel');
@@ -1439,10 +1555,14 @@
         return;
       }
       const logs = (latestState && latestState.logs) || [];
-      const hasAnomalyLogs = logs.some(l => l && l.is_anomaly);
+      const hasAnomalyLogs = logs.some(
+        l => l && l.is_anomaly && !l.ignored && l.triage_status !== 'IGNORED'
+      );
       if (hasAnomalyLogs) {
         const sevFilter = document.getElementById('logSeverityFilter');
-        if (sevFilter) sevFilter.value = 'ERRORS_ONLY';
+        const triageFilter = document.getElementById('logTriageFilter');
+        if (sevFilter) sevFilter.value = 'ALL';
+        if (triageFilter) triageFilter.value = 'ACTIVE_ALERTS';
         switchView('logs');
         applyLogAndA2AFilters();
         return;
@@ -2688,14 +2808,22 @@
       });
     }
 
+    let selectedLogIds = new Set();
+    let lastFilteredVisibleLogs = [];
+    let logTriageBusy = false;
+
     function resetLogFilters() {
       const searchEl = document.getElementById('logSearchInput');
       const sevEl = document.getElementById('logSeverityFilter');
+      const svcEl = document.getElementById('logServiceFilter');
+      const triageEl = document.getElementById('logTriageFilter');
       const presetEl = document.getElementById('logTimePreset');
       const fromEl = document.getElementById('logDateFrom');
       const toEl = document.getElementById('logDateTo');
       if (searchEl) searchEl.value = '';
       if (sevEl) sevEl.value = 'ALL';
+      if (svcEl) svcEl.value = 'ALL';
+      if (triageEl) triageEl.value = 'ALL';
       if (presetEl) presetEl.value = 'all';
       if (fromEl) fromEl.value = '';
       if (toEl) toEl.value = '';
@@ -2709,13 +2837,378 @@
       applyLogAndA2AFilters();
     }
 
+    function syncLogServiceFilterOptions(rawLogs) {
+      const svcEl = document.getElementById('logServiceFilter');
+      if (!svcEl) return;
+      const prevVal = svcEl.value || 'ALL';
+      const counts = new Map();
+      (Array.isArray(rawLogs) ? rawLogs : []).forEach(l => {
+        if (!l) return;
+        const wl = String(l.workload || l.cluster || 'gcp-service');
+        counts.set(wl, (counts.get(wl) || 0) + 1);
+      });
+      const sortedServices = Array.from(counts.entries()).sort((a, b) => b[1] - a[1]);
+      const sig = sortedServices.map(([k, v]) => `${k}:${v}`).join('|');
+      if (svcEl.dataset.optionsSig === sig) return;
+      svcEl.dataset.optionsSig = sig;
+      svcEl.innerHTML = `<option value="ALL">All Services (${(rawLogs || []).length})</option>` +
+        sortedServices.map(([wl, cnt]) => `<option value="${escapeHtml(wl)}">${escapeHtml(wl)} (${cnt})</option>`).join('');
+      if (prevVal !== 'ALL' && counts.has(prevVal)) {
+        svcEl.value = prevVal;
+      } else {
+        svcEl.value = 'ALL';
+      }
+    }
+
+    function setLogTriageFeedback(message, tone = 'info') {
+      const banner = document.getElementById('logTriageFeedbackBanner');
+      if (!banner) return;
+      if (!message) {
+        banner.classList.add('hidden');
+        banner.innerHTML = '';
+        return;
+      }
+      const styles = {
+        info: 'bg-[#4285F4]/10 border-[#4285F4]/40 text-slate-200',
+        loading: 'bg-[#4285F4]/15 border-[#4285F4]/50 text-white',
+        success: 'bg-[#34A853]/15 border-[#34A853]/50 text-[#34A853]',
+        error: 'bg-[#EA4335]/15 border-[#EA4335]/50 text-[#EA4335]'
+      };
+      const iconHtml = tone === 'loading'
+        ? '<i class="fa-solid fa-spinner fa-spin text-[#4285F4]"></i>'
+        : tone === 'success'
+          ? '<i class="fa-solid fa-circle-check text-[#34A853]"></i>'
+          : tone === 'error'
+            ? '<i class="fa-solid fa-triangle-exclamation text-[#EA4335]"></i>'
+            : '<i class="fa-solid fa-circle-info text-[#4285F4]"></i>';
+      banner.className = `px-3.5 py-2 rounded-xl border text-xs flex items-center justify-between gap-2 ${styles[tone] || styles.info}`;
+      banner.innerHTML = `
+        <div class="flex items-center gap-2">
+          ${iconHtml}
+          <span>${escapeHtml(message)}</span>
+        </div>
+        <button type="button" onclick="setLogTriageFeedback('')" class="text-slate-400 hover:text-white text-[11px] cursor-pointer px-1" title="Dismiss">&times;</button>
+      `;
+    }
+
+    function updateLogBulkActionBar(rawLogs, visibleLogs) {
+      const all = Array.isArray(rawLogs) ? rawLogs : [];
+      const vis = Array.isArray(visibleLogs) ? visibleLogs : [];
+      const allIdSet = new Set(all.map(l => l && l.log_id).filter(Boolean));
+      for (const sid of Array.from(selectedLogIds)) {
+        if (!allIdSet.has(sid)) selectedLogIds.delete(sid);
+      }
+
+      const openAlerts = all.filter(
+        l => l && l.is_anomaly && !l.ignored && l.triage_status !== 'IGNORED' && l.triage_status !== 'RESOLVED'
+      );
+      const openAlertsCount = openAlerts.length;
+      const openServiceCount = new Set(openAlerts.map(l => l.workload || l.cluster || 'service')).size;
+      const ignoredCount = all.filter(l => l && (l.ignored || l.triage_status === 'IGNORED')).length;
+      const summaryText = document.getElementById('logTriageSummaryText');
+      if (summaryText) {
+        const svcPart = openServiceCount > 0 ? ` across ${openServiceCount} ${openServiceCount === 1 ? 'service' : 'services'}` : '';
+        summaryText.textContent = `${openAlertsCount} open ${openAlertsCount === 1 ? 'alert' : 'alerts'}${svcPart} • ${ignoredCount} safe to ignore`;
+      }
+
+      const selCount = selectedLogIds.size;
+      const countLabel = document.getElementById('selectedLogsCountLabel');
+      const btnIgnore = document.getElementById('btnBulkIgnoreLogs');
+      const btnFix = document.getElementById('btnBulkFixLogsViaChat');
+      const btnFixLabel = document.getElementById('btnBulkFixLogsLabel');
+      const btnQueueSep = document.getElementById('btnBulkQueueSeparate');
+      const btnRestore = document.getElementById('btnBulkRestoreLogs');
+      const btnClear = document.getElementById('btnClearLogSelection');
+      const optionsRow = document.getElementById('multiAlertOptionsRow');
+      const hintEl = document.getElementById('multiAlertHintText');
+      const selectAllCb = document.getElementById('logSelectAllCheckbox');
+
+      if (countLabel) {
+        if (selCount > 0) {
+          countLabel.textContent = `${selCount} selected`;
+          countLabel.classList.remove('hidden');
+        } else {
+          countLabel.classList.add('hidden');
+        }
+      }
+      if (btnIgnore) btnIgnore.disabled = logTriageBusy || selCount === 0;
+      if (btnFix) btnFix.disabled = logTriageBusy || selCount === 0;
+      if (btnFixLabel) {
+        btnFixLabel.textContent = selCount >= 2 ? `Fix ${selCount} Together in AaaS Chat` : 'Fix via AaaS Chat';
+      }
+      if (btnQueueSep) {
+        btnQueueSep.disabled = logTriageBusy;
+        if (selCount >= 2) btnQueueSep.classList.remove('hidden');
+        else btnQueueSep.classList.add('hidden');
+      }
+      if (optionsRow) {
+        if (selCount > 0) optionsRow.classList.remove('hidden');
+        else optionsRow.classList.add('hidden');
+      }
+      if (hintEl) {
+        hintEl.textContent = selCount >= 2
+          ? `Multiple alerts (${selCount}) selected: correlate all in one AaaS Chat turn, queue up to 5 separately, or bulk-ignore with reason.`
+          : '1 alert selected: open dedicated HITL Remediation Chat, or mark Safe to Ignore (optionally silencing similar alerts).';
+      }
+      if (btnClear) {
+        if (selCount > 0) btnClear.classList.remove('hidden');
+        else btnClear.classList.add('hidden');
+      }
+      const anySelectedIgnored = all.some(
+        l => l && selectedLogIds.has(l.log_id) && (l.ignored || l.triage_status === 'IGNORED')
+      );
+      if (btnRestore) {
+        if (anySelectedIgnored && !logTriageBusy) btnRestore.classList.remove('hidden');
+        else btnRestore.classList.add('hidden');
+      }
+      if (selectAllCb) {
+        const sliceVis = vis.slice(0, 50);
+        const visSelected = sliceVis.filter(l => l && selectedLogIds.has(l.log_id)).length;
+        selectAllCb.checked = sliceVis.length > 0 && visSelected === sliceVis.length;
+        selectAllCb.indeterminate = visSelected > 0 && visSelected < sliceVis.length;
+      }
+    }
+
+    function toggleLogSelection(encodedLogId, checked) {
+      const lid = decodeURIComponent(encodedLogId || '');
+      if (!lid) return;
+      if (checked) selectedLogIds.add(lid);
+      else selectedLogIds.delete(lid);
+      const rawLogs = (latestState && latestState.logs) || [];
+      updateLogBulkActionBar(rawLogs, lastFilteredVisibleLogs);
+    }
+
+    function toggleSelectAllVisibleLogs(checked) {
+      const sliceVis = lastFilteredVisibleLogs.slice(0, 50);
+      sliceVis.forEach(log => {
+        if (!log || !log.log_id) return;
+        if (checked) selectedLogIds.add(log.log_id);
+        else selectedLogIds.delete(log.log_id);
+      });
+      applyLogAndA2AFilters();
+    }
+
+    function selectAllVisibleAlertLogs() {
+      const sliceVis = lastFilteredVisibleLogs.slice(0, 50);
+      let picked = 0;
+      sliceVis.forEach(log => {
+        if (log && log.log_id && log.is_anomaly && !log.ignored && log.triage_status !== 'IGNORED') {
+          selectedLogIds.add(log.log_id);
+          picked += 1;
+        }
+      });
+      if (picked === 0) {
+        setLogTriageFeedback('No open alerts in the current filter view to select.', 'info');
+      } else {
+        setLogTriageFeedback(`Selected ${picked} open ${picked === 1 ? 'alert' : 'alerts'}. Choose "Mark Safe to Ignore", "Fix via AaaS Chat", or "Queue Separately".`, 'info');
+      }
+      applyLogAndA2AFilters();
+    }
+
+    function selectVisibleLogsBySeverity(sevMode) {
+      const sliceVis = lastFilteredVisibleLogs.slice(0, 50);
+      selectedLogIds.clear();
+      let picked = 0;
+      sliceVis.forEach(log => {
+        if (!log || !log.log_id || log.ignored || log.triage_status === 'IGNORED') return;
+        const sev = String(log.severity || 'INFO').toUpperCase();
+        const matches = sevMode === 'ERRORS_ONLY'
+          ? ['CRITICAL', 'ALERT', 'ERROR'].includes(sev)
+          : sev === sevMode;
+        if (matches) {
+          selectedLogIds.add(log.log_id);
+          picked += 1;
+        }
+      });
+      const label = sevMode === 'ERRORS_ONLY' ? 'error/critical' : sevMode.toLowerCase();
+      if (picked === 0) {
+        setLogTriageFeedback(`No open ${label} alerts in the current view to select.`, 'info');
+      } else {
+        setLogTriageFeedback(`Selected ${picked} open ${label} ${picked === 1 ? 'alert' : 'alerts'}. Pick an action above.`, 'info');
+      }
+      applyLogAndA2AFilters();
+    }
+
+    function clearSelectedLogs() {
+      selectedLogIds.clear();
+      applyLogAndA2AFilters();
+    }
+
+    async function markLogsSafeToIgnore(logIds, options = {}) {
+      const ids = Array.isArray(logIds) ? logIds.filter(Boolean) : [];
+      if (!ids.length || logTriageBusy) return;
+      logTriageBusy = true;
+      const reasonEl = document.getElementById('logIgnoreReasonSelect');
+      const simEl = document.getElementById('logIgnoreSimilarCheckbox');
+      const reason = options.reason || (reasonEl && reasonEl.value) || 'Expected / Benign Noise';
+      const ignoreSimilar = typeof options.ignoreSimilar === 'boolean'
+        ? options.ignoreSimilar
+        : Boolean(simEl && simEl.checked);
+      setLogTriageFeedback(`Marking ${ids.length} ${ids.length === 1 ? 'alert' : 'alerts'} as Safe to Ignore (${reason})...`, 'loading');
+      updateLogBulkActionBar((latestState && latestState.logs) || [], lastFilteredVisibleLogs);
+      try {
+        const ctrl = new AbortController();
+        const timer = setTimeout(() => ctrl.abort(), 15000);
+        const res = await fetch('/api/logs/ignore', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            log_ids: ids,
+            reason,
+            ignore_similar_signatures: ignoreSimilar
+          }),
+          signal: ctrl.signal
+        });
+        clearTimeout(timer);
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(data.detail || `HTTP ${res.status}`);
+        (data.ignored_ids || ids).forEach(id => selectedLogIds.delete(id));
+        if (simEl) simEl.checked = false;
+        await fetchState(true);
+        const totalMarked = (data.ignored_ids || ids).length;
+        const extraMsg = data.similar_expanded_count > 0
+          ? ` (including ${data.similar_expanded_count} similar alert${data.similar_expanded_count === 1 ? '' : 's'})`
+          : '';
+        setLogTriageFeedback(
+          `Marked ${totalMarked} ${totalMarked === 1 ? 'alert' : 'alerts'} as Safe to Ignore${extraMsg} — Cloud Health updated.`,
+          'success'
+        );
+      } catch (err) {
+        setLogTriageFeedback(`Could not mark alert(s) as Safe to Ignore: ${err.message || err}`, 'error');
+      } finally {
+        logTriageBusy = false;
+        applyLogAndA2AFilters();
+      }
+    }
+
+    function markSelectedLogsSafeToIgnore() {
+      return markLogsSafeToIgnore(Array.from(selectedLogIds));
+    }
+
+    function markSingleLogSafeToIgnore(encodedLogId) {
+      const lid = decodeURIComponent(encodedLogId || '');
+      if (!lid) return;
+      return markLogsSafeToIgnore([lid], { ignoreSimilar: false });
+    }
+
+    async function restoreIgnoredLogs(logIds) {
+      const ids = Array.isArray(logIds) ? logIds.filter(Boolean) : [];
+      if (!ids.length || logTriageBusy) return;
+      logTriageBusy = true;
+      setLogTriageFeedback(`Restoring ${ids.length} ${ids.length === 1 ? 'alert' : 'alerts'} to active monitoring...`, 'loading');
+      try {
+        const ctrl = new AbortController();
+        const timer = setTimeout(() => ctrl.abort(), 15000);
+        const res = await fetch('/api/logs/unignore', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ log_ids: ids }),
+          signal: ctrl.signal
+        });
+        clearTimeout(timer);
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(data.detail || `HTTP ${res.status}`);
+        ids.forEach(id => selectedLogIds.delete(id));
+        await fetchState(true);
+        setLogTriageFeedback(`Restored ${ids.length} ${ids.length === 1 ? 'alert' : 'alerts'} to active alerts.`, 'success');
+      } catch (err) {
+        setLogTriageFeedback(`Could not restore alert(s): ${err.message || err}`, 'error');
+      } finally {
+        logTriageBusy = false;
+        applyLogAndA2AFilters();
+      }
+    }
+
+    function restoreSelectedLogs() {
+      const rawLogs = (latestState && latestState.logs) || [];
+      const ignoredSel = rawLogs
+        .filter(l => l && selectedLogIds.has(l.log_id) && (l.ignored || l.triage_status === 'IGNORED'))
+        .map(l => l.log_id);
+      return restoreIgnoredLogs(ignoredSel);
+    }
+
+    function restoreSingleLog(encodedLogId) {
+      const lid = decodeURIComponent(encodedLogId || '');
+      if (!lid) return;
+      return restoreIgnoredLogs([lid]);
+    }
+
+    async function fixLogsViaAaaSChat(logIds, strategy = 'auto') {
+      const ids = Array.isArray(logIds) ? logIds.filter(Boolean) : [];
+      if (!ids.length || logTriageBusy) return;
+      logTriageBusy = true;
+      const loadingMsg = strategy === 'separate_incidents'
+        ? `Queuing ${Math.min(ids.length, 5)} selected alerts as separate HITL cards in Command Center...`
+        : (ids.length === 1
+          ? 'Dispatching selected alert to Atlas & Specialist Roster — opening AaaS Chat...'
+          : `Sending ${ids.length} selected alerts together to Atlas for correlated diagnosis & remediation...`);
+      setLogTriageFeedback(loadingMsg, 'loading');
+      updateLogBulkActionBar((latestState && latestState.logs) || [], lastFilteredVisibleLogs);
+      try {
+        const ctrl = new AbortController();
+        const timer = setTimeout(() => ctrl.abort(), 35000);
+        const res = await fetch('/api/logs/fix-via-chat', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ log_ids: ids, target_cloud: activeTargetCloud, strategy }),
+          signal: ctrl.signal
+        });
+        clearTimeout(timer);
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(data.detail || `HTTP ${res.status}`);
+
+        ids.forEach(id => selectedLogIds.delete(id));
+        if ((data.mode === 'incident' || data.mode === 'separate_incidents') && data.incident_id) {
+          selectedIncidentId = data.incident_id;
+          directChatMode = false;
+          switchView('command');
+          await fetchState(true);
+        } else {
+          directChatMode = true;
+          switchView('command');
+          await fetchState(true);
+        }
+        setLogTriageFeedback('', 'info');
+      } catch (err) {
+        const msg = err && err.name === 'AbortError'
+          ? 'Atlas triage timed out after 35s — please try again.'
+          : (err.message || String(err));
+        setLogTriageFeedback(`Could not hand off alert(s) to AaaS Chat: ${msg}`, 'error');
+      } finally {
+        logTriageBusy = false;
+        applyLogAndA2AFilters();
+      }
+    }
+
+    function fixSelectedLogsViaChat(strategy = 'auto') {
+      return fixLogsViaAaaSChat(Array.from(selectedLogIds), strategy);
+    }
+
+    function fixSingleLogViaChat(encodedLogId) {
+      const lid = decodeURIComponent(encodedLogId || '');
+      if (!lid) return;
+      return fixLogsViaAaaSChat([lid], 'auto');
+    }
+
+    function openLinkedIncidentFromLog(encodedIncId) {
+      const incId = decodeURIComponent(encodedIncId || '');
+      if (!incId) return;
+      selectedIncidentId = incId;
+      directChatMode = false;
+      switchView('command');
+      if (latestState) renderDashboard(latestState, true);
+    }
+
     function applyLogAndA2AFilters() {
       const data = latestState || {};
       const rawLogs = data.logs || [];
       const rawLedger = data.a2a_ledger || [];
+      syncLogServiceFilterOptions(rawLogs);
 
       const searchQuery = ((document.getElementById('logSearchInput') || {}).value || '').trim().toLowerCase();
       const sevFilter = ((document.getElementById('logSeverityFilter') || {}).value || 'ALL').toUpperCase();
+      const svcFilter = ((document.getElementById('logServiceFilter') || {}).value || 'ALL');
+      const triageFilter = ((document.getElementById('logTriageFilter') || {}).value || 'ALL').toUpperCase();
       const preset = ((document.getElementById('logTimePreset') || {}).value || 'all');
       const fromVal = ((document.getElementById('logDateFrom') || {}).value || '');
       const toVal = ((document.getElementById('logDateTo') || {}).value || '');
@@ -2725,6 +3218,13 @@
       // 1. Filter Cloud Logs
       const filteredLogs = rawLogs.filter(log => {
         const sev = String(log.severity || 'INFO').toUpperCase();
+        const svcName = String(log.workload || log.cluster || 'gcp-service');
+        const isIgnored = Boolean(log.ignored || log.triage_status === 'IGNORED');
+        if (svcFilter !== 'ALL' && svcName !== svcFilter) return false;
+        if (triageFilter === 'ACTIVE_ALERTS' && (!log.is_anomaly || isIgnored || log.triage_status === 'RESOLVED')) return false;
+        if (triageFilter === 'HIDE_IGNORED' && isIgnored) return false;
+        if (triageFilter === 'IGNORED' && !isIgnored) return false;
+
         if (sevFilter === 'ERRORS_ONLY' && !['CRITICAL', 'ALERT', 'ERROR'].includes(sev)) return false;
         if (sevFilter === 'CRITICAL' && !['CRITICAL', 'ALERT'].includes(sev)) return false;
         if (['ERROR', 'WARNING', 'INFO'].includes(sevFilter) && sev !== sevFilter) return false;
@@ -2740,7 +3240,8 @@
             log.pod,
             log.error_code,
             log.title,
-            log.message
+            log.message,
+            log.triage_status
           ].map(x => String(x || '').toLowerCase()).join(' ');
           if (!hay.includes(searchQuery)) return false;
         }
@@ -2763,6 +3264,9 @@
         }
         return logSortDirState === 'desc' ? -cmp : cmp;
       });
+
+      lastFilteredVisibleLogs = filteredLogs;
+      updateLogBulkActionBar(rawLogs, filteredLogs);
 
       // 3. Filter & Sort A2A Ledger
       const filteredLedger = rawLedger.filter(item => {
@@ -2804,14 +3308,21 @@
         if (!filteredLogs.length) {
           logsContainer.innerHTML = `
             <tr>
-              <td colspan="4" class="py-6 text-center text-slate-400 text-xs">
-                No Cloud Logs match your active search or date/time filter. Click <strong>"Clear Filters"</strong> to reset.
+              <td colspan="6" class="py-6 text-center text-slate-400 text-xs">
+                No Cloud Logs match your active search, triage, or date/time filter. Click <strong>"Clear Filters"</strong> to reset.
               </td>
             </tr>
           `;
         } else {
           logsContainer.innerHTML = filteredLogs.slice(0, 50).map(log => {
             const sev = String(log.severity || 'INFO').toUpperCase();
+            const isIgnored = Boolean(log.ignored || log.triage_status === 'IGNORED');
+            const isResolved = log.triage_status === 'RESOLVED';
+            const linkedIncId = log.linked_incident_id || '';
+            const encId = encodeURIComponent(log.log_id || '');
+            const encInc = encodeURIComponent(linkedIncId);
+            const isSelected = selectedLogIds.has(log.log_id);
+
             let sevClass = 'g-badge-green';
             if (sev === 'CRITICAL' || sev === 'ERROR' || sev === 'ALERT') {
               sevClass = 'g-badge-red';
@@ -2821,12 +3332,77 @@
             const svc = log.workload || log.cluster || 'gcp-service';
             const fullMsg = log.message || log.title || '';
             const shortTitle = log.title || fullMsg;
+
+            let triageBadgeHtml = '';
+            if (isIgnored) {
+              const reasonTip = escapeHtml(log.ignored_reason || 'Marked safe to ignore');
+              triageBadgeHtml = `<div class="mt-1"><span title="Reason: ${reasonTip}" class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-slate-800 border border-slate-700 text-[9px] font-semibold text-slate-300"><i class="fa-solid fa-eye-slash text-[#34A853]"></i>Safe to Ignore</span></div>`;
+            } else if (isResolved) {
+              triageBadgeHtml = `<div class="mt-1"><span class="g-badge-green inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[9px] font-semibold"><i class="fa-solid fa-check"></i>Resolved</span></div>`;
+            } else if (linkedIncId && log.triage_status === 'IN_CHAT') {
+              triageBadgeHtml = `<div class="mt-1"><span class="g-badge-blue inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[9px] font-semibold"><i class="fa-solid fa-comments"></i>In AaaS Chat</span></div>`;
+            }
+
+            let rowActionHtml = '';
+            if (isIgnored) {
+              rowActionHtml = `
+                <div class="flex items-center justify-end gap-1.5">
+                  <button type="button" onclick="restoreSingleLog('${encId}')"
+                    class="px-2.5 py-1 rounded-full bg-slate-900 hover:bg-slate-800 border border-[#34A853]/50 text-[10px] font-semibold text-[#34A853] transition cursor-pointer whitespace-nowrap"
+                    title="Restore this alert to active monitoring">
+                    <i class="fa-solid fa-rotate-left mr-1 text-[9px]"></i>Restore
+                  </button>
+                </div>
+              `;
+            } else if (linkedIncId && log.triage_status === 'IN_CHAT') {
+              rowActionHtml = `
+                <div class="flex items-center justify-end gap-1.5">
+                  <button type="button" onclick="openLinkedIncidentFromLog('${encInc}')"
+                    class="g-btn-blue px-2.5 py-1 rounded-full text-[10px] font-semibold transition cursor-pointer whitespace-nowrap"
+                    title="Open this active incident in AaaS Chat">
+                    <i class="fa-solid fa-comments mr-1 text-[9px]"></i>Open Chat
+                  </button>
+                  <button type="button" onclick="markSingleLogSafeToIgnore('${encId}')"
+                    class="px-2 py-1 rounded-full bg-slate-900 hover:bg-slate-800 border border-slate-700 text-[10px] font-medium text-slate-300 transition cursor-pointer whitespace-nowrap"
+                    title="Mark as Safe to Ignore">
+                    Ignore
+                  </button>
+                </div>
+              `;
+            } else {
+              rowActionHtml = `
+                <div class="flex items-center justify-end gap-1.5">
+                  <button type="button" onclick="fixSingleLogViaChat('${encId}')"
+                    class="g-btn-blue px-2.5 py-1 rounded-full text-[10px] font-semibold transition cursor-pointer whitespace-nowrap"
+                    title="Escalate this alert to Atlas in AaaS Chat for diagnosis and fix">
+                    <i class="fa-solid fa-wand-magic-sparkles mr-1 text-[9px]"></i>Fix in Chat
+                  </button>
+                  <button type="button" onclick="markSingleLogSafeToIgnore('${encId}')"
+                    class="px-2 py-1 rounded-full bg-slate-900 hover:bg-slate-800 border border-slate-700 text-[10px] font-medium text-slate-300 hover:text-white transition cursor-pointer whitespace-nowrap"
+                    title="Mark as Safe to Ignore">
+                    Ignore
+                  </button>
+                </div>
+              `;
+            }
+
+            const rowHighlight = isSelected
+              ? 'bg-[#4285F4]/10 hover:bg-[#4285F4]/15'
+              : (isIgnored ? 'opacity-60 hover:opacity-90 hover:bg-slate-900/50' : 'hover:bg-slate-900/60');
+
             return `
-              <tr class="hover:bg-slate-900/60 transition align-top">
+              <tr class="${rowHighlight} transition align-top">
+                <td class="py-2.5 pr-2 text-center">
+                  <input type="checkbox" ${isSelected ? 'checked' : ''}
+                    onchange="toggleLogSelection('${encId}', this.checked)"
+                    aria-label="Select log alert"
+                    class="w-3.5 h-3.5 rounded border-slate-600 bg-slate-900 accent-[#4285F4] cursor-pointer mt-0.5" />
+                </td>
                 <td class="py-2.5 pr-2">
                   <span class="${sevClass} inline-flex items-center px-2 py-0.5 rounded-full mono text-[10px] font-semibold">
                     ${highlightSearchMatch(sev, searchQuery)}
                   </span>
+                  ${triageBadgeHtml}
                 </td>
                 <td class="py-2.5 px-2 mono text-[10px] text-[#4285F4] break-all">
                   ${highlightSearchMatch(svc, searchQuery)}
@@ -2834,12 +3410,15 @@
                 </td>
                 <td class="py-2.5 px-2 text-slate-200">
                   <details class="cursor-pointer">
-                    <summary class="leading-relaxed">${highlightSearchMatch(shortTitle, searchQuery)}</summary>
+                    <summary class="leading-relaxed ${isIgnored ? 'line-through text-slate-400' : ''}">${highlightSearchMatch(shortTitle, searchQuery)}</summary>
                     <div class="mt-1.5 p-2 rounded-lg bg-slate-900 border border-slate-800 mono text-[10px] text-slate-300 break-all whitespace-pre-wrap">${highlightSearchMatch(fullMsg, searchQuery)}</div>
                   </details>
                 </td>
-                <td class="py-2.5 pl-2 mono text-[10px] text-slate-400 text-right whitespace-nowrap">
+                <td class="py-2.5 px-2 mono text-[10px] text-slate-400 text-right whitespace-nowrap">
                   ${formatAuditTime(log.timestamp)}
+                </td>
+                <td class="py-2.5 pl-2 text-right whitespace-nowrap">
+                  ${rowActionHtml}
                 </td>
               </tr>
             `;

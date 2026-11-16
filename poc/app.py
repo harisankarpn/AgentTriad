@@ -14,10 +14,11 @@ Hosts:
 from __future__ import annotations
 
 import asyncio
+import datetime
 import os
 import time
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse, JSONResponse
@@ -101,6 +102,15 @@ class GoogleOAuthConfigRequest(BaseModel):
 
 class CreateChatSessionRequest(BaseModel):
     title: Optional[str] = None
+
+
+class LogTriageBatchRequest(BaseModel):
+    log_ids: List[str]
+    reason: Optional[str] = None
+    user_name: Optional[str] = None
+    target_cloud: Optional[str] = None
+    strategy: str = "auto"
+    ignore_similar_signatures: bool = False
 
 
 DEFAULT_GOOGLE_OAUTH_CLIENT_ID = "1041190629307-vfatcreibv4a82lcj0v6t11vlic9rivn.apps.googleusercontent.com"
@@ -259,10 +269,55 @@ async def serve_dashboard() -> FileResponse:
 
 _last_watcher_sync_ts: float = 0.0
 _seen_anomaly_ids: set[str] = set()
+_ignored_log_ids: Dict[str, Dict[str, Any]] = {}
 _real_poll_cursor: int = 0
 _watcher_refresh_in_flight: bool = False
 _watcher_sync_lock = asyncio.Lock()
 _WATCHER_REFRESH_TTL_SECONDS: float = float(os.getenv("AAAS_WATCHER_REFRESH_TTL_SECONDS", "30.0"))
+
+
+def _find_logs_by_ids(log_ids: List[str]) -> List[Dict[str, Any]]:
+    """Looks up matching log entries across the full in-memory telemetry buffer preserving requested order."""
+    wanted = [str(lid).strip() for lid in log_ids if str(lid or "").strip()]
+    if not wanted:
+        return []
+    by_id: Dict[str, Dict[str, Any]] = {}
+    for entry in logging_service._local_logs:
+        lid = str(entry.get("log_id") or "")
+        if lid and lid not in by_id:
+            by_id[lid] = entry
+    return [by_id[lid] for lid in wanted if lid in by_id]
+
+
+def _annotate_logs_with_triage(logs: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """Returns shallow copies of log entries enriched with live operator triage metadata."""
+    enriched: List[Dict[str, Any]] = []
+    for entry in logs:
+        item = dict(entry)
+        lid = str(item.get("log_id") or "")
+        ignored_meta = _ignored_log_ids.get(lid)
+        linked_inc = lead_orchestrator.incidents.get(lid)
+        item["ignored"] = ignored_meta is not None
+        item["ignored_by"] = ignored_meta.get("ignored_by") if ignored_meta else None
+        item["ignored_at"] = ignored_meta.get("ignored_at") if ignored_meta else None
+        item["ignored_reason"] = ignored_meta.get("reason") if ignored_meta else None
+        item["linked_incident_id"] = linked_inc.get("incident_id") if linked_inc else None
+        if ignored_meta is not None:
+            item["triage_status"] = "IGNORED"
+        elif linked_inc is not None:
+            inc_status = str(linked_inc.get("status") or "")
+            if inc_status == "RESOLVED":
+                item["triage_status"] = "RESOLVED"
+            elif inc_status == "SKIPPED_MANUAL":
+                item["triage_status"] = "SKIPPED_MANUAL"
+            else:
+                item["triage_status"] = "IN_CHAT"
+        elif item.get("is_anomaly"):
+            item["triage_status"] = "OPEN"
+        else:
+            item["triage_status"] = "INFO"
+        enriched.append(item)
+    return enriched
 
 
 async def _run_watcher_sync_once(force: bool = False) -> None:
@@ -394,6 +449,7 @@ def _build_platform_runtime() -> Dict[str, Any]:
 async def get_system_state() -> Dict[str, Any]:
     """Returns real-time state of all 3 agents, live GCP Cloud Logging stream, incidents, audit tracker, and A2A traces."""
     logs = await sync_real_logs_from_watcher(force=False, auto_escalate=False)
+    annotated_logs = _annotate_logs_with_triage(logs)
     platform_runtime = await asyncio.to_thread(_build_platform_runtime)
     return {
         "gcp_status": {
@@ -408,7 +464,8 @@ async def get_system_state() -> Dict[str, Any]:
         "agents": [card.model_dump() for card in a2a_hub.agents.values()],
         "worker_boutique": WORKER_AGENT_BOUTIQUE,
         "agent_harness_status": agent_harness.get_global_harness_status(),
-        "logs": logs,
+        "logs": annotated_logs,
+        "ignored_log_ids": list(_ignored_log_ids.keys()),
         "incidents": lead_orchestrator.list_incidents(),
         "audit_events": lead_orchestrator.list_audit_events(),
         "dispatch_history": lead_orchestrator.list_dispatch_history(),
@@ -481,10 +538,16 @@ async def poll_cloud_logging() -> Dict[str, Any]:
     real_anomalies = [
         entry
         for entry in logs
-        if entry.get("is_anomaly") and str(entry.get("log_id", "")).startswith("gcp-")
+        if entry.get("is_anomaly")
+        and str(entry.get("log_id", "")).startswith("gcp-")
+        and str(entry.get("log_id", "")) not in _ignored_log_ids
     ]
     if not real_anomalies:
-        real_anomalies = [entry for entry in logs if entry.get("is_anomaly")]
+        real_anomalies = [
+            entry
+            for entry in logs
+            if entry.get("is_anomaly") and str(entry.get("log_id", "")) not in _ignored_log_ids
+        ]
 
     # Sort real GCP anomalies by newest timestamp descending so newly occurring live errors are surfaced immediately
     real_anomalies.sort(
@@ -525,6 +588,230 @@ async def poll_cloud_logging() -> Dict[str, Any]:
         "incident": lead_orchestrator.incidents.get(incident_id) if incident_id else None,
         "newly_reported_incidents": newly_reported,
         "total_logs": len(logs),
+    }
+
+
+@app.post("/api/logs/ignore")
+async def mark_logs_safe_to_ignore(req: LogTriageBatchRequest) -> Dict[str, Any]:
+    """
+    Marks one or more live Cloud Logging alerts as 'Safe to Ignore'.
+    Updates the live Cloud Health alert count, suppresses re-escalation on subsequent polls,
+    closes any open HITL incident for those log IDs as SKIPPED_MANUAL, and writes an audit record.
+    """
+    cleaned_ids = [str(lid).strip() for lid in (req.log_ids or []) if str(lid or "").strip()]
+    if not cleaned_ids:
+        raise HTTPException(status_code=400, detail="At least one log_id is required")
+
+    uname = (req.user_name or lead_orchestrator.active_user.get("name") or "Hari").strip()
+    reason = (req.reason or "Marked safe to ignore by operator").strip()
+    now_iso = datetime.datetime.now(datetime.timezone.utc).isoformat()
+    matched_entries = {str(e.get("log_id") or ""): e for e in _find_logs_by_ids(cleaned_ids)}
+
+    # Optional storm suppression: also ignore sibling logs sharing the exact same signature_key or (workload, error_code)
+    target_ids: List[str] = list(dict.fromkeys(cleaned_ids))
+    similar_expanded_count = 0
+    if req.ignore_similar_signatures and matched_entries:
+        sig_keys = {
+            str(e.get("signature_key") or "").strip()
+            for e in matched_entries.values()
+            if str(e.get("signature_key") or "").strip()
+        }
+        wl_err_pairs = {
+            (str(e.get("workload") or "").strip(), str(e.get("error_code") or "").strip())
+            for e in matched_entries.values()
+            if str(e.get("workload") or "").strip()
+        }
+        existing_set = set(target_ids)
+        for cand in logging_service._local_logs:
+            cid = str(cand.get("log_id") or "").strip()
+            if not cid or cid in existing_set or not cand.get("is_anomaly"):
+                continue
+            cand_sig = str(cand.get("signature_key") or "").strip()
+            cand_pair = (str(cand.get("workload") or "").strip(), str(cand.get("error_code") or "").strip())
+            if (cand_sig and cand_sig in sig_keys) or (cand_pair[0] and cand_pair in wl_err_pairs):
+                target_ids.append(cid)
+                existing_set.add(cid)
+                matched_entries[cid] = cand
+                similar_expanded_count += 1
+
+    ignored_now: List[str] = []
+    for lid in target_ids:
+        entry = matched_entries.get(lid) or {}
+        _ignored_log_ids[lid] = {
+            "log_id": lid,
+            "ignored_by": uname,
+            "ignored_at": now_iso,
+            "reason": reason,
+            "workload": entry.get("workload", ""),
+            "title": entry.get("title", ""),
+        }
+        _seen_anomaly_ids.add(lid)
+        ignored_now.append(lid)
+
+        existing_inc = lead_orchestrator.incidents.get(lid)
+        if existing_inc and existing_inc.get("status") in ("AWAITING_HITL_APPROVAL", "BLOCKED_PROVIDER_OUTAGE"):
+            lead_orchestrator.skip_incident_manual(
+                incident_id=lid,
+                skipped_by=f"{uname} (Marked Safe to Ignore: {reason})",
+            )
+
+        if entry:
+            try:
+                await asyncio.to_thread(
+                    logging_service.record_audit_event,
+                    incident_id=lid,
+                    event_type="LOG_MARKED_SAFE_TO_IGNORE",
+                    service=str(entry.get("workload") or entry.get("source") or "cloud-log"),
+                    issue_title=f"{str(entry.get('title') or entry.get('message') or lid)[:120]} [{reason[:35]}]",
+                    occurred_at=str(entry.get("timestamp") or now_iso),
+                    action_status="SAFE_TO_IGNORE",
+                    approved_by=uname,
+                    approved_at=now_iso,
+                )
+            except Exception:
+                pass
+
+    return {
+        "status": "LOGS_MARKED_SAFE_TO_IGNORE",
+        "ignored_ids": ignored_now,
+        "similar_expanded_count": similar_expanded_count,
+        "reason": reason,
+        "ignored_by": uname,
+        "ignored_at": now_iso,
+        "total_ignored": len(_ignored_log_ids),
+    }
+
+
+@app.post("/api/logs/unignore")
+async def restore_ignored_logs(req: LogTriageBatchRequest) -> Dict[str, Any]:
+    """Restores one or more previously ignored Cloud Logging alerts back to active triage."""
+    cleaned_ids = [str(lid).strip() for lid in (req.log_ids or []) if str(lid or "").strip()]
+    if not cleaned_ids:
+        raise HTTPException(status_code=400, detail="At least one log_id is required")
+
+    restored: List[str] = []
+    for lid in cleaned_ids:
+        if lid in _ignored_log_ids:
+            _ignored_log_ids.pop(lid, None)
+            restored.append(lid)
+        _seen_anomaly_ids.discard(lid)
+        existing_inc = lead_orchestrator.incidents.get(lid)
+        if existing_inc and existing_inc.get("status") == "SKIPPED_MANUAL":
+            lead_orchestrator.reopen_incident(incident_id=lid)
+
+    return {
+        "status": "LOGS_RESTORED",
+        "restored_ids": restored,
+        "total_ignored": len(_ignored_log_ids),
+    }
+
+
+@app.post("/api/logs/fix-via-chat")
+async def fix_selected_logs_via_chat(req: LogTriageBatchRequest) -> Dict[str, Any]:
+    """
+    Sends one or more selected live Cloud Logging alerts directly into AaaS Chat with Atlas:
+      - 1 selected log: escalates via Heartbeat & Telemetry (SAIF-sanitized) -> Atlas -> Specialist A2A
+        and opens the dedicated Incident Remediation Chat + 'I accept — Dispatch' HITL workflow.
+      - 2+ selected logs: opens Direct Atlas Chat with a unified multi-alert triage prompt so Atlas
+        can diagnose shared root causes and propose a coordinated CLI or Multi-Service Terraform fix.
+    """
+    cleaned_ids = [str(lid).strip() for lid in (req.log_ids or []) if str(lid or "").strip()]
+    if not cleaned_ids:
+        raise HTTPException(status_code=400, detail="At least one log_id is required")
+
+    selected_entries = _find_logs_by_ids(cleaned_ids)
+    if not selected_entries:
+        raise HTTPException(status_code=404, detail="None of the selected log IDs were found in the live log buffer")
+
+    for entry in selected_entries:
+        lid = str(entry.get("log_id") or "")
+        _ignored_log_ids.pop(lid, None)
+
+    uname = (req.user_name or lead_orchestrator.active_user.get("name") or "Hari").strip()
+    active_cloud = req.target_cloud or lead_orchestrator.active_target_cloud
+    strategy = (req.strategy or "auto").strip().lower()
+
+    async def _escalate_one_incident(entry: Dict[str, Any]) -> Dict[str, Any]:
+        lid = str(entry.get("log_id") or "")
+        existing = lead_orchestrator.incidents.get(lid)
+        if existing:
+            if existing.get("status") == "SKIPPED_MANUAL":
+                existing = lead_orchestrator.reopen_incident(incident_id=lid)
+            return {
+                "incident_id": lid,
+                "incident": existing,
+                "reused_existing": True,
+                "orchestrator_result": None,
+            }
+        _seen_anomaly_ids.add(lid)
+        orch_res = await watcher_agent.detect_and_report_anomaly(entry)
+        inc_id = orch_res.get("incident_id", lid)
+        return {
+            "incident_id": inc_id,
+            "incident": lead_orchestrator.incidents.get(inc_id),
+            "reused_existing": False,
+            "orchestrator_result": orch_res,
+        }
+
+    # Mode 1: Single alert (default 'auto') -> dedicated Incident Remediation Chat + HITL approval
+    if len(selected_entries) == 1 and strategy != "unified_chat":
+        esc = await _escalate_one_incident(selected_entries[0])
+        return {
+            "status": "ESCALATED_TO_AAAS_CHAT",
+            "mode": "incident",
+            "incident_id": esc["incident_id"],
+            "incident": esc["incident"],
+            "orchestrator_result": esc["orchestrator_result"],
+            "reused_existing": esc["reused_existing"],
+        }
+
+    # Mode 2: Multiple alerts with explicit 'separate_incidents' -> queue up to 5 separate HITL incident cards in parallel
+    if strategy == "separate_incidents":
+        batch = selected_entries[:5]
+        escalated_items = await asyncio.gather(*[_escalate_one_incident(e) for e in batch])
+        incident_ids = [item["incident_id"] for item in escalated_items if item.get("incident_id")]
+        primary_id = incident_ids[0] if incident_ids else None
+        return {
+            "status": "QUEUED_SEPARATE_INCIDENTS",
+            "mode": "separate_incidents",
+            "incident_id": primary_id,
+            "incident_ids": incident_ids,
+            "queued_count": len(incident_ids),
+            "truncated_count": max(0, len(selected_entries) - len(batch)),
+            "incident": lead_orchestrator.incidents.get(primary_id) if primary_id else None,
+        }
+
+    # Mode 3: Unified multi-alert diagnosis in Direct Atlas Chat (default for 2+ alerts)
+    bullet_lines = []
+    for idx, entry in enumerate(selected_entries[:10], start=1):
+        sev = str(entry.get("severity") or "ERROR").upper()
+        wl = str(entry.get("workload") or entry.get("cluster") or "cloud-service")
+        ts = str(entry.get("timestamp") or "")
+        msg = str(entry.get("message") or entry.get("title") or "").strip().replace("\n", " ")[:240]
+        bullet_lines.append(f"{idx}. [{sev}] `{wl}` ({ts}): {msg}")
+
+    more_note = (
+        f"\n(Plus {len(selected_entries) - 10} additional selected alerts from the same live log view.)"
+        if len(selected_entries) > 10
+        else ""
+    )
+    prompt = (
+        f"Please diagnose and help me fix these {len(selected_entries)} selected live cloud log alerts together. "
+        f"Identify common root causes, inspect live service telemetry, and propose the safest CLI or Multi-Service Terraform remediation:\n\n"
+        + "\n".join(bullet_lines)
+        + more_note
+    )
+    chat_result = await lead_orchestrator.chat_general_with_atlas(
+        user_message=prompt,
+        user_name=uname,
+        target_cloud=active_cloud,
+    )
+    return {
+        "status": "SENT_TO_AAAS_CHAT",
+        "mode": "direct_chat",
+        "log_count": len(selected_entries),
+        "log_ids": [str(e.get("log_id") or "") for e in selected_entries],
+        "chat_result": chat_result,
     }
 
 
