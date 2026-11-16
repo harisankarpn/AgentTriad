@@ -804,77 +804,95 @@ class LeadOrchestratorAgent:
             raw_entry = data.get("log_entry", {})
             log_entry = agent_harness.sanitize_telemetry_saif(raw_entry)
             incident_id = log_entry.get("log_id", f"inc-{len(self.incidents) + 1}")
-            impact_and_remedy = await asyncio.to_thread(self._analyze_impact_and_remedy, log_entry)
             specialist = self._select_specialist_worker(log_entry)
+
+            cluster = log_entry.get("cluster", "us-central1")
+            namespace = log_entry.get("namespace", "default")
+            workload = log_entry.get("workload", "deployment/app")
+            raw_cloud = str(log_entry.get("cloud_provider") or "").strip().lower()
+            event_cloud = raw_cloud if raw_cloud in ("gcp", "aws", "azure") else self.active_target_cloud
+
+            async def _fetch_specialist_diag() -> tuple[Optional[Dict[str, Any]], Optional[Dict[str, Any]]]:
+                if specialist.get("id") == "database-agent":
+                    target_inst = str(log_entry.get("pod") or "testdbinstance1").split(":")[-1]
+                    db_d = await asyncio.to_thread(
+                        self._invoke_live_database_agent_a2a,
+                        prompt=(
+                            f"Atlas Alert: Cloud Logging detected [{log_entry.get('severity')}] on `{workload}`: "
+                            f"{log_entry.get('message')}. Inspect the live database instance and logs and propose a safe fix."
+                        ),
+                        instance_name=target_inst,
+                        target_cloud=event_cloud,
+                    )
+                    return db_d, None
+                if specialist.get("id") == "infra-agent":
+                    target_inst = str(log_entry.get("pod") or workload.split("/")[-1] or "auto").split(":")[-1]
+                    inf_d = await asyncio.to_thread(
+                        self._invoke_live_infra_agent_a2a,
+                        prompt=(
+                            f"Atlas Alert: Cloud Logging detected [{log_entry.get('severity')}] on `{workload}` "
+                            f"(zone/cluster `{cluster}`): {log_entry.get('message')}. "
+                            f"Inspect the live compute inventory, performance metrics, and logs "
+                            f"for `{target_inst}` and propose a safe remediation."
+                        ),
+                        target_instance=target_inst,
+                        target_cloud=event_cloud,
+                    )
+                    return None, inf_d
+                return None, None
+
+            async def _fetch_preflight() -> Dict[str, Any]:
+                if data.get("cloud_provider_status"):
+                    return data["cloud_provider_status"]
+                return await self._run_cloud_provider_preflight_check(
+                    cloud_provider=event_cloud or "gcp",
+                    region=cluster,
+                    service_hint=str(log_entry.get("source") or ""),
+                )
+
+            # Run Atlas RAG/LLM analysis, live specialist A2A diagnosis, and provider pre-flight in parallel
+            impact_and_remedy, (live_db_diag, live_infra_diag), cloud_provider_status = await asyncio.gather(
+                asyncio.to_thread(self._analyze_impact_and_remedy, log_entry),
+                _fetch_specialist_diag(),
+                _fetch_preflight(),
+            )
             coordinated_specialists = self._resolve_coordinated_specialists(
                 log_entry=log_entry,
                 rag_playbook=impact_and_remedy,
                 primary_specialist=specialist,
             )
 
-            cluster = log_entry.get("cluster", "us-central1")
-            namespace = log_entry.get("namespace", "default")
-            workload = log_entry.get("workload", "deployment/app")
-
-            live_db_diag: Optional[Dict[str, Any]] = None
-            live_infra_diag: Optional[Dict[str, Any]] = None
-            raw_cloud = str(log_entry.get("cloud_provider") or "").strip().lower()
-            event_cloud = raw_cloud if raw_cloud in ("gcp", "aws", "azure") else self.active_target_cloud
-            if specialist.get("id") == "database-agent":
-                target_inst = str(log_entry.get("pod") or "testdbinstance1").split(":")[-1]
-                live_db_diag = await asyncio.to_thread(
-                    self._invoke_live_database_agent_a2a,
-                    prompt=(
-                        f"Atlas Alert: Cloud Logging detected [{log_entry.get('severity')}] on `{workload}`: "
-                        f"{log_entry.get('message')}. Inspect the live database instance and logs and propose a safe fix."
-                    ),
-                    instance_name=target_inst,
-                    target_cloud=event_cloud,
-                )
-                if live_db_diag:
-                    impact_and_remedy["live_database_agent_diagnosis"] = live_db_diag
-                    log_anal = live_db_diag.get("log_analysis") or {}
-                    prop = live_db_diag.get("remediation_proposal") or {}
-                    if log_anal.get("root_cause"):
-                        impact_and_remedy["root_cause"] = log_anal["root_cause"]
-                        impact_and_remedy["customer_what_happened"] = log_anal["root_cause"]
-                    if prop.get("remediation_summary"):
-                        impact_and_remedy["remedy_summary"] = prop["remediation_summary"]
-                        impact_and_remedy["customer_why_approve"] = prop["remediation_summary"]
-                    if prop.get("recommended_cli"):
-                        impact_and_remedy["recommended_kubectl"] = prop["recommended_cli"]
-                    if prop.get("terraform_hcl"):
-                        impact_and_remedy["terraform_code"] = prop["terraform_hcl"]
-            elif specialist.get("id") == "infra-agent":
-                target_inst = str(log_entry.get("pod") or workload.split("/")[-1] or "auto").split(":")[-1]
-                live_infra_diag = await asyncio.to_thread(
-                    self._invoke_live_infra_agent_a2a,
-                    prompt=(
-                        f"Atlas Alert: Cloud Logging detected [{log_entry.get('severity')}] on `{workload}` "
-                        f"(zone/cluster `{cluster}`): {log_entry.get('message')}. "
-                        f"Inspect the live compute inventory, performance metrics, and logs "
-                        f"for `{target_inst}` and propose a safe remediation."
-                    ),
-                    target_instance=target_inst,
-                    target_cloud=event_cloud,
-                )
-                if live_infra_diag:
-                    impact_and_remedy["live_infra_agent_diagnosis"] = live_infra_diag
-                    log_anal = live_infra_diag.get("log_analysis") or {}
-                    prop = live_infra_diag.get("remediation_proposal") or {}
-                    if log_anal.get("root_cause"):
-                        impact_and_remedy["root_cause"] = log_anal["root_cause"]
-                    if log_anal.get("customer_what_happened") or log_anal.get("root_cause"):
-                        impact_and_remedy["customer_what_happened"] = (
-                            log_anal.get("customer_what_happened") or log_anal.get("root_cause")
-                        )
-                    if prop.get("remediation_summary"):
-                        impact_and_remedy["remedy_summary"] = prop["remediation_summary"]
-                        impact_and_remedy["customer_why_approve"] = prop["remediation_summary"]
-                    if prop.get("recommended_cli"):
-                        impact_and_remedy["recommended_kubectl"] = prop["recommended_cli"]
-                    if prop.get("terraform_hcl"):
-                        impact_and_remedy["terraform_code"] = prop["terraform_hcl"]
+            if live_db_diag:
+                impact_and_remedy["live_database_agent_diagnosis"] = live_db_diag
+                log_anal = live_db_diag.get("log_analysis") or {}
+                prop = live_db_diag.get("remediation_proposal") or {}
+                if log_anal.get("root_cause"):
+                    impact_and_remedy["root_cause"] = log_anal["root_cause"]
+                    impact_and_remedy["customer_what_happened"] = log_anal["root_cause"]
+                if prop.get("remediation_summary"):
+                    impact_and_remedy["remedy_summary"] = prop["remediation_summary"]
+                    impact_and_remedy["customer_why_approve"] = prop["remediation_summary"]
+                if prop.get("recommended_cli"):
+                    impact_and_remedy["recommended_kubectl"] = prop["recommended_cli"]
+                if prop.get("terraform_hcl"):
+                    impact_and_remedy["terraform_code"] = prop["terraform_hcl"]
+            if live_infra_diag:
+                impact_and_remedy["live_infra_agent_diagnosis"] = live_infra_diag
+                log_anal = live_infra_diag.get("log_analysis") or {}
+                prop = live_infra_diag.get("remediation_proposal") or {}
+                if log_anal.get("root_cause"):
+                    impact_and_remedy["root_cause"] = log_anal["root_cause"]
+                if log_anal.get("customer_what_happened") or log_anal.get("root_cause"):
+                    impact_and_remedy["customer_what_happened"] = (
+                        log_anal.get("customer_what_happened") or log_anal.get("root_cause")
+                    )
+                if prop.get("remediation_summary"):
+                    impact_and_remedy["remedy_summary"] = prop["remediation_summary"]
+                    impact_and_remedy["customer_why_approve"] = prop["remediation_summary"]
+                if prop.get("recommended_cli"):
+                    impact_and_remedy["recommended_kubectl"] = prop["recommended_cli"]
+                if prop.get("terraform_hcl"):
+                    impact_and_remedy["terraform_code"] = prop["terraform_hcl"]
 
             harness_bundle = agent_harness.build_incident_harness_bundle(
                 incident_id=incident_id,
@@ -897,11 +915,6 @@ class LeadOrchestratorAgent:
             detected_at = data.get("detected_at") or now_iso
 
             # Phase 4: Pre-flight Cloud Provider Status Check snapshot & Fault Attribution
-            cloud_provider_status = data.get("cloud_provider_status") or await self._run_cloud_provider_preflight_check(
-                cloud_provider=event_cloud or "gcp",
-                region=cluster,
-                service_hint=str(log_entry.get("source") or ""),
-            )
             impact_and_remedy["cloud_provider_status"] = cloud_provider_status
             fault_attribution = self.classify_fault_attribution(
                 cloud_provider_status=cloud_provider_status,

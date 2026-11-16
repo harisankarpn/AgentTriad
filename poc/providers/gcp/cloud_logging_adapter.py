@@ -521,12 +521,10 @@ class GCPCloudLoggingAdapter(TelemetryIngestionAdapter):
                     - datetime.timedelta(hours=lookback_hours)
                 ).isoformat()
 
-                # 0. Prioritize real Cloud SQL (`testdbinstance1`) and Cloud SQL Auth Proxy FATAL/ALERT/ERROR logs
+                # 0. Prioritize real Cloud SQL (`testdbinstance1`) WARNING/ERROR/FATAL logs via indexed resource.type
                 cloudsql_anomaly_filter = (
-                    f'timestamp>="{since_iso}" AND ('
-                    '(resource.type="cloudsql_database" AND (severity>=WARNING OR textPayload:"FATAL")) '
-                    'OR (logName:"cloud-sql-proxy" AND severity>=WARNING)'
-                    ')'
+                    f'timestamp>="{since_iso}" AND '
+                    'resource.type="cloudsql_database" AND severity>=WARNING'
                 )
                 # 1. Query real warnings/errors across Cloud SQL, GCE VMs, Cloud Run, Cloud Functions & ReasoningEngine
                 anomaly_filter = (
@@ -567,13 +565,18 @@ class GCPCloudLoggingAdapter(TelemetryIngestionAdapter):
                     (anomaly_filter, 25),
                     (telemetry_filter, 25),
                 )
-                with concurrent.futures.ThreadPoolExecutor(max_workers=3) as pool:
+                poll_timeout = float(os.getenv("AAAS_LOG_POLL_TIMEOUT_SECONDS", "6.0"))
+                pool = concurrent.futures.ThreadPoolExecutor(max_workers=3)
+                try:
                     futures = [pool.submit(_query_entries, flt, mr) for flt, mr in query_specs]
-                    for fut in futures:
+                    done, _ = concurrent.futures.wait(futures, timeout=poll_timeout)
+                    for fut in done:
                         try:
-                            raw_entries.extend(fut.result(timeout=10.0))
+                            raw_entries.extend(fut.result())
                         except Exception:
                             pass
+                finally:
+                    pool.shutdown(wait=False, cancel_futures=True)
 
                 known_ids = {item.get("log_id") for item in self._local_logs}
                 existing_sig_ts = {

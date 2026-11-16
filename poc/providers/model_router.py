@@ -198,17 +198,26 @@ class ModelAgnosticLLMClient:
             try:
                 from google.genai import types as genai_types
 
-                gen_cfg = (
-                    genai_types.GenerateContentConfig(
-                        response_mime_type=response_mime_type,
-                        temperature=temperature,
-                    )
-                    if response_mime_type
-                    else None
-                )
-                kwargs: Dict[str, Any] = {"model": self.model_name, "contents": prompt}
-                if gen_cfg is not None:
-                    kwargs["config"] = gen_cfg
+                cfg_kwargs: Dict[str, Any] = {"temperature": temperature}
+                if response_mime_type:
+                    cfg_kwargs["response_mime_type"] = response_mime_type
+                if (
+                    hasattr(genai_types, "ThinkingConfig")
+                    and ("2.5" in self.model_name or "gemini-3" in self.model_name)
+                ):
+                    try:
+                        budget = int(os.getenv("AAAS_GEMINI_THINKING_BUDGET", "0"))
+                        cfg_kwargs["thinking_config"] = genai_types.ThinkingConfig(
+                            thinking_budget=budget
+                        )
+                    except Exception:
+                        pass
+                gen_cfg = genai_types.GenerateContentConfig(**cfg_kwargs)
+                kwargs: Dict[str, Any] = {
+                    "model": self.model_name,
+                    "contents": prompt,
+                    "config": gen_cfg,
+                }
                 resp = self._genai_client.models.generate_content(**kwargs)
                 return resp.text.strip() if (resp and getattr(resp, "text", None)) else None
             except Exception:
