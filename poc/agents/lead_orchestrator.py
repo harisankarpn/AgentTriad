@@ -454,6 +454,13 @@ class LeadOrchestratorAgent:
         prompt: str,
         target_instance: str = "auto",
         target_cloud: Optional[str] = None,
+        skill_id: str = "diagnose_infra_anomaly",
+        project_id: Optional[str] = None,
+        workload: str = "",
+        incident_timestamp: str = "",
+        mock_deployments: Optional[List[Dict[str, Any]]] = None,
+        recommended_cli: str = "",
+        terraform_hcl: str = "",
     ) -> Optional[Dict[str, Any]]:
         """
         Invokes the live Cloud Run ADK Infra Specialist Agent (`agent-triad-infra-agent`)
@@ -462,7 +469,6 @@ class LeadOrchestratorAgent:
         in-process ADK execution (`agents.infra_agent.agent.run_diagnosis`) if the remote
         endpoint is not yet reachable.
         """
-        import subprocess
         import urllib.request
 
         resolved_cloud = normalize_target_cloud(target_cloud)
@@ -476,17 +482,26 @@ class LeadOrchestratorAgent:
         id_token_str = auth_broker.mint_oidc_id_token(infra_agent_url)
 
         rpc_id = f"a2a-infra-{uuid.uuid4().hex[:8]}"
+        data_payload: Dict[str, Any] = {
+            "prompt": prompt,
+            "target_instance": target_instance,
+            "target_cloud": resolved_cloud,
+            "project_id": project_id or PROJECT_ID,
+            "workload": workload or target_instance,
+            "incident_timestamp": incident_timestamp,
+            "recommended_cli": recommended_cli,
+            "terraform_hcl": terraform_hcl,
+        }
+        if mock_deployments:
+            data_payload["mock_deployments"] = mock_deployments
+
         rpc_payload = {
             "jsonrpc": "2.0",
             "id": rpc_id,
             "method": "tasks/send",
             "params": {
-                "skill_id": "diagnose_infra_anomaly",
-                "data": {
-                    "prompt": prompt,
-                    "target_instance": target_instance,
-                    "target_cloud": resolved_cloud,
-                },
+                "skill_id": skill_id,
+                "data": data_payload,
             },
         }
         headers = {"Content-Type": "application/json", "Accept": "application/json"}
@@ -515,8 +530,13 @@ class LeadOrchestratorAgent:
                 import importlib.util
                 from pathlib import Path
 
-                agent_py = Path(__file__).resolve().parents[2] / "agents" / "infra_agent" / "agent.py"
-                spec = importlib.util.spec_from_file_location("aaas_infra_agent_mod", str(agent_py))
+                _parents = Path(__file__).resolve().parents
+                agent_py = (_parents[2] / "agents" / "infra_agent" / "agent.py") if len(_parents) > 2 else None
+                spec = (
+                    importlib.util.spec_from_file_location("aaas_infra_agent_mod", str(agent_py))
+                    if agent_py and agent_py.exists()
+                    else None
+                )
                 if spec and spec.loader:
                     mod = importlib.util.module_from_spec(spec)
                     spec.loader.exec_module(mod)
@@ -527,6 +547,12 @@ class LeadOrchestratorAgent:
                                     prompt=prompt,
                                     target_instance=target_instance,
                                     target_cloud=resolved_cloud,
+                                    project_id=project_id or PROJECT_ID,
+                                    workload=workload or target_instance,
+                                    incident_timestamp=incident_timestamp,
+                                    mock_deployments=mock_deployments,
+                                    recommended_cli=recommended_cli,
+                                    terraform_hcl=terraform_hcl,
                                 )
                             )
                         ).result(timeout=a2a_timeout)
@@ -541,10 +567,124 @@ class LeadOrchestratorAgent:
                     "timestamp": datetime.datetime.now(datetime.timezone.utc).isoformat(),
                     "sender": self.AGENT_ID,
                     "recipient": "agent-triad-infra-agent (Cloud Run ADK)",
-                    "skill_id": "diagnose_infra_anomaly",
+                    "skill_id": skill_id,
                     "summary": (
                         f"Atlas invoked live Cloud Run ADK Infra Agent ({infra_agent_url}/a2a) "
-                        f"for `{target_instance}` -> tools={diagnosis.get('tools_invoked', [])}"
+                        f"for `{workload or target_instance}` -> tools={diagnosis.get('tools_invoked', [])}"
+                    ),
+                    "status": "COMPLETED",
+                },
+            )
+            return diagnosis
+        return None
+
+    def _invoke_live_security_agent_a2a(
+        self,
+        prompt: str,
+        project_id: Optional[str] = None,
+        region: str = "europe-west2",
+        service_agent_email: str = "",
+        target_cloud: Optional[str] = None,
+    ) -> Optional[Dict[str, Any]]:
+        """
+        Invokes the live Cloud Run ADK Security Specialist Agent (`agent-triad-security-agent`)
+        over Zero-Trust A2A (`POST /a2a` with OIDC Identity Token) to audit live GCP IAM policy
+        (`getIamPolicy`) and Cloud Audit Logs (`SetIamPolicy` drift), recording the remote A2A
+        exchange in the Control Plane ledger. Falls back gracefully to in-process ADK execution
+        if the remote Cloud Run endpoint is unreachable (e.g., offline unit tests).
+        """
+        import urllib.request
+
+        resolved_cloud = normalize_target_cloud(target_cloud)
+        clean_project = (project_id or PROJECT_ID).replace("projects/", "").strip() or PROJECT_ID
+        security_agent_url = os.getenv(
+            "SECURITY_AGENT_URL",
+            "https://agent-triad-security-agent-qq3mp7ftqq-uc.a.run.app",
+        ).rstrip("/")
+
+        from services.auth_broker import auth_broker
+
+        id_token_str = auth_broker.mint_oidc_id_token(security_agent_url)
+
+        rpc_id = f"a2a-sec-{uuid.uuid4().hex[:8]}"
+        rpc_payload = {
+            "jsonrpc": "2.0",
+            "id": rpc_id,
+            "method": "tasks/send",
+            "params": {
+                "skill_id": "diagnose_security_iam_anomaly",
+                "data": {
+                    "prompt": prompt,
+                    "project_id": clean_project,
+                    "region": region,
+                    "service_agent_email": service_agent_email,
+                    "target_cloud": resolved_cloud,
+                },
+            },
+        }
+        headers = {"Content-Type": "application/json", "Accept": "application/json"}
+        if id_token_str:
+            headers["Authorization"] = f"Bearer {id_token_str}"
+
+        diagnosis: Optional[Dict[str, Any]] = None
+        a2a_timeout = int(os.getenv("AAAS_SPECIALIST_A2A_TIMEOUT", "20"))
+        try:
+            req = urllib.request.Request(
+                f"{security_agent_url}/a2a",
+                data=json.dumps(rpc_payload).encode("utf-8"),
+                headers=headers,
+                method="POST",
+            )
+            with urllib.request.urlopen(req, timeout=a2a_timeout) as resp:
+                resp_json = json.loads(resp.read().decode("utf-8"))
+            diagnosis = (resp_json.get("result") or {}).get("diagnosis")
+        except Exception:
+            diagnosis = None
+
+        if not diagnosis:
+            try:
+                import asyncio
+                import concurrent.futures
+                import importlib.util
+                from pathlib import Path
+
+                _parents = Path(__file__).resolve().parents
+                agent_py = (_parents[2] / "agents" / "security_agent" / "agent.py") if len(_parents) > 2 else None
+                spec = (
+                    importlib.util.spec_from_file_location("aaas_security_agent_mod", str(agent_py))
+                    if agent_py and agent_py.exists()
+                    else None
+                )
+                if spec and spec.loader:
+                    mod = importlib.util.module_from_spec(spec)
+                    spec.loader.exec_module(mod)
+                    with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+                        diagnosis = pool.submit(
+                            lambda: asyncio.run(
+                                mod.run_diagnosis(
+                                    prompt=prompt,
+                                    project_id=clean_project,
+                                    region=region,
+                                    service_agent_email=service_agent_email,
+                                    target_cloud=resolved_cloud,
+                                )
+                            )
+                        ).result(timeout=a2a_timeout)
+            except Exception:
+                diagnosis = None
+
+        if diagnosis:
+            self.a2a_hub.message_ledger.insert(
+                0,
+                {
+                    "id": rpc_id,
+                    "timestamp": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+                    "sender": self.AGENT_ID,
+                    "recipient": "agent-triad-security-agent (Cloud Run ADK)",
+                    "skill_id": "diagnose_security_iam_anomaly",
+                    "summary": (
+                        f"Atlas invoked live Cloud Run ADK Security Agent ({security_agent_url}/a2a) "
+                        f"for `{clean_project}` -> tools={diagnosis.get('tools_invoked', [])}"
                     ),
                     "status": "COMPLETED",
                 },
@@ -962,16 +1102,56 @@ resource "google_project_iam_member" "datastream_sa_network_admin" {{
                 or security_iam_service.default_datastream_service_agent(target_project)
             ).strip()
 
-            async def _fetch_specialist_diag() -> tuple[Optional[Dict[str, Any]], Optional[Dict[str, Any]], Optional[Dict[str, Any]]]:
+            async def _fetch_specialist_diag() -> tuple[
+                Optional[Dict[str, Any]],
+                Optional[Dict[str, Any]],
+                Optional[Dict[str, Any]],
+                Optional[Dict[str, Any]],
+            ]:
                 if is_datastream_iam:
-                    iam_res = await asyncio.to_thread(
-                        security_iam_service.inspect_datastream_iam_posture,
-                        project_id=target_project,
-                        region=cluster,
-                        service_agent_email=target_datastream_sa,
-                        execute_live=(target_project == PROJECT_ID),
+                    sec_prompt = (
+                        f"Atlas Phase 2 Security Audit: Datastream private connectivity in `{cluster}` on project "
+                        f"`{target_project}` failed with: {log_entry.get('message')}. "
+                        f"Verify live IAM policy posture for `{target_datastream_sa}`, inspect Cloud Audit Logs "
+                        f"for recent SetIamPolicy REMOVE drift, and propose the exact least-privilege CLI & Terraform fix."
                     )
-                    return None, None, iam_res
+                    infra_prompt = (
+                        f"Atlas Phase 2 GitOps Correlation: Datastream private connectivity `{workload}` in "
+                        f"`{target_project}` ({cluster}) failed with missing IAM permissions. "
+                        f"Correlate recent Terraform state drift / SetIamPolicy REMOVE audit logs and CI/CD deployments."
+                    )
+                    sec_d, inf_d = await asyncio.gather(
+                        asyncio.to_thread(
+                            self._invoke_live_security_agent_a2a,
+                            prompt=sec_prompt,
+                            project_id=target_project,
+                            region=cluster,
+                            service_agent_email=target_datastream_sa,
+                            target_cloud=event_cloud,
+                        ),
+                        asyncio.to_thread(
+                            self._invoke_live_infra_agent_a2a,
+                            prompt=infra_prompt,
+                            target_instance=workload,
+                            target_cloud=event_cloud,
+                            skill_id="correlate_gitops_drift",
+                            project_id=target_project,
+                            workload=workload,
+                            incident_timestamp=str(log_entry.get("timestamp") or data.get("detected_at") or ""),
+                            mock_deployments=log_entry.get("mock_deployments"),
+                            recommended_cli=str(log_entry.get("recommended_kubectl") or ""),
+                        ),
+                    )
+                    iam_res = (sec_d or {}).get("iam_audit")
+                    if not isinstance(iam_res, dict) or not iam_res.get("recommended_cli"):
+                        iam_res = await asyncio.to_thread(
+                            security_iam_service.inspect_datastream_iam_posture,
+                            project_id=target_project,
+                            region=cluster,
+                            service_agent_email=target_datastream_sa,
+                            execute_live=(target_project == PROJECT_ID),
+                        )
+                    return None, inf_d, iam_res, sec_d
                 if specialist.get("id") == "database-agent":
                     target_inst = str(log_entry.get("pod") or "testdbinstance1").split(":")[-1]
                     db_d = await asyncio.to_thread(
@@ -983,7 +1163,7 @@ resource "google_project_iam_member" "datastream_sa_network_admin" {{
                         instance_name=target_inst,
                         target_cloud=event_cloud,
                     )
-                    return db_d, None, None
+                    return db_d, None, None, None
                 if specialist.get("id") == "infra-agent":
                     target_inst = str(log_entry.get("pod") or workload.split("/")[-1] or "auto").split(":")[-1]
                     inf_d = await asyncio.to_thread(
@@ -997,8 +1177,21 @@ resource "google_project_iam_member" "datastream_sa_network_admin" {{
                         target_instance=target_inst,
                         target_cloud=event_cloud,
                     )
-                    return None, inf_d, None
-                return None, None, None
+                    return None, inf_d, None, None
+                if specialist.get("id") == "security-agent":
+                    sec_d = await asyncio.to_thread(
+                        self._invoke_live_security_agent_a2a,
+                        prompt=(
+                            f"Atlas Alert: Cloud Logging detected [{log_entry.get('severity')}] on `{workload}`: "
+                            f"{log_entry.get('message')}. Audit live IAM posture and Cloud Audit Logs and propose a safe fix."
+                        ),
+                        project_id=target_project,
+                        region=cluster,
+                        service_agent_email=target_datastream_sa,
+                        target_cloud=event_cloud,
+                    )
+                    return None, None, (sec_d or {}).get("iam_audit"), sec_d
+                return None, None, None, None
 
             async def _fetch_preflight() -> Dict[str, Any]:
                 if data.get("cloud_provider_status"):
@@ -1010,7 +1203,7 @@ resource "google_project_iam_member" "datastream_sa_network_admin" {{
                 )
 
             # Run Atlas RAG/LLM analysis, live specialist A2A diagnosis, and provider pre-flight in parallel
-            impact_and_remedy, (live_db_diag, live_infra_diag, iam_audit), cloud_provider_status = await asyncio.gather(
+            impact_and_remedy, (live_db_diag, live_infra_diag, iam_audit, live_sec_diag), cloud_provider_status = await asyncio.gather(
                 asyncio.to_thread(self._analyze_impact_and_remedy, log_entry),
                 _fetch_specialist_diag(),
                 _fetch_preflight(),
@@ -1030,6 +1223,9 @@ resource "google_project_iam_member" "datastream_sa_network_admin" {{
             if customer_ticket:
                 impact_and_remedy["customer_ticket"] = customer_ticket
 
+            if live_sec_diag:
+                impact_and_remedy["live_security_agent_diagnosis"] = live_sec_diag
+
             if iam_audit:
                 impact_and_remedy["iam_audit"] = iam_audit
                 impact_and_remedy["recommended_kubectl"] = iam_audit["recommended_cli"]
@@ -1040,22 +1236,23 @@ resource "google_project_iam_member" "datastream_sa_network_admin" {{
                 impact_and_remedy["root_cause"] = (
                     f"GCP infrastructure in `{cluster}` is OPERATIONAL (Green). {iam_audit['finding']}"
                 )
-                self.a2a_hub.message_ledger.insert(
-                    0,
-                    {
-                        "id": f"a2a-sec-{uuid.uuid4().hex[:8]}",
-                        "timestamp": datetime.datetime.now(datetime.timezone.utc).isoformat(),
-                        "sender": self.AGENT_ID,
-                        "recipient": "security-agent (Security_Agent_Tool)",
-                        "skill_id": "inspect_iam_policy_posture",
-                        "summary": (
-                            f"Atlas delegated IAM posture verification for `{target_project}` -> "
-                            f"`{iam_audit.get('target_service_agent')}` missing `{iam_audit.get('required_role')}` "
-                            f"(live_gcp_verified={iam_audit.get('live_gcp_verified')})"
-                        ),
-                        "status": "COMPLETED",
-                    },
-                )
+                if not live_sec_diag:
+                    self.a2a_hub.message_ledger.insert(
+                        0,
+                        {
+                            "id": f"a2a-sec-{uuid.uuid4().hex[:8]}",
+                            "timestamp": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+                            "sender": self.AGENT_ID,
+                            "recipient": "security-agent (Security_Agent_Tool)",
+                            "skill_id": "inspect_iam_policy_posture",
+                            "summary": (
+                                f"Atlas delegated IAM posture verification for `{target_project}` -> "
+                                f"`{iam_audit.get('target_service_agent')}` missing `{iam_audit.get('required_role')}` "
+                                f"(live_gcp_verified={iam_audit.get('live_gcp_verified')})"
+                            ),
+                            "status": "COMPLETED",
+                        },
+                    )
 
             if live_db_diag:
                 impact_and_remedy["live_database_agent_diagnosis"] = live_db_diag
@@ -1073,21 +1270,22 @@ resource "google_project_iam_member" "datastream_sa_network_admin" {{
                     impact_and_remedy["terraform_code"] = prop["terraform_hcl"]
             if live_infra_diag:
                 impact_and_remedy["live_infra_agent_diagnosis"] = live_infra_diag
-                log_anal = live_infra_diag.get("log_analysis") or {}
-                prop = live_infra_diag.get("remediation_proposal") or {}
-                if log_anal.get("root_cause"):
-                    impact_and_remedy["root_cause"] = log_anal["root_cause"]
-                if log_anal.get("customer_what_happened") or log_anal.get("root_cause"):
-                    impact_and_remedy["customer_what_happened"] = (
-                        log_anal.get("customer_what_happened") or log_anal.get("root_cause")
-                    )
-                if prop.get("remediation_summary"):
-                    impact_and_remedy["remedy_summary"] = prop["remediation_summary"]
-                    impact_and_remedy["customer_why_approve"] = prop["remediation_summary"]
-                if prop.get("recommended_cli"):
-                    impact_and_remedy["recommended_kubectl"] = prop["recommended_cli"]
-                if prop.get("terraform_hcl"):
-                    impact_and_remedy["terraform_code"] = prop["terraform_hcl"]
+                if not is_datastream_iam:
+                    log_anal = live_infra_diag.get("log_analysis") or {}
+                    prop = live_infra_diag.get("remediation_proposal") or {}
+                    if log_anal.get("root_cause"):
+                        impact_and_remedy["root_cause"] = log_anal["root_cause"]
+                    if log_anal.get("customer_what_happened") or log_anal.get("root_cause"):
+                        impact_and_remedy["customer_what_happened"] = (
+                            log_anal.get("customer_what_happened") or log_anal.get("root_cause")
+                        )
+                    if prop.get("remediation_summary"):
+                        impact_and_remedy["remedy_summary"] = prop["remediation_summary"]
+                        impact_and_remedy["customer_why_approve"] = prop["remediation_summary"]
+                    if prop.get("recommended_cli"):
+                        impact_and_remedy["recommended_kubectl"] = prop["recommended_cli"]
+                    if prop.get("terraform_hcl"):
+                        impact_and_remedy["terraform_code"] = prop["terraform_hcl"]
 
             harness_bundle = agent_harness.build_incident_harness_bundle(
                 incident_id=incident_id,
@@ -1148,11 +1346,20 @@ resource "google_project_iam_member" "datastream_sa_network_admin" {{
                 s.get("id") in ("infra-agent", "serverless-agent") for s in coordinated_specialists
             )
             if has_infra_or_serverless:
-                if live_infra_diag and live_infra_diag.get("gitops_correlation"):
-                    gitops_correlation = live_infra_diag["gitops_correlation"]
+                live_infra_corr = (live_infra_diag or {}).get("gitops_correlation")
+                has_valid_live_corr = (
+                    isinstance(live_infra_corr, dict)
+                    and live_infra_corr.get("status") == "CORRELATED_RECENT_DEPLOYMENT"
+                    and live_infra_corr.get("highest_confidence_match") is not None
+                )
+                if has_valid_live_corr and not log_entry.get("mock_deployments"):
+                    gitops_correlation = live_infra_corr
                 elif is_datastream_iam:
                     iam_drift_deployments: List[Dict[str, Any]] = list(log_entry.get("mock_deployments") or [])
-                    if target_project == PROJECT_ID:
+                    sec_drifts = (live_sec_diag or {}).get("drift_events") or []
+                    if sec_drifts:
+                        iam_drift_deployments = list(sec_drifts) + iam_drift_deployments
+                    elif target_project == PROJECT_ID:
                         live_audit_drifts = await asyncio.to_thread(
                             security_iam_service.fetch_recent_iam_drift_audit_events,
                             project_id=target_project,
@@ -1166,22 +1373,25 @@ resource "google_project_iam_member" "datastream_sa_network_admin" {{
                         window_minutes=4320,
                         deployments=iam_drift_deployments or None,
                     )
-                    top_drift = (gitops_correlation or {}).get("highest_confidence_match")
-                    self.a2a_hub.message_ledger.insert(
-                        0,
-                        {
-                            "id": f"a2a-gitops-{uuid.uuid4().hex[:8]}",
-                            "timestamp": datetime.datetime.now(datetime.timezone.utc).isoformat(),
-                            "sender": self.AGENT_ID,
-                            "recipient": "infra-agent (GitOps_Correlator_Tool)",
-                            "skill_id": "correlate_recent_deployments",
-                            "summary": (
-                                f"Atlas delegated CI/CD & IAM drift correlation for `{workload}` -> "
-                                f"{top_drift.get('short_sha') + ' (' + str(top_drift.get('confidence')) + ')' if top_drift else 'scanned recent commits & audit logs'}"
-                            ),
-                            "status": "COMPLETED",
-                        },
-                    )
+                    if not live_infra_diag:
+                        top_drift = (gitops_correlation or {}).get("highest_confidence_match")
+                        self.a2a_hub.message_ledger.insert(
+                            0,
+                            {
+                                "id": f"a2a-gitops-{uuid.uuid4().hex[:8]}",
+                                "timestamp": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+                                "sender": self.AGENT_ID,
+                                "recipient": "infra-agent (GitOps_Correlator_Tool)",
+                                "skill_id": "correlate_recent_deployments",
+                                "summary": (
+                                    f"Atlas delegated CI/CD & IAM drift correlation for `{workload}` -> "
+                                    f"{top_drift.get('short_sha') + ' (' + str(top_drift.get('confidence')) + ')' if top_drift else 'scanned recent commits & audit logs'}"
+                                ),
+                                "status": "COMPLETED",
+                            },
+                        )
+                elif live_infra_corr:
+                    gitops_correlation = live_infra_corr
                 else:
                     gitops_correlation = gitops_correlator.correlate_recent_deployments(
                         incident_timestamp=occurred_at,
@@ -1209,6 +1419,19 @@ resource "google_project_iam_member" "datastream_sa_network_admin" {{
                 harness_bundle=harness_bundle,
                 now_iso=now_iso,
             )
+            if live_sec_diag and live_sec_diag.get("security_reasoning_report"):
+                chat_messages.append(
+                    {
+                        "role": "assistant",
+                        "sender": "Security Agent • Live Cloud Run ADK (agent-triad-security-agent)",
+                        "scenario_badge": "Live A2A Diagnosis",
+                        "text": (
+                            f"📡 **Live A2A Report from `agent-triad-security-agent` (Tools invoked: `{', '.join(live_sec_diag.get('tools_invoked', []))}`)**:\n\n"
+                            f"{live_sec_diag['security_reasoning_report']}"
+                        ),
+                        "timestamp": now_iso,
+                    }
+                )
             if live_db_diag and live_db_diag.get("dba_reasoning_report"):
                 chat_messages.append(
                     {
@@ -2747,27 +2970,66 @@ resource "google_project_iam_member" "datastream_sa_network_admin" {{
                 region=chat_region,
                 service_hint="datastream",
             )
-            # Phase 2: Parallel Security Agent (`Security_Agent_Tool`) + Infra Agent (`GitOps_Correlator_Tool`)
-            chat_iam_audit, live_audit_drifts = await asyncio.gather(
+            # Phase 2: Parallel Live Cloud Run ADK Security Agent (`agent-triad-security-agent`)
+            #          + Live Cloud Run ADK Infra Agent (`agent-triad-infra-agent`)
+            sec_chat_prompt = (
+                f"Atlas Phase 2 Security Audit: Datastream private connectivity in `{chat_region}` on "
+                f"`{chat_project}` failed with FAILED_PRECONDITION. Verify live IAM posture for `{chat_sa}`, "
+                f"check SetIamPolicy Cloud Audit Logs, and propose the least-privilege CLI & Terraform fix."
+            )
+            infra_chat_prompt = (
+                f"Atlas Phase 2 GitOps Correlation: Datastream private connectivity in `{chat_project}` "
+                f"({chat_region}) failed with missing IAM permissions. Correlate recent Terraform state drift / "
+                f"SetIamPolicy REMOVE audit logs and CI/CD deployments."
+            )
+            live_sec_chat, live_infra_chat = await asyncio.gather(
                 asyncio.to_thread(
+                    self._invoke_live_security_agent_a2a,
+                    prompt=sec_chat_prompt,
+                    project_id=chat_project,
+                    region=chat_region,
+                    service_agent_email=chat_sa,
+                    target_cloud="gcp",
+                ),
+                asyncio.to_thread(
+                    self._invoke_live_infra_agent_a2a,
+                    prompt=infra_chat_prompt,
+                    target_instance="datastream/private-connectivity",
+                    target_cloud="gcp",
+                    skill_id="correlate_gitops_drift",
+                    project_id=chat_project,
+                    workload="datastream/private-connectivity",
+                    incident_timestamp=now_iso,
+                ),
+            )
+            chat_iam_audit = (live_sec_chat or {}).get("iam_audit")
+            if not isinstance(chat_iam_audit, dict) or not chat_iam_audit.get("recommended_cli"):
+                chat_iam_audit = await asyncio.to_thread(
                     security_iam_service.inspect_datastream_iam_posture,
                     project_id=chat_project,
                     region=chat_region,
                     service_agent_email=chat_sa,
                     execute_live=(chat_project == PROJECT_ID),
-                ),
-                asyncio.to_thread(
+                )
+            live_infra_corr = (live_infra_chat or {}).get("gitops_correlation")
+            if (
+                isinstance(live_infra_corr, dict)
+                and live_infra_corr.get("status") == "CORRELATED_RECENT_DEPLOYMENT"
+                and live_infra_corr.get("highest_confidence_match") is not None
+            ):
+                chat_gitops = live_infra_corr
+            else:
+                live_audit_drifts = (live_sec_chat or {}).get("drift_events") or await asyncio.to_thread(
                     security_iam_service.fetch_recent_iam_drift_audit_events,
                     project_id=chat_project,
                     lookback_hours=72,
-                ),
-            )
-            chat_gitops = gitops_correlator.correlate_recent_deployments(
-                incident_timestamp=now_iso,
-                workload="datastream/private-connectivity",
-                window_minutes=4320,
-                deployments=live_audit_drifts or None,
-            )
+                )
+                chat_gitops = gitops_correlator.correlate_recent_deployments(
+                    incident_timestamp=now_iso,
+                    workload="datastream/private-connectivity",
+                    window_minutes=4320,
+                    deployments=live_audit_drifts or None,
+                )
 
             sec_spec = SPECIALIST_BY_ID["security-agent"]
             infra_spec = SPECIALIST_BY_ID["infra-agent"]
@@ -2896,6 +3158,7 @@ resource "google_project_iam_member" "datastream_sa_network_admin" {{
 
         live_db_diagnosis: Optional[Dict[str, Any]] = None
         live_infra_diagnosis: Optional[Dict[str, Any]] = None
+        live_sec_diagnosis: Optional[Dict[str, Any]] = None
         is_generic_howto = lower_msg.startswith("how do i ") and not any(
             k in lower_msg for k in ("testdb", "testinstance", "agent-triad", "agent-traid", "2397540675679890849")
         )
@@ -2957,9 +3220,45 @@ resource "google_project_iam_member" "datastream_sa_network_admin" {{
                     terraform_code = prop["terraform_hcl"]
                     if any(k in lower_msg for k in ("troubleshoot", "fix", "error", "testinstance1", "2397540675679890849", "gce", "vm", "why", "performance", "issue")):
                         needs_terraform = True
+        elif spec_name == "Security Agent" and not is_generic_howto:
+            contextual_prompt = (
+                f"Recent Conversation Context:\n{history_text}\n\n"
+                f"Current User Message from Hari:\n{clean_msg}"
+            )
+            live_sec_diagnosis = await asyncio.to_thread(
+                self._invoke_live_security_agent_a2a,
+                prompt=contextual_prompt,
+                project_id=PROJECT_ID,
+                region="europe-west2",
+                target_cloud=resolved_cloud,
+            )
+            if live_sec_diagnosis:
+                prop = live_sec_diagnosis.get("remediation_proposal") or {}
+                if prop.get("recommended_cli"):
+                    recommended_cli = prop["recommended_cli"]
+                if prop.get("terraform_hcl") and not terraform_code:
+                    terraform_code = prop["terraform_hcl"]
 
         reply_text = ""
-        if live_db_diagnosis and live_db_diagnosis.get("dba_reasoning_report"):
+        if live_sec_diagnosis and live_sec_diagnosis.get("security_reasoning_report"):
+            tools_used = ", ".join(live_sec_diagnosis.get("tools_invoked", []))
+            iam_a = live_sec_diagnosis.get("iam_audit") or {}
+            ident = live_sec_diagnosis.get("runtime_identity") or {}
+            header_lines = [
+                "📡 **Atlas delegated to Live Cloud Run ADK `Security Agent` (`agent-triad-security-agent`) via A2A**",
+                f"• **ADK Tools Executed**: `{tools_used}`",
+            ]
+            if iam_a.get("target_service_agent"):
+                header_lines.append(
+                    f"• **Live IAM Posture**: `{iam_a.get('target_service_agent')}` → **`{iam_a.get('status')}`** "
+                    f"(Live Verified: `{iam_a.get('live_gcp_verified')}`, Roles: `{', '.join(iam_a.get('assigned_roles') or []) or 'NONE'}`)"
+                )
+            if ident.get("active_service_account"):
+                header_lines.append(
+                    f"• **Active Runtime Identity**: `{ident.get('active_service_account')}` (Zero-Standing-Privilege Read-Only)"
+                )
+            reply_text = "\n".join(header_lines) + "\n\n" + str(live_sec_diagnosis["security_reasoning_report"])
+        elif live_db_diagnosis and live_db_diagnosis.get("dba_reasoning_report"):
             tools_used = ", ".join(live_db_diagnosis.get("tools_invoked", []))
             insp = live_db_diagnosis.get("instance_inspection") or {}
             perf = (live_db_diagnosis.get("performance_metrics") or {}).get("metrics") or {}

@@ -28,9 +28,10 @@ from typing import Any, Dict, List, Optional
 # Suppress benign google_genai warning when tool-call turns contain function_call parts
 logging.getLogger("google_genai.types").setLevel(logging.ERROR)
 
-# Expose monorepo `poc/` provider adapters when running in monorepo (graceful fallback in minimal Docker builds)
-_MONOREPO_POC_DIR = Path(__file__).resolve().parents[2] / "poc"
-if _MONOREPO_POC_DIR.exists() and str(_MONOREPO_POC_DIR) not in sys.path:
+# Expose monorepo `poc/` provider adapters when running in monorepo (safe bounds check in `/app/` Docker builds)
+_HERE_PARENTS = Path(__file__).resolve().parents
+_MONOREPO_POC_DIR = (_HERE_PARENTS[2] / "poc") if len(_HERE_PARENTS) > 2 else None
+if _MONOREPO_POC_DIR and _MONOREPO_POC_DIR.exists() and str(_MONOREPO_POC_DIR) not in sys.path:
     sys.path.append(str(_MONOREPO_POC_DIR))
 
 PROJECT_ID = os.getenv("GCP_PROJECT_ID", "agent-triad")
@@ -86,6 +87,11 @@ from google.adk.agents import Agent
 from google.adk.runners import Runner
 from google.adk.sessions import InMemorySessionService
 from google.genai import types
+
+try:
+    from google.adk.planners import BuiltInPlanner
+except ImportError:
+    BuiltInPlanner = None  # type: ignore
 
 PROTECTED_RESOURCES = {"testdbconnect", "sql-performance-advisor-poc"}
 
@@ -624,34 +630,207 @@ def inspect_infra_agent_runtime_identity(
     }
 
 
+def _fetch_live_gcp_audit_deployments(
+    project_id: str = PROJECT_ID,
+    lookback_hours: int = 72,
+    member_substring: str = "gcp-sa-datastream",
+) -> List[Dict[str, Any]]:
+    """
+    Queries live Google Cloud Audit Logs (`logging.googleapis.com/v2/entries:list`) using
+    `aaas-infra-agent-sa` (`roles/logging.viewer`) for recent `SetIamPolicy` REMOVE events
+    (external IaC / Terraform IAM state drift) so the standalone Cloud Run Infra Agent
+    correlates real live GCP IAM & deployment drift even without `poc/` bundled.
+    """
+    clean_project = (project_id or PROJECT_ID).replace("projects/", "").strip() or PROJECT_ID
+    if clean_project != PROJECT_ID:
+        return []
+    token = _get_gcp_access_token()
+    if not token:
+        return []
+    since_iso = (
+        datetime.datetime.now(datetime.timezone.utc)
+        - datetime.timedelta(hours=max(1, int(lookback_hours)))
+    ).isoformat()
+    flt = (
+        f'timestamp>="{since_iso}" AND '
+        'protoPayload.serviceName="cloudresourcemanager.googleapis.com" AND '
+        'protoPayload.methodName="SetIamPolicy"'
+    )
+    events: List[Dict[str, Any]] = []
+    try:
+        body = json.dumps(
+            {
+                "resourceNames": [f"projects/{clean_project}"],
+                "filter": flt,
+                "orderBy": "timestamp desc",
+                "pageSize": 25,
+            }
+        ).encode("utf-8")
+        req = urllib.request.Request(
+            "https://logging.googleapis.com/v2/entries:list",
+            data=body,
+            headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
+            method="POST",
+        )
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            data = json.loads(resp.read().decode("utf-8"))
+        for entry in data.get("entries") or []:
+            pp = entry.get("protoPayload") or {}
+            principal = str((pp.get("authenticationInfo") or {}).get("principalEmail") or "unknown-principal")
+            svc_data = pp.get("serviceData") or {}
+            policy_delta = svc_data.get("policyDelta") or pp.get("policyDelta") or {}
+            deltas = policy_delta.get("bindingDeltas") or []
+            matched_removals: List[Dict[str, str]] = []
+            for delta in deltas:
+                action = str(delta.get("action") or "").upper()
+                member = str(delta.get("member") or "")
+                role = str(delta.get("role") or "")
+                if action == "REMOVE" and (not member_substring or member_substring.lower() in member.lower()):
+                    matched_removals.append({"role": role, "member": member})
+            if not matched_removals:
+                continue
+            ts_iso = str(entry.get("timestamp") or datetime.datetime.now(datetime.timezone.utc).isoformat())
+            insert_id = str(entry.get("insertId") or "audit")
+            roles_str = ", ".join(r["role"] for r in matched_removals)
+            members_str = ", ".join(sorted({r["member"] for r in matched_removals}))
+            events.append(
+                {
+                    "sha": f"iam-audit-{insert_id[:12]}",
+                    "short_sha": f"audit-{insert_id[:7]}",
+                    "author": principal,
+                    "timestamp": ts_iso,
+                    "subject": (
+                        f"SetIamPolicy REMOVE {roles_str} from {members_str} "
+                        f"(External IaC / Terraform State Drift)"
+                    ),
+                    "files": [
+                        f"terraform/iam/{clean_project}_datastream_iam.tf",
+                        f"cloudresourcemanager/{clean_project}/SetIamPolicy",
+                    ],
+                    "service": "datastream/private-connectivity-ew2",
+                    "source": "live_gcp_cloud_audit_setIamPolicy",
+                    "removed_bindings": matched_removals,
+                }
+            )
+            if len(events) >= 10:
+                break
+    except Exception:
+        return []
+    return events
+
+
+def _parse_iso_utc(ts: str) -> Optional[datetime.datetime]:
+    if not ts:
+        return None
+    try:
+        dt = datetime.datetime.fromisoformat(str(ts).replace("Z", "+00:00"))
+        return dt if dt.tzinfo else dt.replace(tzinfo=datetime.timezone.utc)
+    except Exception:
+        return None
+
+
+def _correlate_events_standalone(
+    events: List[Dict[str, Any]],
+    incident_timestamp: str,
+    workload: str,
+    window_minutes: int,
+) -> Dict[str, Any]:
+    inc_dt = _parse_iso_utc(incident_timestamp) or datetime.datetime.now(datetime.timezone.utc)
+    correlated: List[Dict[str, Any]] = []
+    wl_low = str(workload or "").lower()
+    for ev in events:
+        ev_dt = _parse_iso_utc(str(ev.get("timestamp") or ""))
+        if ev_dt is None:
+            continue
+        delta_min = round((inc_dt - ev_dt).total_seconds() / 60.0, 1)
+        if delta_min < -5.0 or delta_min > max(15, int(window_minutes)):
+            continue
+        score = 55
+        if 0 <= delta_min <= 30:
+            score += 35
+        elif delta_min <= 180:
+            score += 20
+        elif delta_min <= 1440:
+            score += 10
+        svc = str(ev.get("service") or "").lower()
+        subj = str(ev.get("subject") or "").lower()
+        if ("datastream" in wl_low and ("datastream" in svc or "datastream" in subj)) or (
+            wl_low and wl_low in subj
+        ):
+            score += 15
+        if "remove" in subj or "terraform" in subj or "drift" in subj:
+            score += 10
+        score = min(99, score)
+        confidence = "HIGH" if score >= 80 else ("MEDIUM" if score >= 60 else "LOW")
+        item = dict(ev)
+        item["minutes_before_incident"] = max(0.0, delta_min)
+        item["score"] = score
+        item["confidence"] = confidence
+        correlated.append(item)
+
+    correlated.sort(key=lambda x: (x.get("score", 0), -(x.get("minutes_before_incident", 9999))), reverse=True)
+    top = correlated[0] if correlated else None
+    if top:
+        summary = (
+            f"Correlated recent IaC/IAM drift event `{top.get('short_sha')}` "
+            f"({top.get('minutes_before_incident')} min before incident, confidence {top.get('confidence')}): "
+            f"{top.get('subject')}"
+        )
+    else:
+        summary = f"No deployment or IAM drift event found within {window_minutes} minutes of incident."
+    return {
+        "status": "CORRELATED_RECENT_DEPLOYMENT" if top else "NO_RECENT_DEPLOYMENT_CORRELATION",
+        "incident_timestamp": inc_dt.isoformat(),
+        "workload": workload,
+        "window_minutes": window_minutes,
+        "highest_confidence_match": top,
+        "correlated_events": correlated[:5],
+        "summary": summary,
+    }
+
+
 def correlate_gitops_deployments(
     workload: str = "auto",
     incident_timestamp: str = "",
-    window_minutes: int = 180,
+    window_minutes: int = 4320,
     recommended_cli: str = "",
     terraform_hcl: str = "",
+    project_id: str = PROJECT_ID,
     target_cloud: Optional[str] = None,
+    mock_deployments: Optional[List[Dict[str, Any]]] = None,
 ) -> Dict[str, Any]:
     """
-    Read-only GitOps tool: Correlates an infrastructure/serverless incident timestamp
-    with recent Git commits and deployments, and outputs a structured Bidirectional
-    GitOps Reconciliation PR payload (`head_branch`, `base_branch`, declarative `files[]`,
-    and suspect commit correlation) instead of only raw CLI commands.
+    Read-only GitOps tool (`GitOps_Correlator_Tool`): Correlates an infrastructure/IAM/Datastream
+    incident timestamp with live Cloud Audit Log `SetIamPolicy` drift events and recent Git/CI-CD
+    deployments, outputting a structured `correlation` report and Bidirectional GitOps
+    Reconciliation PR payload (`gitops_pr_payload`).
 
     Args:
-        workload: Target VM, GKE workload, or Cloud Run service name.
+        workload: Target VM, Datastream connection, GKE workload, or Cloud Run service name.
         incident_timestamp: ISO-8601 incident occurrence timestamp (defaults to UTC now).
-        window_minutes: Lookback window in minutes prior to incident (default 180).
+        window_minutes: Lookback window in minutes prior to incident (default 4320 = 72h).
         recommended_cli: Optional imperative CLI fallback reference.
         terraform_hcl: Optional declarative Terraform HCL snippet to include in the PR.
+        project_id: Target GCP project ID for live Cloud Audit Log inspection.
         target_cloud: Optional cloud provider override (`gcp` | `aws` | `azure`).
+        mock_deployments: Optional external CI/CD deployment records (e.g., reference playback).
     """
     cloud = _resolve_target_cloud(target_cloud)
+    clean_project = (project_id or PROJECT_ID).replace("projects/", "").strip() or PROJECT_ID
+    lookback_hours = max(1, int((window_minutes + 59) // 60))
+    live_audit_events = (
+        _fetch_live_gcp_audit_deployments(project_id=clean_project, lookback_hours=lookback_hours)
+        if cloud == "gcp"
+        else []
+    )
+    combined_deployments: List[Dict[str, Any]] = list(live_audit_events) + list(mock_deployments or [])
+
     if _gitops_correlator is not None:
         correlation = _gitops_correlator.correlate_recent_deployments(
             incident_timestamp=incident_timestamp or None,
             workload=workload,
             window_minutes=window_minutes,
+            deployments=combined_deployments or None,
         )
         pr_payload = _gitops_correlator.build_gitops_reconciliation_pr_payload(
             incident_id=f"infra-{workload}",
@@ -664,28 +843,31 @@ def correlate_gitops_deployments(
         )
         return {
             "status": correlation.get("status", "NO_RECENT_DEPLOYMENT_CORRELATION"),
+            "executed_by_service": os.getenv("K_SERVICE", "agent-triad-infra-agent"),
+            "live_audit_drift_count": len(live_audit_events),
             "target_cloud": cloud,
             "correlation": correlation,
             "gitops_pr_payload": pr_payload,
         }
 
-    # Standalone minimal container fallback when `poc/services/gitops_correlator.py` is not bundled
+    # Standalone Cloud Run container path: correlate live GCP Cloud Audit SetIamPolicy drift + provided deployments
     now_iso = datetime.datetime.now(datetime.timezone.utc).isoformat()
     safe_w = str(workload or "workload").split("/")[-1]
+    correlation = _correlate_events_standalone(
+        events=combined_deployments,
+        incident_timestamp=incident_timestamp or now_iso,
+        workload=workload,
+        window_minutes=window_minutes,
+    )
     return {
-        "status": "NO_RECENT_DEPLOYMENT_CORRELATION",
+        "status": correlation.get("status", "NO_RECENT_DEPLOYMENT_CORRELATION"),
+        "executed_by_service": os.getenv("K_SERVICE", "agent-triad-infra-agent"),
+        "live_audit_drift_count": len(live_audit_events),
         "target_cloud": cloud,
-        "correlation": {
-            "status": "NO_RECENT_DEPLOYMENT_CORRELATION",
-            "incident_timestamp": incident_timestamp or now_iso,
-            "workload": workload,
-            "window_minutes": window_minutes,
-            "highest_confidence_match": None,
-            "correlated_events": [],
-        },
+        "correlation": correlation,
         "gitops_pr_payload": {
             "reconciliation_mode": "BIDIRECTIONAL_GITOPS_PR",
-            "pr_id": "PR-GITOPS-LOCAL",
+            "pr_id": f"PR-GITOPS-{clean_project.upper()[:10]}",
             "base_branch": "main",
             "head_branch": f"aaas/gitops-reconcile-{safe_w}",
             "title": f"[AaaS GitOps] Bidirectional reconciliation for {safe_w} ({cloud.upper()})",
@@ -802,27 +984,30 @@ def generate_infra_remediation_proposal(
 # =====================================================================
 
 INFRA_AGENT_INSTRUCTION = """You are the AaaS Infra Specialist Agent (Senior Google Cloud Infrastructure & Compute Architect) in the AgentTriad architecture.
-Your domain covers Compute Engine (GCE VMs, persistent disks, guest agents), GKE clusters, and Terraform IaC in project `agent-triad`.
+Your domain covers Compute Engine (GCE VMs, persistent disks, guest agents), GKE clusters, CI/CD GitOps correlation, and Terraform IaC in project `agent-triad`.
 
 STRICT ANTI-HALLUCINATION & GROUNDING RULES:
-1. NEVER fabricate, guess, or hardcode VM names, instance IDs, zones, machine types, metrics, log entries, or service account names. Report ONLY the exact values returned by your tools.
-2. When given an incident referencing a numeric `gce_instance` ID (such as `2397540675679890849` or `2276555501399631720`) or a VM name:
+1. NEVER fabricate, guess, or hardcode VM names, instance IDs, zones, machine types, metrics, log entries, commit SHAs, or service account names. Report ONLY the exact values returned by your tools.
+2. When given a Datastream / IAM drift / Terraform state drift / CI-CD deployment correlation task:
+   - Call `correlate_gitops_deployments` with the target `workload`, `incident_timestamp`, and `project_id` to inspect live Cloud Audit Logs (`SetIamPolicy` REMOVE events) and correlate recent Terraform/IaC drift.
+   - Keep your summary concise (3-4 bullet points) focusing strictly on the correlated IaC/Terraform drift event, actor, timestamp delta, and Bidirectional GitOps Reconciliation PR — do NOT invent unrelated GCE VM problems.
+3. When given an incident referencing a numeric `gce_instance` ID (such as `2397540675679890849` or `2276555501399631720`) or a VM name:
    - Call `inspect_compute_instances`, `get_compute_performance_metrics`, and `analyze_infra_logs`.
    - If `inspect_compute_instances` reports in `lifecycle_note` that the numeric ID was an ephemeral VM that terminated/was replaced, state that clearly and report the currently active `RUNNING` VMs returned in `discovered_instances`.
    - Call `generate_infra_remediation_proposal` when a remediation or verification proposal is requested.
    - Call `correlate_gitops_deployments` to correlate the incident timestamp against recent Git commits/deployments and output a Bidirectional GitOps Reconciliation PR payload alongside declarative Terraform changes.
-3. If the user asks what Service Account you use or how you connect to VMs:
+4. If the user asks what Service Account you use or how you connect to VMs:
    - Call `inspect_infra_agent_runtime_identity` and disclose `aaas-infra-agent-sa@agent-triad.iam.gserviceaccount.com`, caller `agent-triad-runtime-sa@agent-triad.iam.gserviceaccount.com`, your read-only IAM roles (`roles/compute.viewer`, `roles/monitoring.viewer`, `roles/logging.viewer`, `roles/aiplatform.user`), and explain that you collect telemetry out-of-band via Google Cloud APIs (`compute.googleapis.com`, `monitoring.googleapis.com`, `logging.googleapis.com`) without opening direct SSH sessions.
 """
 
 RESOLVED_MODEL = _resolve_adk_model(MODEL_NAME)
 
-root_agent = Agent(
-    name="aaas_infra_agent",
-    model=RESOLVED_MODEL,
-    description="AaaS Infra Specialist Agent for multi-cloud (GCP Compute Engine, AWS EC2, Azure VMs) and Terraform IaC diagnostics, performance telemetry, and HITL remediation proposals.",
-    instruction=INFRA_AGENT_INSTRUCTION,
-    tools=[
+_infra_agent_kwargs: Dict[str, Any] = {
+    "name": "aaas_infra_agent",
+    "model": RESOLVED_MODEL,
+    "description": "AaaS Infra Specialist Agent for multi-cloud (GCP Compute Engine, AWS EC2, Azure VMs), GitOps/Terraform IaC drift correlation, performance telemetry, and HITL remediation proposals.",
+    "instruction": INFRA_AGENT_INSTRUCTION,
+    "tools": [
         inspect_compute_instances,
         get_compute_performance_metrics,
         analyze_infra_logs,
@@ -830,7 +1015,16 @@ root_agent = Agent(
         correlate_gitops_deployments,
         generate_infra_remediation_proposal,
     ],
-)
+}
+if BuiltInPlanner is not None and LLM_PROVIDER == "vertex":
+    try:
+        _infra_agent_kwargs["planner"] = BuiltInPlanner(
+            thinking_config=types.ThinkingConfig(thinking_budget=0)
+        )
+    except Exception:
+        pass
+
+root_agent = Agent(**_infra_agent_kwargs)
 
 
 # =====================================================================
@@ -841,6 +1035,12 @@ async def run_diagnosis(
     prompt: str,
     target_instance: str = "auto",
     target_cloud: Optional[str] = None,
+    project_id: str = PROJECT_ID,
+    workload: str = "",
+    incident_timestamp: str = "",
+    mock_deployments: Optional[List[Dict[str, Any]]] = None,
+    recommended_cli: str = "",
+    terraform_hcl: str = "",
 ) -> Dict[str, Any]:
     """
     Runs a diagnostic or advisory query through the ADK Infra Agent using the requested
@@ -849,6 +1049,14 @@ async def run_diagnosis(
     """
     resolved_cloud = _normalize_target_cloud(target_cloud)
     ctx_token = _ACTIVE_TARGET_CLOUD.set(resolved_cloud)
+    clean_project = (project_id or PROJECT_ID).replace("projects/", "").strip() or PROJECT_ID
+    eff_workload = (workload or target_instance or "auto").strip()
+    low_prompt = (prompt or "").lower()
+    is_gitops_drift_mode = any(
+        kw in low_prompt
+        for kw in ("datastream", "setiampolicy", "terraform state drift", "iam drift", "gitops_correlator")
+    )
+
     tool_trace: List[str] = []
     tool_outputs: Dict[str, Any] = {}
     session_service = InMemorySessionService()
@@ -861,11 +1069,12 @@ async def run_diagnosis(
         app_name="aaas_infra_agent",
         session_service=session_service,
     )
-    cloud_prefixed_prompt = (
-        prompt
-        if resolved_cloud == "gcp"
-        else f"[target_cloud={resolved_cloud}] {prompt}"
+    meta_prefix = (
+        f"[target_cloud={resolved_cloud} project_id={clean_project} workload={eff_workload}"
+        + (f" incident_timestamp={incident_timestamp}" if incident_timestamp else "")
+        + "] "
     )
+    cloud_prefixed_prompt = meta_prefix + prompt
     content = types.Content(role="user", parts=[types.Part.from_text(text=cloud_prefixed_prompt)])
     final_text = ""
 
@@ -909,7 +1118,38 @@ async def run_diagnosis(
         gitops_data: Optional[Dict[str, Any]] = tool_outputs.get("correlate_gitops_deployments")
         prop_data: Optional[Dict[str, Any]] = tool_outputs.get("generate_infra_remediation_proposal")
 
-        if not final_text:
+        if is_gitops_drift_mode:
+            if gitops_data is None or mock_deployments:
+                gitops_data = correlate_gitops_deployments(
+                    workload=eff_workload,
+                    incident_timestamp=incident_timestamp,
+                    window_minutes=4320,
+                    recommended_cli=recommended_cli,
+                    terraform_hcl=terraform_hcl,
+                    project_id=clean_project,
+                    target_cloud=resolved_cloud,
+                    mock_deployments=mock_deployments,
+                )
+                if "correlate_gitops_deployments" not in tool_trace:
+                    tool_trace.append("correlate_gitops_deployments")
+            identity_data = identity_data or inspect_infra_agent_runtime_identity(
+                project_id=clean_project, target_cloud=resolved_cloud
+            )
+            if not final_text:
+                corr = (gitops_data or {}).get("correlation") or {}
+                top = corr.get("highest_confidence_match")
+                final_text = (
+                    f"### Live GitOps & IaC Drift Correlation (`{clean_project}` / `{eff_workload}`)\n"
+                    f"- **Status**: `{corr.get('status', 'NO_RECENT_DEPLOYMENT_CORRELATION')}`\n"
+                    + (
+                        f"- **Top Correlated Drift**: `{top.get('short_sha')}` by `{top.get('author')}` "
+                        f"({top.get('minutes_before_incident')} min prior, confidence `{top.get('confidence')}`): {top.get('subject')}\n"
+                        if top
+                        else f"- **Summary**: {corr.get('summary')}\n"
+                    )
+                    + f"- **Runtime Identity**: `{identity_data.get('active_service_account')}` (Read-Only `roles/logging.viewer`)"
+                )
+        elif not final_text:
             insp_data = insp_data or inspect_compute_instances(target_instance, target_cloud=resolved_cloud)
             perf_data = perf_data or get_compute_performance_metrics(target_instance, target_cloud=resolved_cloud)
             log_data = log_data or analyze_infra_logs(prompt, target_instance, target_cloud=resolved_cloud)
@@ -935,6 +1175,7 @@ async def run_diagnosis(
 
         return {
             "agent": "aaas_infra_agent",
+            "executed_by_service": os.getenv("K_SERVICE", "agent-triad-infra-agent"),
             "model": MODEL_NAME,
             "llm_provider": LLM_PROVIDER,
             "target_cloud": resolved_cloud,

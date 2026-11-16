@@ -89,6 +89,12 @@ async def get_agent_card() -> Dict[str, Any]:
                 "tags": ["infra", "compute-engine", "gke", "terraform", "adk", "read-only"],
             },
             {
+                "id": "correlate_gitops_drift",
+                "name": "Correlate GitOps & Cloud Audit IaC Drift (Read-Only ADK Reasoning)",
+                "description": "Queries live Cloud Audit Logs (SetIamPolicy REMOVE) and CI/CD deployment history to attribute Terraform state drift and emit a Bidirectional GitOps PR.",
+                "tags": ["infra", "gitops", "terraform", "audit-logs", "drift", "read-only"],
+            },
+            {
                 "id": "execute_approved_infra_remediation",
                 "name": "Execute Approved Infra Remediation (JIT Token Required)",
                 "description": "Executes the Atlas-approved infrastructure remediation only when a valid 15-minute JIT token is supplied.",
@@ -122,14 +128,20 @@ async def handle_a2a_rpc(rpc: A2ARequest) -> Dict[str, Any]:
     parts: List[Dict[str, Any]] = rpc.params.get("message", {}).get("parts", [])
     payload: Dict[str, Any] = parts[0].get("data", {}) if parts else rpc.params.get("data", {})
 
-    if skill_id == "diagnose_infra_anomaly":
+    if skill_id in ("diagnose_infra_anomaly", "correlate_gitops_drift"):
         prompt = payload.get("prompt") or payload.get("message") or "Diagnose compute infrastructure anomaly"
-        target_instance = payload.get("target_instance") or payload.get("instance_name") or "auto"
+        target_instance = payload.get("target_instance") or payload.get("instance_name") or payload.get("workload") or "auto"
         target_cloud = payload.get("target_cloud") or rpc.params.get("target_cloud")
         diagnosis = await run_diagnosis(
             prompt=prompt,
             target_instance=target_instance,
             target_cloud=target_cloud,
+            project_id=payload.get("project_id") or PROJECT_ID,
+            workload=payload.get("workload") or target_instance,
+            incident_timestamp=payload.get("incident_timestamp") or "",
+            mock_deployments=payload.get("mock_deployments"),
+            recommended_cli=payload.get("recommended_cli") or "",
+            terraform_hcl=payload.get("terraform_hcl") or "",
         )
         return {
             "jsonrpc": "2.0",

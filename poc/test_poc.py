@@ -1227,7 +1227,7 @@ def run_e2e_tests() -> None:
     assert live_inc["cloud_provider_status"]["region"] == "europe-west2"
     assert live_inc["fault_attribution"]["origin"] == "EXTERNAL_APP_WORKLOAD"
 
-    # Phase 2: Parallel Security Agent + Infra Agent findings
+    # Phase 2: Parallel Security Agent + Infra Agent findings (via live Cloud Run ADK A2A or fallback)
     assert live_inc["specialist_worker"]["id"] == "security-agent", live_inc["specialist_worker"]
     coord_ids = [s["id"] for s in live_inc["coordinated_specialists"]]
     assert "security-agent" in coord_ids and "infra-agent" in coord_ids, coord_ids
@@ -1235,6 +1235,11 @@ def run_e2e_tests() -> None:
     assert live_inc["iam_audit"]["binding_present"] is False, live_inc["iam_audit"]
     assert live_inc["iam_audit"]["required_role"] == "roles/compute.networkAdmin"
     assert live_inc["gitops_correlation"] is not None
+    assert live_inc["impact_analysis"].get("live_security_agent_diagnosis") is not None, "Expected Security Agent ADK diagnosis"
+    assert live_inc["impact_analysis"].get("live_infra_agent_diagnosis") is not None, "Expected Infra Agent ADK diagnosis"
+    chat_senders = [m.get("sender", "") for m in live_inc["chat_messages"]]
+    assert any("agent-triad-security-agent" in s for s in chat_senders), chat_senders
+    assert any("agent-triad-infra-agent" in s for s in chat_senders), chat_senders
 
     # Phase 3: Blameless RCA + exact live CLI + exact HITL prompt
     expected_live_cli = (
@@ -1325,10 +1330,39 @@ def run_e2e_tests() -> None:
     assert "Click 'I Accept' to mint a 15-minute JIT token and execute this GitOps synchronization." in ds_chat_body["reply"]
     assert ds_chat_body["terraform_bundle"] is not None
     assert "prevent_destroy = true" in ds_chat_body["terraform_bundle"]["hcl_code"]
+
+    # 14f. Verify standalone Security Agent & Infra Agent A2A servers + UI Live ADK badge
+    ui_html = (Path(__file__).resolve().parent / "static" / "index.html").read_text(encoding="utf-8")
+    assert "agent-triad-security-agent" in ui_html, "Expected agent-triad-security-agent Live ADK badge in UI"
+    sec_dir = str(Path(__file__).resolve().parents[1] / "agents" / "security_agent")
+    assert (Path(sec_dir) / "server.py").exists() and (Path(sec_dir) / "agent.py").exists()
+    import importlib.util as _ilu
+    _sec_spec = _ilu.spec_from_file_location("aaas_sec_srv_test", str(Path(sec_dir) / "server.py"))
+    assert _sec_spec and _sec_spec.loader
+    if sec_dir not in sys.path:
+        sys.path.insert(0, sec_dir)
+    _sec_srv = _ilu.module_from_spec(_sec_spec)
+    sys.modules[_sec_spec.name] = _sec_srv
+    _sec_spec.loader.exec_module(_sec_srv)
+    sec_client = TestClient(_sec_srv.app)
+    sec_card = sec_client.get("/.well-known/agent.json")
+    assert sec_card.status_code == 200 and sec_card.json()["id"] == "security-agent"
+    assert sec_card.json()["ZeroStandingPrivilege"] is True
+    sec_reject = sec_client.post(
+        "/a2a",
+        json={
+            "jsonrpc": "2.0",
+            "id": "sec-test-nojit",
+            "method": "tasks/send",
+            "params": {"skill_id": "execute_approved_security_remediation", "data": {"project_id": "agent-triad"}},
+        },
+    )
+    assert sec_reject.status_code == 200
+    assert sec_reject.json()["result"]["status"] == "REJECTED_INVALID_JIT_TOKEN"
     print(
         "[PASS] Scenario 1 Live Datastream IAM Drift Role-Play verified: real GCP audit log normalizer, "
-        "live getIamPolicy + SetIamPolicy correlation, Phase 1-4 Blameless RCA, exact live CLI, "
-        "HSBC reference ticket, Direct Atlas Chat, and strict Stage 2 HITL zero-autonomy!"
+        "live Security Agent + Infra Agent Cloud Run ADK A2A parallel delegation, Phase 1-4 Blameless RCA, "
+        "exact live CLI, HSBC reference ticket, Direct Atlas Chat, and strict Stage 2 HITL zero-autonomy!"
     )
 
 

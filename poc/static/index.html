@@ -2184,7 +2184,7 @@
         icon: 'fa-shield-halved',
         badgeClass: 'g-badge-red',
         cardBorder: 'g-card-red',
-        desc: 'Audits and remediates IAM permissions, WIF policies, Cloud Armor WAF rules, and Security Command Center alerts.'
+        desc: 'Live Google ADK Specialist on Cloud Run (`agent-triad-security-agent`). Audits IAM policies (`getIamPolicy`), SetIamPolicy drift & WIF guardrails.'
       },
       {
         id: 'billing-agent',
@@ -2491,7 +2491,7 @@
               <p class="text-[11px] text-slate-300 leading-relaxed">${escapeHtml(spec.desc)}</p>
             </div>
             <div class="pt-2.5 border-t border-slate-800/80 flex items-center justify-between text-[10px] mono text-slate-400">
-              <span class="${(spec.id === 'database-agent' || spec.id === 'infra-agent') ? 'text-[#34A853] font-semibold' : 'text-[#4285F4]'}">${(spec.id === 'database-agent' || spec.id === 'infra-agent') ? `● Live ADK (${escapeHtml(profile.label)})` : 'Deterministic Harness'}</span>
+              <span class="${(spec.id === 'database-agent' || spec.id === 'infra-agent' || spec.id === 'security-agent') ? 'text-[#34A853] font-semibold' : 'text-[#4285F4]'}">${(spec.id === 'database-agent' || spec.id === 'infra-agent' || spec.id === 'security-agent') ? `● Live ADK (${escapeHtml(profile.label)})` : 'Deterministic Harness'}</span>
               <button type="button" onclick="consultSpecialistInChat('${escapeHtml(spec.id)}')"
                 class="g-badge-blue px-2.5 py-0.5 rounded-full text-[10px] font-sans font-semibold cursor-pointer hover:opacity-90 transition">
                 Consult in Chat →
@@ -2520,7 +2520,7 @@
           'serverless-agent': 'My Cloud Run service has intermittent latency and cold-start timeouts. Give me a 1-line CLI fix.',
           'networking-agent': 'How do I diagnose and fix VPC firewall egress rules and Serverless VPC Access connector timeouts in agent-triad?',
           'data-analytics-agent': 'How do I inspect and recover a Vertex AI Reasoning Engine or BigQuery slot contention issue?',
-          'security-agent': 'How do I configure Workload Identity Federation (WIF) and least-privilege IAM roles in Google Cloud?',
+          'security-agent': 'Audit our live GCP IAM posture in agent-triad for the Datastream service agent (service-1041190629307@gcp-sa-datastream.iam.gserviceaccount.com) and check Cloud Audit Logs for recent SetIamPolicy drift.',
           'billing-agent': 'How do we enforce FinOps max-instance scaling ceilings and API quota guardrails across Cloud Run?'
         },
         aws: {
@@ -4205,7 +4205,7 @@
         return { id: 'networking-agent', name: 'Networking Agent', icon: 'fa-network-wired', liveAdk: false };
       }
       if (/\b(iam|wif|sts|entra|oidc|secret|armor|waf|rbac|zero-trust|jit|permission)\b/.test(q)) {
-        return { id: 'security-agent', name: 'Security Agent', icon: 'fa-shield-halved', liveAdk: false };
+        return { id: 'security-agent', name: 'Security Agent', icon: 'fa-shield-halved', liveAdk: true };
       }
       if (/\b(billing|cost|budget|quota|finops|spend)\b/.test(q)) {
         return { id: 'billing-agent', name: 'Billing Agent', icon: 'fa-coins', liveAdk: false };
