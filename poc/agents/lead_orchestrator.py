@@ -16,6 +16,7 @@ Architectural Role (Aligned with AaaS Google Cloud Whitepaper & `a3s-flow.html`)
 
 from __future__ import annotations
 
+import asyncio
 import datetime
 import json
 import os
@@ -171,6 +172,7 @@ class LeadOrchestratorAgent:
         self.logging_service = logging_service
         self.incidents: Dict[str, Dict[str, Any]] = {}
         self.audit_events: Dict[str, Dict[str, Any]] = {}
+        self.dispatch_history: List[Dict[str, Any]] = []
         self.active_target_cloud: str = normalize_target_cloud(os.getenv("CLOUD_PROVIDER", "gcp"))
         self.active_user: Dict[str, str] = {
             "name": "Hari",
@@ -354,7 +356,8 @@ class LeadOrchestratorAgent:
                     return resp.result
         except Exception:
             pass
-        return cloud_status_service.check_region_status(
+        return await asyncio.to_thread(
+            cloud_status_service.check_region_status,
             cloud_provider=resolved_cloud,
             region=region,
             service_hint=service_hint,
@@ -414,13 +417,14 @@ class LeadOrchestratorAgent:
             headers["Authorization"] = f"Bearer {id_token_str}"
 
         try:
+            a2a_timeout = int(os.getenv("AAAS_SPECIALIST_A2A_TIMEOUT", "20"))
             req = urllib.request.Request(
                 f"{db_agent_url}/a2a",
                 data=json.dumps(rpc_payload).encode("utf-8"),
                 headers=headers,
                 method="POST",
             )
-            with urllib.request.urlopen(req, timeout=70) as resp:
+            with urllib.request.urlopen(req, timeout=a2a_timeout) as resp:
                 resp_json = json.loads(resp.read().decode("utf-8"))
             diagnosis = (resp_json.get("result") or {}).get("diagnosis")
             if diagnosis:
@@ -489,6 +493,7 @@ class LeadOrchestratorAgent:
             headers["Authorization"] = f"Bearer {id_token_str}"
 
         diagnosis: Optional[Dict[str, Any]] = None
+        a2a_timeout = int(os.getenv("AAAS_SPECIALIST_A2A_TIMEOUT", "20"))
         try:
             req = urllib.request.Request(
                 f"{infra_agent_url}/a2a",
@@ -496,7 +501,7 @@ class LeadOrchestratorAgent:
                 headers=headers,
                 method="POST",
             )
-            with urllib.request.urlopen(req, timeout=70) as resp:
+            with urllib.request.urlopen(req, timeout=a2a_timeout) as resp:
                 resp_json = json.loads(resp.read().decode("utf-8"))
             diagnosis = (resp_json.get("result") or {}).get("diagnosis")
         except Exception:
@@ -523,7 +528,7 @@ class LeadOrchestratorAgent:
                                     target_cloud=resolved_cloud,
                                 )
                             )
-                        ).result(timeout=70)
+                        ).result(timeout=a2a_timeout)
             except Exception:
                 diagnosis = None
 
@@ -799,7 +804,7 @@ class LeadOrchestratorAgent:
             raw_entry = data.get("log_entry", {})
             log_entry = agent_harness.sanitize_telemetry_saif(raw_entry)
             incident_id = log_entry.get("log_id", f"inc-{len(self.incidents) + 1}")
-            impact_and_remedy = self._analyze_impact_and_remedy(log_entry)
+            impact_and_remedy = await asyncio.to_thread(self._analyze_impact_and_remedy, log_entry)
             specialist = self._select_specialist_worker(log_entry)
             coordinated_specialists = self._resolve_coordinated_specialists(
                 log_entry=log_entry,
@@ -817,7 +822,8 @@ class LeadOrchestratorAgent:
             event_cloud = raw_cloud if raw_cloud in ("gcp", "aws", "azure") else self.active_target_cloud
             if specialist.get("id") == "database-agent":
                 target_inst = str(log_entry.get("pod") or "testdbinstance1").split(":")[-1]
-                live_db_diag = self._invoke_live_database_agent_a2a(
+                live_db_diag = await asyncio.to_thread(
+                    self._invoke_live_database_agent_a2a,
                     prompt=(
                         f"Atlas Alert: Cloud Logging detected [{log_entry.get('severity')}] on `{workload}`: "
                         f"{log_entry.get('message')}. Inspect the live database instance and logs and propose a safe fix."
@@ -841,7 +847,8 @@ class LeadOrchestratorAgent:
                         impact_and_remedy["terraform_code"] = prop["terraform_hcl"]
             elif specialist.get("id") == "infra-agent":
                 target_inst = str(log_entry.get("pod") or workload.split("/")[-1] or "auto").split(":")[-1]
-                live_infra_diag = self._invoke_live_infra_agent_a2a(
+                live_infra_diag = await asyncio.to_thread(
+                    self._invoke_live_infra_agent_a2a,
                     prompt=(
                         f"Atlas Alert: Cloud Logging detected [{log_entry.get('severity')}] on `{workload}` "
                         f"(zone/cluster `{cluster}`): {log_entry.get('message')}. "
@@ -1045,6 +1052,31 @@ class LeadOrchestratorAgent:
             }
             self.incidents[incident_id] = incident_record
             self._upsert_audit_event(incident_record, event_type="ISSUE_DETECTED")
+            diag_tools = list(
+                (live_db_diag or {}).get("tools_invoked")
+                or (live_infra_diag or {}).get("tools_invoked")
+                or []
+            )
+            self.record_dispatch_event(
+                {
+                    "dispatch_id": f"disp-{incident_id}",
+                    "incident_id": incident_id,
+                    "mode": "INCIDENT_TRIAGE_PENDING",
+                    "status": "AWAITING_HITL_APPROVAL",
+                    "title": impact_and_remedy.get("customer_headline") or log_entry.get("title", "Cloud Service Anomaly"),
+                    "workload": workload,
+                    "target_cloud": event_cloud or "gcp",
+                    "region": cloud_provider_status.get("region") or cluster,
+                    "primary_specialist": specialist.get("name", "Specialist Agent"),
+                    "coordinated_specialists": [s.get("name", "") for s in coordinated_specialists],
+                    "tools_invoked": diag_tools,
+                    "jit_token_id": None,
+                    "reconciliation_pr": None,
+                    "watchdog_status": "AWAITING_HITL_APPROVAL",
+                    "mutations_allowed": bool(cloud_provider_status.get("mutations_allowed", True)),
+                    "timestamp": now_iso,
+                }
+            )
 
             return A2ATaskResponse(
                 id=request.id,
@@ -1208,7 +1240,7 @@ class LeadOrchestratorAgent:
                     f"Raw Log Message: {log_entry.get('message')}\n\n"
                     f"Conversation so far:\n{history_text}\n"
                 )
-                generated = self._llm_client.generate_text(prompt)
+                generated = await asyncio.to_thread(self._llm_client.generate_text, prompt)
                 if generated:
                     reply_text = generated
             except Exception:
@@ -1343,6 +1375,29 @@ class LeadOrchestratorAgent:
                 }
             )
             self._upsert_audit_event(incident, event_type="MUTATION_BLOCKED_PROVIDER_OUTAGE")
+            specialist = incident.get("specialist_worker") or self._select_specialist_worker(incident.get("log_entry", {}))
+            coord_specs = incident.get("coordinated_specialists") or [specialist]
+            self.record_dispatch_event(
+                {
+                    "dispatch_id": f"disp-{incident_id}-blocked",
+                    "incident_id": incident_id,
+                    "mode": "INCIDENT_BLOCKED_OUTAGE",
+                    "status": "BLOCKED_PROVIDER_OUTAGE",
+                    "title": incident.get("title") or "Cloud Service Anomaly",
+                    "workload": incident.get("workload", ""),
+                    "target_cloud": target_cloud,
+                    "region": preflight_status.get("region") or incident.get("cluster") or "us-central1",
+                    "primary_specialist": specialist.get("name", "Specialist Agent"),
+                    "coordinated_specialists": [s.get("name", "") for s in coord_specs],
+                    "jit_token_id": None,
+                    "reconciliation_pr": None,
+                    "watchdog_status": "HELD_BY_OUTAGE_GATE",
+                    "mutations_allowed": False,
+                    "approved_by": approved_by,
+                    "reason": outage_summary,
+                    "timestamp": blocked_at,
+                }
+            )
             return incident
 
         kubectl_cmd = (
@@ -1466,6 +1521,27 @@ class LeadOrchestratorAgent:
             }
         )
         self._upsert_audit_event(incident, event_type="APPROVED_AND_REMEDIATED")
+        self.record_dispatch_event(
+            {
+                "dispatch_id": f"disp-{incident_id}",
+                "incident_id": incident_id,
+                "mode": "INCIDENT_REMEDIATED",
+                "status": "RESOLVED",
+                "title": (incident.get("impact_analysis") or {}).get("customer_headline") or incident.get("title", "Incident Remediation"),
+                "workload": incident.get("workload", ""),
+                "target_cloud": target_cloud,
+                "region": preflight_status.get("region") or incident.get("cluster") or "us-central1",
+                "primary_specialist": specialist.get("name", "Specialist Agent"),
+                "coordinated_specialists": [s.get("name", "") for s in coordinated_specialists],
+                "jit_token_id": jit_token["token_id"],
+                "reconciliation_pr": (incident.get("execution_result") or {}).get("reconciliation_pr"),
+                "watchdog_status": (incident.get("verification_result") or {}).get("status", "VERIFIED_HEALTHY"),
+                "mutations_allowed": True,
+                "approved_by": approved_by,
+                "command": kubectl_cmd,
+                "timestamp": incident["updated_at"],
+            }
+        )
         return incident
 
     def skip_incident_manual(
@@ -1653,6 +1729,22 @@ class LeadOrchestratorAgent:
             key=lambda item: item.get("detected_at", ""),
             reverse=True,
         )
+
+    def record_dispatch_event(self, entry: Dict[str, Any]) -> None:
+        """Records a specialist dispatch execution into the persistent control-plane dispatch feed."""
+        dispatch_id = str(entry.get("dispatch_id") or f"disp-{uuid.uuid4().hex[:8]}")
+        normalized = {
+            **entry,
+            "dispatch_id": dispatch_id,
+            "timestamp": entry.get("timestamp") or datetime.datetime.now(datetime.timezone.utc).isoformat(),
+        }
+        self.dispatch_history = [d for d in self.dispatch_history if d.get("dispatch_id") != dispatch_id]
+        self.dispatch_history.insert(0, normalized)
+        if len(self.dispatch_history) > 25:
+            self.dispatch_history = self.dispatch_history[:25]
+
+    def list_dispatch_history(self) -> List[Dict[str, Any]]:
+        return list(self.dispatch_history)
 
     def _default_general_chat_greeting(self) -> List[Dict[str, Any]]:
         now_iso = datetime.datetime.now(datetime.timezone.utc).isoformat()
@@ -2045,6 +2137,26 @@ class LeadOrchestratorAgent:
             }
             self.general_chat_messages.append(reply_msg)
             self._persist_active_session()
+            self.record_dispatch_event(
+                {
+                    "dispatch_id": f"disp-{incident_id}-blocked",
+                    "incident_id": incident_id,
+                    "mode": "HARNESS_BLOCKED_OUTAGE",
+                    "status": "BLOCKED_PROVIDER_OUTAGE",
+                    "title": scen_badge,
+                    "workload": workload,
+                    "target_cloud": resolved_cloud,
+                    "region": preflight_status.get("region") or cluster,
+                    "primary_specialist": primary_spec.get("name"),
+                    "coordinated_specialists": [s.get("name") for s in coord_specs],
+                    "jit_token_id": None,
+                    "reconciliation_pr": None,
+                    "watchdog_status": "HELD_BY_OUTAGE_GATE",
+                    "mutations_allowed": False,
+                    "approved_by": approved_by,
+                    "timestamp": reply_msg["timestamp"],
+                }
+            )
             return {
                 "deployment_id": incident_id,
                 "action_taken": "BLOCKED_PROVIDER_OUTAGE",
@@ -2175,6 +2287,28 @@ class LeadOrchestratorAgent:
         self.incidents[incident_id] = synthetic_inc
         self._upsert_audit_event(synthetic_inc, event_type="TERRAFORM_APPROVED_AND_EXECUTED")
         self._persist_active_session()
+        self.record_dispatch_event(
+            {
+                "dispatch_id": f"disp-{incident_id}",
+                "incident_id": incident_id,
+                "mode": "HARNESS_EXECUTED",
+                "status": verify_resp.result.get("status", "VERIFIED_HEALTHY"),
+                "title": scen_badge,
+                "workload": workload,
+                "target_cloud": resolved_cloud,
+                "region": cluster,
+                "primary_specialist": primary_spec.get("name"),
+                "coordinated_specialists": [s.get("name") for s in coord_specs],
+                "jit_token_id": jit_token["token_id"],
+                "reconciliation_pr": exec_result.get("reconciliation_pr"),
+                "resources_reconciled": tf_resources,
+                "watchdog_status": verify_resp.result.get("status", "VERIFIED_HEALTHY"),
+                "mutations_allowed": True,
+                "approved_by": approved_by,
+                "command": cli_cmd,
+                "timestamp": reply_msg["timestamp"],
+            }
+        )
 
         return {
             "deployment_id": incident_id,
@@ -2315,7 +2449,8 @@ class LeadOrchestratorAgent:
                 f"Recent Conversation Context:\n{history_text}\n\n"
                 f"Current User Message from Hari:\n{clean_msg}"
             )
-            live_db_diagnosis = self._invoke_live_database_agent_a2a(
+            live_db_diagnosis = await asyncio.to_thread(
+                self._invoke_live_database_agent_a2a,
                 prompt=contextual_prompt,
                 instance_name="auto",
                 target_cloud=resolved_cloud,
@@ -2343,7 +2478,8 @@ class LeadOrchestratorAgent:
                 f"Recent Conversation Context:\n{history_text}\n\n"
                 f"Current User Message from Hari:\n{clean_msg}"
             )
-            live_infra_diagnosis = self._invoke_live_infra_agent_a2a(
+            live_infra_diagnosis = await asyncio.to_thread(
+                self._invoke_live_infra_agent_a2a,
                 prompt=contextual_prompt,
                 target_instance="auto",
                 target_cloud=resolved_cloud,
@@ -2434,7 +2570,7 @@ class LeadOrchestratorAgent:
                     "Provide a clear, practical, and concise answer (3-5 bullet points) tailored to the operator's request. "
                     f"Include exact `{cloud_cli_hint}` commands or explain how the coordinated specialists and Agent Harness handle this."
                 )
-                generated = self._llm_client.generate_text(prompt)
+                generated = await asyncio.to_thread(self._llm_client.generate_text, prompt)
                 if generated:
                     reply_text = generated
             except Exception:
@@ -2557,6 +2693,33 @@ class LeadOrchestratorAgent:
         }
         self.general_chat_messages.append(reply_msg)
         self._persist_active_session()
+        self.record_dispatch_event(
+            {
+                "dispatch_id": f"disp-chat-{uuid.uuid4().hex[:8]}",
+                "mode": dispatch_telemetry["mode"],
+                "status": "COMPLETED",
+                "title": clean_msg[:88] + ("..." if len(clean_msg) > 88 else ""),
+                "scenario_badge": scenario_badge,
+                "workload": (
+                    (live_db_diagnosis or {}).get("instance_inspection", {}).get("instance_name")
+                    or (live_infra_diagnosis or {}).get("instance_inspection", {}).get("instance_name")
+                    or "atlas-chat"
+                ),
+                "target_cloud": resolved_cloud,
+                "region": (
+                    (live_db_diagnosis or {}).get("instance_inspection", {}).get("region")
+                    or (live_infra_diagnosis or {}).get("instance_inspection", {}).get("zone")
+                    or ("us-central1" if resolved_cloud == "gcp" else ("us-east-1" if resolved_cloud == "aws" else "eastus"))
+                ),
+                "primary_specialist": specialist.get("name"),
+                "coordinated_specialists": [s.get("name") for s in coordinated_specialists],
+                "tools_invoked": tools_invoked,
+                "read_only": dispatch_telemetry["read_only"],
+                "mutations_allowed": True,
+                "watchdog_status": "READ_ONLY_VERIFIED" if dispatch_telemetry["read_only"] else "AWAITING_HITL_APPROVAL",
+                "timestamp": reply_msg["timestamp"],
+            }
+        )
         return {
             "action_taken": "DIRECT_ATLAS_CHAT_REPLY",
             "target_cloud": resolved_cloud,

@@ -9,6 +9,7 @@ anomaly alerts to Atlas (the single Root Gemini Agent) via the A2A Protocol.
 
 from __future__ import annotations
 
+import asyncio
 import datetime
 from typing import Any, Dict
 
@@ -77,7 +78,8 @@ class CloudLoggingWatcherAgent:
         raw_cloud = str(sanitized_entry.get("cloud_provider") or "gcp").strip().lower()
         target_cloud = raw_cloud if raw_cloud in ("gcp", "aws", "azure") else "gcp"
         target_region = str(sanitized_entry.get("cluster") or sanitized_entry.get("region") or "us-central1")
-        provider_status = cloud_status_service.check_region_status(
+        provider_status = await asyncio.to_thread(
+            cloud_status_service.check_region_status,
             cloud_provider=target_cloud,
             region=target_region,
             service_hint=str(sanitized_entry.get("source") or ""),
@@ -114,8 +116,11 @@ class CloudLoggingWatcherAgent:
         if skill_id == "scan_cloud_logging":
             force_poll = bool(data.get("force", False))
             limit = int(data.get("limit", 25))
-            raw_logs = self.logging_service.fetch_recent_logs(
-                limit=limit, poll_gcp=True, force=force_poll
+            raw_logs = await asyncio.to_thread(
+                self.logging_service.fetch_recent_logs,
+                limit=limit,
+                poll_gcp=True,
+                force=force_poll,
             )
             logs = [agent_harness.sanitize_telemetry_saif(entry) for entry in raw_logs]
             anomalies = [entry for entry in logs if entry.get("is_anomaly")]
@@ -173,7 +178,8 @@ class CloudLoggingWatcherAgent:
             region = str(data.get("region") or data.get("cluster") or "us-central1")
             service_hint = data.get("service_hint")
             force_refresh = bool(data.get("force_refresh", False))
-            status_report = cloud_status_service.check_region_status(
+            status_report = await asyncio.to_thread(
+                cloud_status_service.check_region_status,
                 cloud_provider=cloud_provider,
                 region=region,
                 service_hint=service_hint,
@@ -192,6 +198,8 @@ class CloudLoggingWatcherAgent:
             result={
                 "status": "OK",
                 "agent": self.AGENT_ID,
-                "logs_monitored": len(self.logging_service.fetch_recent_logs(limit=20, poll_gcp=True)),
+                "logs_monitored": len(
+                    await asyncio.to_thread(self.logging_service.fetch_recent_logs, limit=20, poll_gcp=False)
+                ),
             },
         )

@@ -295,6 +295,20 @@
     .step-active-ring {
       animation: stepPulse 1.6s ease-in-out infinite;
     }
+    @keyframes healthAlertBlink {
+      0%, 100% { box-shadow: 0 0 0 0 rgba(234, 67, 53, 0.55); border-color: rgba(234, 67, 53, 0.8); }
+      50% { box-shadow: 0 0 0 6px rgba(234, 67, 53, 0); border-color: rgba(234, 67, 53, 0.3); }
+    }
+    .health-blink-red {
+      animation: healthAlertBlink 1.5s ease-in-out infinite;
+    }
+    @keyframes healthWarnBlink {
+      0%, 100% { box-shadow: 0 0 0 0 rgba(251, 188, 4, 0.52); border-color: rgba(251, 188, 4, 0.78); }
+      50% { box-shadow: 0 0 0 6px rgba(251, 188, 4, 0); border-color: rgba(251, 188, 4, 0.28); }
+    }
+    .health-blink-yellow {
+      animation: healthWarnBlink 1.7s ease-in-out infinite;
+    }
   </style>
 </head>
 <body class="min-h-screen flex flex-col overflow-x-hidden">
@@ -345,6 +359,14 @@
               <span id="navBadgeCommand" class="g-badge-blue px-2 py-0.5 text-[10px] font-semibold rounded-full shrink-0">Live</span>
             </button>
 
+            <button id="nav-dispatch" onclick="switchView('dispatch')" class="nav-btn w-full flex items-center justify-between gap-2 px-3.5 py-2.5 rounded-full border border-transparent text-xs font-medium text-slate-400 hover:text-white hover:bg-slate-800/50 transition cursor-pointer text-left">
+              <span class="flex items-center gap-2.5 truncate">
+                <i class="fa-solid fa-diagram-project text-slate-400 w-4 text-center"></i>
+                <span class="truncate">Dispatch Tracker</span>
+              </span>
+              <span id="navBadgeDispatch" class="px-2 py-0.5 text-[10px] mono rounded-full bg-slate-800 text-slate-300 shrink-0">Standby</span>
+            </button>
+
             <button id="nav-roster" onclick="switchView('roster')" class="nav-btn w-full flex items-center justify-between gap-2 px-3.5 py-2.5 rounded-full border border-transparent text-xs font-medium text-slate-400 hover:text-white hover:bg-slate-800/50 transition cursor-pointer text-left">
               <span class="flex items-center gap-2.5 truncate">
                 <i class="fa-solid fa-cubes text-slate-400 w-4 text-center"></i>
@@ -380,10 +402,33 @@
         </div>
       </div>
 
-      <!-- Bottom Sidebar Clean Footer Metadata -->
-      <div class="hidden lg:flex items-center justify-between pt-3 mt-4 border-t border-slate-800 text-[10px] text-slate-400 mono px-1">
-        <span>Gemini latest</span>
-        <span>A2A v1.0</span>
+      <!-- Sidebar Live Dispatch Mini-Card + Footer Metadata -->
+      <div class="hidden lg:block space-y-3 mt-4">
+        <div id="sidebarDispatchMini" onclick="switchView('dispatch')" role="button" tabindex="0"
+          class="p-3 rounded-2xl bg-slate-900/80 hover:bg-slate-800/80 border border-slate-800 transition cursor-pointer space-y-2"
+          title="Open Full-Stage Specialist Dispatch Tracker">
+          <div class="flex items-center justify-between gap-1.5">
+            <span class="text-[10px] font-bold uppercase tracking-wider text-slate-300 flex items-center gap-1.5">
+              <i class="fa-solid fa-diagram-project text-[#4285F4] text-[10px]"></i>
+              <span>Live Dispatch</span>
+            </span>
+            <span class="text-[9px] mono text-slate-400">Standby</span>
+          </div>
+          <div class="text-[11px] text-slate-400 leading-snug">
+            5-stage specialist pipeline ready. Click to inspect live or past dispatches.
+          </div>
+          <div class="flex items-center gap-1">
+            <span class="h-1 flex-1 rounded-full bg-slate-800"></span>
+            <span class="h-1 flex-1 rounded-full bg-slate-800"></span>
+            <span class="h-1 flex-1 rounded-full bg-slate-800"></span>
+            <span class="h-1 flex-1 rounded-full bg-slate-800"></span>
+            <span class="h-1 flex-1 rounded-full bg-slate-800"></span>
+          </div>
+        </div>
+        <div class="flex items-center justify-between pt-3 border-t border-slate-800 text-[10px] text-slate-400 mono px-1">
+          <span>Gemini latest</span>
+          <span>A2A v1.0</span>
+        </div>
       </div>
     </aside>
 
@@ -408,11 +453,18 @@
           </div>
         </div>
         <div class="flex flex-wrap items-center gap-2.5 shrink-0">
-          <!-- Multi-Cloud Target Switcher Pill (GCP Default | AWS | Azure) -->
-          <div id="targetCloudSwitcher" class="inline-flex items-center p-0.5 rounded-full bg-slate-900 border border-slate-800 text-[11px] font-semibold" role="group" aria-label="Target Cloud Provider" title="Switch Active Target Cloud (GCP / AWS / Azure)">
-            <button type="button" id="cloudBtnGcp" onclick="setTargetCloud('gcp')" class="g-btn-blue px-2.5 py-1 rounded-full text-[10px] font-bold transition cursor-pointer">GCP</button>
-            <button type="button" id="cloudBtnAws" onclick="setTargetCloud('aws')" class="px-2.5 py-1 rounded-full text-[10px] text-slate-400 hover:text-white transition cursor-pointer">AWS</button>
-            <button type="button" id="cloudBtnAzure" onclick="setTargetCloud('azure')" class="px-2.5 py-1 rounded-full text-[10px] text-slate-400 hover:text-white transition cursor-pointer">Azure</button>
+          <!-- Auto-Detected Cloud Provider Pill (Active provider highlighted; non-hosted clouds greyed out) -->
+          <div id="targetCloudSwitcher" class="inline-flex items-center gap-0.5 pl-2.5 pr-1 py-0.5 rounded-full bg-slate-900 border border-slate-800 text-[11px] font-semibold" role="group" aria-label="Detected Cloud Provider" title="Cloud provider auto-detected from deployment URL">
+            <span class="text-[10px] font-medium text-slate-400 mr-1 select-none">Provider:</span>
+            <button type="button" id="cloudBtnGcp" onclick="setTargetCloud('gcp')" class="g-btn-blue px-2.5 py-1 rounded-full text-[10px] font-bold transition inline-flex items-center gap-1 cursor-default">
+              <span class="w-1.5 h-1.5 rounded-full bg-[#81C995]"></span>GCP
+            </button>
+            <button type="button" id="cloudBtnAws" onclick="setTargetCloud('aws')" disabled aria-disabled="true" class="px-2.5 py-1 rounded-full text-[10px] text-slate-500 opacity-40 cursor-not-allowed select-none inline-flex items-center gap-1" title="AWS activates automatically when hosted on AWS">
+              <i class="fa-solid fa-lock text-[8px] opacity-70"></i>AWS
+            </button>
+            <button type="button" id="cloudBtnAzure" onclick="setTargetCloud('azure')" disabled aria-disabled="true" class="px-2.5 py-1 rounded-full text-[10px] text-slate-500 opacity-40 cursor-not-allowed select-none inline-flex items-center gap-1" title="Azure activates automatically when hosted on Azure">
+              <i class="fa-solid fa-lock text-[8px] opacity-70"></i>Azure
+            </button>
           </div>
 
           <!-- Theme Mode Segmented Control: Simplified Icon-Only Auto (Gear) / Dark (Moon) / Light (Sun) -->
@@ -484,20 +536,28 @@
               </div>
             </div>
 
-            <div id="metricCardProviderHealth" class="glass border border-slate-800 rounded-2xl px-3.5 py-2.5 flex items-center justify-between gap-2.5" title="Live Pre-Flight Cloud Provider Regional Status Check (auto-blocks mutations during active provider outages)">
+            <div id="metricCardProviderHealth" onclick="focusActiveCloudIssue()" role="button" tabindex="0" class="glass border border-slate-800 rounded-2xl px-3.5 py-2.5 flex items-center justify-between gap-2.5 cursor-pointer transition hover:border-slate-700" title="Live Cloud Health &amp; Active Issue Counter — clicks through to active alerts or logs">
               <div class="min-w-0">
                 <div id="metricProviderHealthLabel" class="text-[10px] font-medium text-slate-400">Cloud Health</div>
-                <div id="metricProviderHealthValue" class="text-sm font-bold text-white truncate">GCP • Operational</div>
+                <div class="flex items-center gap-1.5 min-w-0">
+                  <span class="relative flex h-2 w-2 shrink-0">
+                    <span id="metricProviderHealthPing" class="hidden animate-ping absolute inline-flex h-full w-full rounded-full bg-[#EA4335] opacity-75"></span>
+                    <span id="metricProviderHealthDot" class="relative inline-flex rounded-full h-2 w-2 bg-[#34A853]"></span>
+                  </span>
+                  <div id="metricProviderHealthValue" class="text-sm font-bold text-white truncate">GCP • Operational</div>
+                </div>
+                <div id="metricProviderHealthSub" class="text-[10px] text-slate-400 truncate">0 active service issues</div>
               </div>
               <div id="metricProviderHealthBadge" class="w-8 h-8 rounded-xl g-badge-green flex items-center justify-center shrink-0">
                 <i id="metricProviderHealthIcon" class="fa-solid fa-heart-pulse text-xs"></i>
               </div>
             </div>
 
-            <div id="metricCardSafety" class="glass border border-slate-800 rounded-2xl px-3.5 py-2.5 flex items-center justify-between gap-2.5" title="OPA Guardrails, 10m state lock, 45s direct API liveness probe + 3m metric window; Safe-Mode Isolation for databases">
+            <div id="metricCardSafety" onclick="switchView('features')" role="button" tabindex="0" class="glass border border-slate-800 rounded-2xl px-3.5 py-2.5 flex items-center justify-between gap-2.5 cursor-pointer transition hover:border-slate-700" title="After any approved fix, Atlas watches live logs for 45s and service metrics for 3m. Stateless services auto-revert if errors return; databases use Safe-Mode Isolation (prevent_destroy=true).">
               <div class="min-w-0">
-                <div id="metricSafetyLabel" class="text-[10px] font-medium text-slate-400">Safety &amp; Verify</div>
-                <div id="metricSafetyValue" class="text-sm font-bold text-white truncate">45s + 3m Watchdog</div>
+                <div id="metricSafetyLabel" class="text-[10px] font-medium text-slate-400">Post-Fix Auto-Rollback</div>
+                <div id="metricSafetyValue" class="text-sm font-bold text-white truncate">Live Health Watch</div>
+                <div id="metricSafetySub" class="text-[10px] text-slate-400 truncate">45s logs + 3m metrics • Auto-reverts on error</div>
               </div>
               <div class="w-8 h-8 rounded-xl g-badge-yellow flex items-center justify-center shrink-0">
                 <i class="fa-solid fa-shield-halved text-xs"></i>
@@ -511,222 +571,55 @@
           <!-- 3. PRIMARY FOCUS: Interactive Center Stage (Incident Approval / Atlas Chat / Healthy Status) -->
           <section id="centerStage" class="max-w-4xl w-full mx-auto">
           </section>
+        </div>
 
-          <!-- 4. Slim 1-Line Pipeline Status & On-Demand Info Bar (Both Drawers Collapsed by Default) -->
-          <section class="max-w-4xl w-full mx-auto space-y-3">
-            <div class="glass border border-slate-800 rounded-2xl px-4 py-2.5 flex flex-wrap items-center justify-between gap-2 text-xs">
-              <!-- Live 1-Line Step 1 -> Step 2 -> Step 3 Indicator -->
-              <div class="flex flex-wrap items-center gap-2 text-[11px]">
-                <span class="inline-flex items-center gap-1.5 text-slate-300">
-                  <span class="w-2 h-2 rounded-full bg-[#4285F4]"></span>
-                  <span class="font-semibold text-white">1. Observe</span>
-                  <span id="compact-badge-watcher" class="text-[10px] text-slate-400">(Watching)</span>
-                </span>
-                <i class="fa-solid fa-chevron-right text-[9px] text-slate-600"></i>
-                <span class="inline-flex items-center gap-1.5 text-slate-300">
-                  <span class="w-2 h-2 rounded-full bg-[#FBBC04]"></span>
-                  <span class="font-semibold text-white">2. Atlas</span>
-                  <span id="compact-badge-orchestrator" class="text-[10px] text-[#34A853] font-medium">(All Clear)</span>
-                </span>
-                <i class="fa-solid fa-chevron-right text-[9px] text-slate-600"></i>
-                <span class="inline-flex items-center gap-1.5 text-slate-300">
-                  <span class="w-2 h-2 rounded-full bg-[#34A853]"></span>
-                  <span class="font-semibold text-white">3. Specialists</span>
-                  <span id="compact-badge-worker" class="text-[10px] text-slate-400">(7 Ready)</span>
-                </span>
+        <!-- ===================================================================== -->
+        <!-- VIEW 1B: FULL-STAGE SPECIALIST DISPATCH TRACKER (Dedicated Side View) -->
+        <!-- ===================================================================== -->
+        <div id="view-dispatch" class="hidden space-y-4">
+          <div class="glass g-card-fourcolor border border-slate-800 rounded-2xl p-5 sm:p-6 space-y-4">
+            <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-4 border-b border-slate-800">
+              <div class="flex items-center gap-3 min-w-0">
+                <div class="w-10 h-10 rounded-xl g-badge-blue flex items-center justify-center shrink-0">
+                  <i class="fa-solid fa-diagram-project text-sm"></i>
+                </div>
+                <div class="min-w-0">
+                  <div class="flex flex-wrap items-center gap-2">
+                    <h3 class="text-base sm:text-lg font-bold text-white">Full-Stage Specialist Dispatch Tracker</h3>
+                    <span id="dispatchViewStatusPill" class="g-badge-blue px-2.5 py-0.5 rounded-full text-[10px] font-semibold">Standby</span>
+                  </div>
+                  <p class="text-xs text-slate-400">
+                    Real-time 5-stage execution visibility across Heartbeat &amp; Telemetry, Atlas, and the 7 Specialist Agents — inspect active or past dispatches any time.
+                  </p>
+                </div>
               </div>
+              <div class="flex flex-wrap items-center gap-2 shrink-0">
+                <button type="button" onclick="openDirectAtlasChat()" class="g-btn-blue px-3.5 py-1.5 rounded-full text-xs font-semibold cursor-pointer inline-flex items-center gap-1.5">
+                  <i class="fa-regular fa-comment-dots text-[11px]"></i>
+                  <span>Ask Atlas</span>
+                </button>
+                <button type="button" onclick="switchView('command')" class="g-badge-blue px-3.5 py-1.5 rounded-full text-xs font-medium cursor-pointer">
+                  ← Command Center
+                </button>
+              </div>
+            </div>
 
-              <!-- On-Demand Toggle Buttons for Pipeline Details & Architecture Features -->
+            <!-- Active or Selected Full 5-Stage Dispatch Pipeline -->
+            <div id="sidePanelDispatchStage" class="space-y-3"></div>
+          </div>
+
+          <!-- Persistent Recent Dispatch History Feed -->
+          <div class="glass border border-slate-800 rounded-2xl p-5 sm:p-6 space-y-3">
+            <div class="flex items-center justify-between gap-2 pb-3 border-b border-slate-800">
               <div class="flex items-center gap-2">
-                <button type="button" onclick="togglePipelineSteps()" id="btnTogglePipeline"
-                  class="px-3 py-1 rounded-full bg-slate-900 hover:bg-slate-800 border border-slate-800 text-[11px] text-slate-300 transition cursor-pointer inline-flex items-center gap-1.5">
-                  <i class="fa-solid fa-diagram-next text-[#4285F4] text-[10px]"></i>
-                  <span id="pipelineToggleText">How It Works (Step 1–3)</span>
-                  <i class="fa-solid fa-chevron-down text-[9px]" id="pipelineChevronIcon"></i>
-                </button>
-                <button type="button" onclick="toggleCapabilitiesBanner()" id="btnToggleBanner"
-                  class="px-3 py-1 rounded-full bg-slate-900 hover:bg-slate-800 border border-slate-800 text-[11px] text-slate-300 transition cursor-pointer inline-flex items-center gap-1.5">
-                  <i class="fa-solid fa-bolt text-[#FBBC04] text-[10px]"></i>
-                  <span id="bannerToggleText">Key Features</span>
-                  <i class="fa-solid fa-chevron-down text-[9px]" id="bannerChevronIcon"></i>
-                </button>
+                <i class="fa-solid fa-clock-rotate-left text-[#4285F4] text-xs"></i>
+                <h4 class="text-sm font-bold text-white">Recent Specialist Dispatches</h4>
+                <span id="dispatchHistoryCountBadge" class="g-badge-blue px-2 py-0.5 rounded-full text-[10px] mono">0 tracked</span>
               </div>
+              <span class="text-[11px] text-slate-400">Click any dispatch to inspect its 5-stage pipeline</span>
             </div>
-
-            <!-- Collapsible Drawer A: Step 1 to Step 3 Agent Pipeline (Hidden by default) -->
-            <div id="pipelineStepsDrawer" class="hidden grid grid-cols-1 md:grid-cols-3 gap-3.5 items-stretch">
-              <!-- Agent 1: Heartbeat & Telemetry -->
-              <div id="card-log-watcher-agent" class="glass g-card-blue border border-slate-800 rounded-2xl p-4 transition duration-200 flex flex-col justify-between">
-                <div>
-                  <div class="flex items-center justify-between mb-2">
-                    <div class="flex items-center gap-2.5">
-                      <div class="w-8 h-8 rounded-xl g-badge-blue flex items-center justify-center">
-                        <i class="fa-solid fa-wave-square text-xs"></i>
-                      </div>
-                      <div>
-                        <div class="text-[10px] font-bold uppercase tracking-wider text-[#4285F4]">Step 1 • Observe</div>
-                        <div class="text-xs sm:text-sm font-bold text-white">Heartbeat &amp; Telemetry</div>
-                      </div>
-                    </div>
-                    <span id="badge-watcher" class="g-badge-blue text-[10px] font-semibold px-2 py-0.5 rounded-full">Watching Live</span>
-                  </div>
-                  <p class="text-[11px] text-slate-400 leading-relaxed">
-                    Scans Google Cloud Logging and sanitizes alerts before sending them to Atlas.
-                  </p>
-                </div>
-                <div class="pt-2.5 mt-3 border-t border-slate-800/80 flex items-center justify-between text-[11px]">
-                  <span class="text-slate-500 mono text-[10px]">Cloud Logging</span>
-                  <button type="button" onclick="switchView('logs')" class="text-[#4285F4] hover:underline font-medium cursor-pointer">
-                    View Logs →
-                  </button>
-                </div>
-              </div>
-
-              <!-- Agent 2: Lead Orchestrator (Atlas) -->
-              <div id="card-lead-orchestrator-agent" class="glass g-card-fourcolor border border-slate-800 rounded-2xl p-4 transition duration-200 flex flex-col justify-between">
-                <div>
-                  <div class="flex items-center justify-between mb-2">
-                    <div class="flex items-center gap-2.5">
-                      <div class="w-8 h-8 rounded-xl g-badge-yellow flex items-center justify-center p-1">
-                        <svg viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg" class="w-full h-full" aria-label="Atlas Holding GCP Cloud">
-                          <path d="M20 28C15.58 28 12 24.42 12 20C12 15.93 15.05 12.57 19 12.06C20.88 7.89 25.09 5 30 5C36.05 5 41.06 9.48 41.88 15.3C46.46 15.74 50 19.59 50 24.25" stroke="#4285F4" stroke-width="3.8" stroke-linecap="round"/>
-                          <path d="M19 12.06C20.88 7.89 25.09 5 30 5C34.25 5 37.98 7.21 40.08 10.56" stroke="#EA4335" stroke-width="3.8" stroke-linecap="round"/>
-                          <path d="M12.5 22.5C13.6 25.7 16.55 28 20 28H33" stroke="#FBBC04" stroke-width="3.8" stroke-linecap="round"/>
-                          <path d="M33 28H44" stroke="#34A853" stroke-width="3.8" stroke-linecap="round"/>
-                          <circle cx="32" cy="36.5" r="4.2" fill="#FBBC04"/>
-                          <path d="M17 29L22 39.5L27.5 42.5H36.5L42 39.5L47 29" stroke="#4285F4" stroke-width="3.6" stroke-linecap="round" stroke-linejoin="round"/>
-                        </svg>
-                      </div>
-                      <div>
-                        <div class="text-[10px] font-bold uppercase tracking-wider text-[#F9AB00]">Step 2 • Reason &amp; Gate</div>
-                        <div class="text-xs sm:text-sm font-bold text-white">Atlas (AaaS Lead)</div>
-                      </div>
-                    </div>
-                    <span id="badge-orchestrator" class="g-badge-yellow text-[10px] font-semibold px-2 py-0.5 rounded-full">All Clear</span>
-                  </div>
-                  <p class="text-[11px] text-slate-400 leading-relaxed">
-                    Diagnoses root causes, routes to domain specialists, and waits for your approval.
-                  </p>
-                </div>
-                <div class="pt-2.5 mt-3 border-t border-slate-800/80 flex items-center justify-between text-[11px]">
-                  <button type="button" onclick="openDirectAtlasChat()" class="text-[#4285F4] hover:underline font-medium cursor-pointer">
-                    Ask Atlas →
-                  </button>
-                  <button type="button" onclick="switchView('audit')" class="text-slate-400 hover:text-white cursor-pointer">
-                    Audit Trail →
-                  </button>
-                </div>
-              </div>
-
-              <!-- Agent 3: Specialist Agent Roster -->
-              <div id="card-gke-assist-agent" class="glass g-card-green border border-slate-800 rounded-2xl p-4 transition duration-200 flex flex-col justify-between">
-                <div>
-                  <div class="flex items-center justify-between mb-2">
-                    <div class="flex items-center gap-2.5">
-                      <div class="w-8 h-8 rounded-xl g-badge-green flex items-center justify-center">
-                        <i class="fa-solid fa-cubes text-xs"></i>
-                      </div>
-                      <div>
-                        <div class="text-[10px] font-bold uppercase tracking-wider text-[#34A853]">Step 3 • Remediate</div>
-                        <div class="text-xs sm:text-sm font-bold text-white">Specialist Agent Roster</div>
-                      </div>
-                    </div>
-                    <span id="badge-worker" class="g-badge-green text-[10px] font-semibold px-2 py-0.5 rounded-full">7 Specialists</span>
-                  </div>
-                  <div id="workerBoutiquePills" class="flex flex-wrap gap-1 mt-1.5">
-                    <span data-agent-id="serverless-agent" class="worker-pill inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-slate-900 border border-slate-800 text-[10px] text-slate-300">Serverless Agent</span>
-                    <span data-agent-id="database-agent" class="worker-pill inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-slate-900 border border-slate-800 text-[10px] text-slate-300">Database Agent</span>
-                    <span data-agent-id="infra-agent" class="worker-pill inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-slate-900 border border-slate-800 text-[10px] text-slate-300">Infra Agent</span>
-                    <span data-agent-id="networking-agent" class="worker-pill inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-slate-900 border border-slate-800 text-[10px] text-slate-300">Networking Agent</span>
-                    <span data-agent-id="data-analytics-agent" class="worker-pill inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-slate-900 border border-slate-800 text-[10px] text-slate-300">Data Analytics Agent</span>
-                    <span data-agent-id="security-agent" class="worker-pill inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-slate-900 border border-slate-800 text-[10px] text-slate-300">Security Agent</span>
-                    <span data-agent-id="billing-agent" class="worker-pill inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-slate-900 border border-slate-800 text-[10px] text-slate-300">Billing Agent</span>
-                  </div>
-                </div>
-                <div class="pt-2.5 mt-3 border-t border-slate-800/80 flex items-center justify-between text-[11px]">
-                  <span class="text-slate-500 mono text-[10px]">15m JIT Token</span>
-                  <button type="button" onclick="switchView('roster')" class="text-[#34A853] hover:underline font-medium cursor-pointer">
-                    Full Roster →
-                  </button>
-                </div>
-              </div>
-            </div>
-
-            <!-- Collapsible Drawer B: Key Architecture Features (Hidden by default) -->
-            <div id="capabilitiesBannerGrid" class="hidden glass border border-slate-800 rounded-2xl p-4 space-y-3 text-xs">
-              <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2.5">
-                <div class="p-2.5 rounded-xl bg-slate-900/70 border border-slate-800 flex items-start gap-2">
-                  <i class="fa-solid fa-hand text-[#EA4335] mt-0.5"></i>
-                  <div>
-                    <div class="font-bold text-white text-[11px]">Cloud Outage Safety Brake</div>
-                    <div class="text-[10px] text-slate-400">Checks live GCP/AWS/Azure regional health and halts mutations during provider outages.</div>
-                  </div>
-                </div>
-                <div class="p-2.5 rounded-xl bg-slate-900/70 border border-slate-800 flex items-start gap-2">
-                  <i class="fa-solid fa-code-branch text-[#4285F4] mt-0.5"></i>
-                  <div>
-                    <div class="font-bold text-white text-[11px]">Release Correlation &amp; GitOps PRs</div>
-                    <div class="text-[10px] text-slate-400">Correlates suspect commits and opens bidirectional PRs to prevent configuration drift.</div>
-                  </div>
-                </div>
-                <div class="p-2.5 rounded-xl bg-slate-900/70 border border-slate-800 flex items-start gap-2">
-                  <i class="fa-solid fa-database text-[#34A853] mt-0.5"></i>
-                  <div>
-                    <div class="font-bold text-white text-[11px]">Read-Only DB Intelligence</div>
-                    <div class="text-[10px] text-slate-400">Pinpoints slow queries, locks &amp; deadlocks out-of-band with <code>prevent_destroy=true</code>.</div>
-                  </div>
-                </div>
-                <div class="p-2.5 rounded-xl bg-slate-900/70 border border-slate-800 flex items-start gap-2">
-                  <i class="fa-solid fa-key text-[#EA4335] mt-0.5"></i>
-                  <div>
-                    <div class="font-bold text-white text-[11px]">15m Federated JIT Authority</div>
-                    <div class="text-[10px] text-slate-400">Zero standing write access; mints ephemeral GCP WIF, AWS STS, or Entra ID credentials on approval.</div>
-                  </div>
-                </div>
-                <div class="p-2.5 rounded-xl bg-slate-900/70 border border-slate-800 flex items-start gap-2">
-                  <i class="fa-regular fa-clock text-[#FBBC04] mt-0.5"></i>
-                  <div>
-                    <div class="font-bold text-white text-[11px]">45s Probe + 3m Watchdog</div>
-                    <div class="text-[10px] text-slate-400">Two-stage post-fix verification with stateless auto-rollback and database Safe-Mode Isolation.</div>
-                  </div>
-                </div>
-                <div class="p-2.5 rounded-xl bg-slate-900/70 border border-slate-800 flex items-start gap-2">
-                  <i class="fa-solid fa-cloud text-[#4285F4] mt-0.5"></i>
-                  <div>
-                    <div class="font-bold text-white text-[11px]">Zero Cloud &amp; AI Lock-In</div>
-                    <div class="text-[10px] text-slate-400">Runs across GCP, AWS, Azure, EKS/AKS/GKE/OpenShift with Vertex AI, Bedrock, Azure OpenAI, or LiteLLM.</div>
-                  </div>
-                </div>
-                <div class="p-2.5 rounded-xl bg-slate-900/70 border border-slate-800 flex items-start gap-2">
-                  <i class="fa-solid fa-gauge-high text-[#34A853] mt-0.5"></i>
-                  <div>
-                    <div class="font-bold text-white text-[11px]">Bounded AI Economics</div>
-                    <div class="text-[10px] text-slate-400">Filters noise before AI runs; deterministic policy harness executes approved fixes cleanly.</div>
-                  </div>
-                </div>
-                <div class="p-2.5 rounded-xl bg-slate-900/70 border border-slate-800 flex items-start gap-2">
-                  <i class="fa-solid fa-shield-halved text-[#FBBC04] mt-0.5"></i>
-                  <div>
-                    <div class="font-bold text-white text-[11px]">5-Layer Zero-Trust Shield</div>
-                    <div class="text-[10px] text-slate-400">Outage gate, OPA &amp; injection guard, collision locks, JIT tokens, and verified recovery.</div>
-                  </div>
-                </div>
-                <div class="p-2.5 rounded-xl bg-slate-900/70 border border-slate-800 flex items-start gap-2">
-                  <i class="fa-solid fa-id-badge text-[#4285F4] mt-0.5"></i>
-                  <div>
-                    <div class="font-bold text-white text-[11px]">Enterprise SSO &amp; Multi-Session</div>
-                    <div class="text-[10px] text-slate-400">Google SSO &amp; OIDC (Okta, Entra ID) with persistent session history and full audit attribution.</div>
-                  </div>
-                </div>
-              </div>
-              <div class="pt-2 border-t border-slate-800/80 flex items-center justify-between text-[11px]">
-                <span class="text-slate-400">Explore full executive overview, Five-Layer Zero-Trust architecture, and Multi-Cloud portability matrix.</span>
-                <button type="button" onclick="switchView('features')" class="g-badge-blue px-3 py-1 rounded-full text-[11px] font-semibold cursor-pointer hover:opacity-90 transition shrink-0">
-                  Open Platform &amp; Features →
-                </button>
-              </div>
-            </div>
-          </section>
+            <div id="sidePanelDispatchHistory" class="space-y-2"></div>
+          </div>
         </div>
 
         <!-- ===================================================================== -->
@@ -1357,29 +1250,210 @@
       }
     };
 
+    function detectDeployedCloudFromUrl(runtime) {
+      const host = String((window.location && window.location.hostname) || '').toLowerCase();
+      if (
+        host.endsWith('.run.app') ||
+        host.endsWith('.a.run.app') ||
+        host.endsWith('.googleapis.com') ||
+        host.endsWith('.appspot.com') ||
+        host.includes('.gcp.')
+      ) {
+        return 'gcp';
+      }
+      if (
+        host.endsWith('.amazonaws.com') ||
+        host.endsWith('.awsapprunner.com') ||
+        host.endsWith('.elasticbeanstalk.com') ||
+        host.includes('.aws.')
+      ) {
+        return 'aws';
+      }
+      if (
+        host.endsWith('.azurecontainerapps.io') ||
+        host.endsWith('.azurewebsites.net') ||
+        host.endsWith('.cloudapp.azure.com') ||
+        host.includes('.azure.')
+      ) {
+        return 'azure';
+      }
+      const fallback = runtime && (runtime.default_cloud_provider || runtime.cloud_provider);
+      const norm = String(fallback || 'gcp').toLowerCase();
+      return CLOUD_SERVICE_PROFILES[norm] ? norm : 'gcp';
+    }
+
+    let detectedDeployedCloud = detectDeployedCloudFromUrl(null);
+    activeTargetCloud = detectedDeployedCloud;
+
     function getCloudProfile(cloudCode) {
       const code = String(cloudCode || activeTargetCloud || 'gcp').toLowerCase();
       return CLOUD_SERVICE_PROFILES[code] || CLOUD_SERVICE_PROFILES.gcp;
     }
 
     function updateTargetCloudSwitcherUI() {
-      const map = { gcp: 'cloudBtnGcp', aws: 'cloudBtnAws', azure: 'cloudBtnAzure' };
-      Object.entries(map).forEach(([code, btnId]) => {
-        const el = document.getElementById(btnId);
+      const map = {
+        gcp: { id: 'cloudBtnGcp', label: 'GCP' },
+        aws: { id: 'cloudBtnAws', label: 'AWS' },
+        azure: { id: 'cloudBtnAzure', label: 'Azure' }
+      };
+      const activeProfile = getCloudProfile(detectedDeployedCloud);
+      const hostLabel = (window.location && window.location.hostname) || 'local';
+      Object.entries(map).forEach(([code, meta]) => {
+        const el = document.getElementById(meta.id);
         if (!el) return;
-        if (code === activeTargetCloud) {
-          el.className = 'g-btn-blue px-2.5 py-1 rounded-full text-[10px] font-bold transition cursor-pointer';
+        if (code === detectedDeployedCloud) {
+          el.disabled = false;
+          el.removeAttribute('aria-disabled');
+          el.className = 'g-btn-blue px-2.5 py-1 rounded-full text-[10px] font-bold transition inline-flex items-center gap-1 cursor-default';
+          el.innerHTML = `<span class="w-1.5 h-1.5 rounded-full bg-[#81C995]"></span>${meta.label}`;
+          el.title = `Active Cloud Provider (${meta.label}) — auto-detected from URL (${hostLabel})`;
         } else {
-          el.className = 'px-2.5 py-1 rounded-full text-[10px] text-slate-400 hover:text-white transition cursor-pointer';
+          el.disabled = true;
+          el.setAttribute('aria-disabled', 'true');
+          el.className = 'px-2.5 py-1 rounded-full text-[10px] text-slate-500 opacity-40 cursor-not-allowed select-none inline-flex items-center gap-1';
+          el.innerHTML = `<i class="fa-solid fa-lock text-[8px] opacity-70"></i>${meta.label}`;
+          el.title = `${meta.label} is inactive on this ${activeProfile.label} deployment — activates automatically when hosted on ${meta.label}`;
         }
       });
     }
 
+    function updateCloudHealthCard(runtime, incidents, logs) {
+      const profile = getCloudProfile(activeTargetCloud);
+      const healthStatus = (runtime && runtime.cloud_provider_status) || {};
+      const mutationsAllowed = healthStatus.mutations_allowed !== false;
+      const healthRegion = healthStatus.region || (runtime && runtime.region) || profile.defaultRegion;
+      const allIncidents = Array.isArray(incidents) ? incidents : [];
+      const allLogs = Array.isArray(logs) ? logs : [];
+
+      const outageIncidents = allIncidents.filter(i => i.status === 'BLOCKED_PROVIDER_OUTAGE');
+      const openServiceIssues = allIncidents.filter(i => i.status === 'AWAITING_HITL_APPROVAL');
+      const handledLogIds = new Set(
+        allIncidents
+          .filter(i => i.status === 'RESOLVED' || i.status === 'SKIPPED_MANUAL')
+          .map(i => i.incident_id)
+      );
+      const openIds = new Set(openServiceIssues.map(i => i.incident_id));
+      const unresolvedLogAlerts = allLogs.filter(
+        l => l && l.is_anomaly && !handledLogIds.has(l.log_id) && !openIds.has(l.log_id)
+      );
+
+      const healthLabel = document.getElementById('metricProviderHealthLabel');
+      const healthVal = document.getElementById('metricProviderHealthValue');
+      const healthSub = document.getElementById('metricProviderHealthSub');
+      const healthBadge = document.getElementById('metricProviderHealthBadge');
+      const healthIcon = document.getElementById('metricProviderHealthIcon');
+      const healthDot = document.getElementById('metricProviderHealthDot');
+      const healthPing = document.getElementById('metricProviderHealthPing');
+      const healthCard = document.getElementById('metricCardProviderHealth');
+
+      if (healthLabel) healthLabel.textContent = `Cloud Health (${healthRegion})`;
+      if (healthCard) {
+        healthCard.classList.remove('health-blink-red', 'health-blink-yellow', 'border-[#EA4335]/70', 'border-[#FBBC04]/70');
+      }
+
+      if (!mutationsAllowed || outageIncidents.length > 0) {
+        const outageCount = Math.max(
+          Number(healthStatus.active_incident_count || 0),
+          outageIncidents.length,
+          1
+        );
+        if (healthVal) healthVal.textContent = `${profile.label} • Outage (${outageCount})`;
+        if (healthSub) healthSub.textContent = 'Safety Brake active • Click to inspect';
+        if (healthBadge) healthBadge.className = 'w-8 h-8 rounded-xl g-badge-red flex items-center justify-center shrink-0';
+        if (healthIcon) healthIcon.className = 'fa-solid fa-triangle-exclamation text-xs';
+        if (healthDot) healthDot.className = 'relative inline-flex rounded-full h-2 w-2 bg-[#EA4335]';
+        if (healthPing) {
+          healthPing.className = 'animate-ping absolute inline-flex h-full w-full rounded-full bg-[#EA4335] opacity-80';
+        }
+        if (healthCard) {
+          healthCard.classList.add('health-blink-red');
+          healthCard.title = healthStatus.recommendation || `Active ${profile.label} regional outage in ${healthRegion} (${outageCount} incident(s))`;
+        }
+      } else if (openServiceIssues.length > 0) {
+        const issueCount = openServiceIssues.length;
+        if (healthVal) healthVal.textContent = `${profile.label} • ${issueCount} ${issueCount === 1 ? 'Issue' : 'Issues'} Found`;
+        if (healthSub) healthSub.textContent = 'Needs review • Click to open alert';
+        if (healthBadge) healthBadge.className = 'w-8 h-8 rounded-xl g-badge-red flex items-center justify-center shrink-0';
+        if (healthIcon) healthIcon.className = 'fa-solid fa-circle-exclamation text-xs';
+        if (healthDot) healthDot.className = 'relative inline-flex rounded-full h-2 w-2 bg-[#EA4335]';
+        if (healthPing) {
+          healthPing.className = 'animate-ping absolute inline-flex h-full w-full rounded-full bg-[#EA4335] opacity-80';
+        }
+        if (healthCard) {
+          healthCard.classList.add('health-blink-red');
+          healthCard.title = `${issueCount} active service issue(s) awaiting your review on ${profile.label} (${healthRegion}). Click to inspect.`;
+        }
+      } else if (unresolvedLogAlerts.length > 0) {
+        const logCount = unresolvedLogAlerts.length;
+        if (healthVal) healthVal.textContent = `${profile.label} • ${logCount} Log ${logCount === 1 ? 'Alert' : 'Alerts'}`;
+        if (healthSub) healthSub.textContent = 'Error logs detected • Click to inspect';
+        if (healthBadge) healthBadge.className = 'w-8 h-8 rounded-xl g-badge-yellow flex items-center justify-center shrink-0';
+        if (healthIcon) healthIcon.className = 'fa-solid fa-triangle-exclamation text-xs';
+        if (healthDot) healthDot.className = 'relative inline-flex rounded-full h-2 w-2 bg-[#FBBC04]';
+        if (healthPing) {
+          healthPing.className = 'animate-ping absolute inline-flex h-full w-full rounded-full bg-[#FBBC04] opacity-80';
+        }
+        if (healthCard) {
+          healthCard.classList.add('health-blink-yellow');
+          healthCard.title = `${logCount} error log(s) detected in ${profile.label} Cloud Logging. Click to view logs or Poll Live Logs to escalate.`;
+        }
+      } else {
+        if (healthVal) healthVal.textContent = `${profile.label} • Operational`;
+        if (healthSub) healthSub.textContent = '0 active service issues';
+        if (healthBadge) healthBadge.className = 'w-8 h-8 rounded-xl g-badge-green flex items-center justify-center shrink-0';
+        if (healthIcon) healthIcon.className = 'fa-solid fa-heart-pulse text-xs';
+        if (healthDot) healthDot.className = 'relative inline-flex rounded-full h-2 w-2 bg-[#34A853]';
+        if (healthPing) {
+          healthPing.className = 'hidden animate-ping absolute inline-flex h-full w-full rounded-full bg-[#34A853] opacity-75';
+        }
+        if (healthCard) {
+          healthCard.title = healthStatus.recommendation || `${profile.label}/${healthRegion} is operational with 0 active service issues.`;
+        }
+      }
+
+      const featBadge = document.getElementById('featuresLiveRuntimeBadge');
+      if (featBadge) {
+        if (!mutationsAllowed || outageIncidents.length > 0) {
+          featBadge.textContent = `Active: ${profile.label} (${healthRegion}) • OUTAGE BRAKE`;
+          featBadge.className = 'g-badge-red px-2.5 py-1 rounded-full text-[10px] font-semibold mono';
+        } else if (openServiceIssues.length > 0) {
+          featBadge.textContent = `Active: ${profile.label} (${healthRegion}) • ${openServiceIssues.length} ISSUE(S)`;
+          featBadge.className = 'g-badge-red px-2.5 py-1 rounded-full text-[10px] font-semibold mono';
+        } else {
+          featBadge.textContent = `Active: ${profile.label} (${healthRegion}) • OPERATIONAL`;
+          featBadge.className = 'g-badge-green px-2.5 py-1 rounded-full text-[10px] font-semibold mono';
+        }
+      }
+    }
+
+    function focusActiveCloudIssue() {
+      const incidents = (latestState && latestState.incidents) || [];
+      const actionable = incidents.find(
+        i => i.status === 'BLOCKED_PROVIDER_OUTAGE' || i.status === 'AWAITING_HITL_APPROVAL'
+      );
+      if (actionable) {
+        selectedIncidentId = actionable.incident_id;
+        directChatMode = false;
+        switchView('command');
+        renderDashboard(latestState || {}, true);
+        return;
+      }
+      const logs = (latestState && latestState.logs) || [];
+      const hasAnomalyLogs = logs.some(l => l && l.is_anomaly);
+      if (hasAnomalyLogs) {
+        const sevFilter = document.getElementById('logSeverityFilter');
+        if (sevFilter) sevFilter.value = 'ERRORS_ONLY';
+        switchView('logs');
+        applyLogAndA2AFilters();
+        return;
+      }
+      switchView('logs');
+    }
+
     function updatePlatformRuntimeUI(runtime) {
       if (!runtime) return;
-      if (runtime.cloud_provider && !targetCloudRequestInFlight) {
-        activeTargetCloud = String(runtime.cloud_provider).toLowerCase();
-      }
+      detectedDeployedCloud = detectDeployedCloudFromUrl(runtime);
+      activeTargetCloud = detectedDeployedCloud;
       updateTargetCloudSwitcherUI();
 
       const profile = getCloudProfile(activeTargetCloud);
@@ -1397,48 +1471,15 @@
         rtCard.title = `LLM Router: ${runtime.llm_provider || 'vertex'} (${runtime.llm_model || 'gemini'}) • Live ADK Specialists: Database Agent & Infra Agent`;
       }
 
-      const healthStatus = runtime.cloud_provider_status || {};
-      const mutationsAllowed = healthStatus.mutations_allowed !== false;
-      const healthRegion = healthStatus.region || runtime.region || profile.defaultRegion;
-      const healthLabel = document.getElementById('metricProviderHealthLabel');
-      const healthVal = document.getElementById('metricProviderHealthValue');
-      const healthBadge = document.getElementById('metricProviderHealthBadge');
-      const healthIcon = document.getElementById('metricProviderHealthIcon');
-      const healthCard = document.getElementById('metricCardProviderHealth');
-
-      if (healthLabel) healthLabel.textContent = `Cloud Health (${healthRegion})`;
-      if (healthVal) {
-        healthVal.textContent = mutationsAllowed
-          ? `${profile.label} • Operational`
-          : `${profile.label} • Outage Brake`;
-      }
-      if (healthBadge) {
-        healthBadge.className = mutationsAllowed
-          ? 'w-8 h-8 rounded-xl g-badge-green flex items-center justify-center shrink-0'
-          : 'w-8 h-8 rounded-xl g-badge-red flex items-center justify-center shrink-0';
-      }
-      if (healthIcon) {
-        healthIcon.className = mutationsAllowed
-          ? 'fa-solid fa-heart-pulse text-xs'
-          : 'fa-solid fa-triangle-exclamation text-xs';
-      }
-      if (healthCard) {
-        healthCard.title = healthStatus.recommendation || `Pre-Flight Cloud Status for ${profile.label}/${healthRegion}: ${healthStatus.status || 'OPERATIONAL'}`;
-      }
-
-      const featBadge = document.getElementById('featuresLiveRuntimeBadge');
-      if (featBadge) {
-        featBadge.textContent = mutationsAllowed
-          ? `Active: ${profile.label} (${healthRegion}) • OPERATIONAL`
-          : `Active: ${profile.label} (${healthRegion}) • OUTAGE BRAKE`;
-        featBadge.className = mutationsAllowed
-          ? 'g-badge-green px-2.5 py-1 rounded-full text-[10px] font-semibold mono'
-          : 'g-badge-red px-2.5 py-1 rounded-full text-[10px] font-semibold mono';
-      }
+      updateCloudHealthCard(
+        runtime,
+        (latestState && latestState.incidents) || [],
+        (latestState && latestState.logs) || []
+      );
 
       const safetyCard = document.getElementById('metricCardSafety');
       if (safetyCard) {
-        safetyCard.title = `State: ${runtime.state_backend || 'firestore'} • Lock: ${runtime.lock_backend || 'memory'} • Auth: ${runtime.auth_provider || 'gcp'} • 45s + 3m Watchdog`;
+        safetyCard.title = `After any approved fix, Atlas watches live logs for 45s and metrics for 3m. Auto-reverts stateless services if errors return; databases use Safe-Mode Isolation. (State: ${runtime.state_backend || 'firestore'} • Lock: ${runtime.lock_backend || 'memory'})`;
       }
       if (typeof renderPlatformCloudMatrix === 'function' && currentView === 'features') {
         renderPlatformCloudMatrix(selectedPlatformCloud);
@@ -1448,6 +1489,10 @@
     async function setTargetCloud(cloudCode) {
       const normalized = String(cloudCode || 'gcp').toLowerCase();
       if (!CLOUD_SERVICE_PROFILES[normalized]) return;
+      // Cloud provider is auto-detected from the launched deployment URL; ignore clicks on greyed-out providers
+      if (normalized !== detectedDeployedCloud) {
+        return;
+      }
       activeTargetCloud = normalized;
       targetCloudRequestInFlight = true;
       updateTargetCloudSwitcherUI();
@@ -1847,6 +1892,10 @@
         title: 'AaaS Command Center',
         subtitle: 'Heartbeat & Telemetry + Atlas (Lead) + Specialist Agent Roster'
       },
+      dispatch: {
+        title: 'Full-Stage Specialist Dispatch Tracker',
+        subtitle: 'Live 5-Stage Pipeline & Historical Trace of Atlas → Specialist Agent Dispatches'
+      },
       roster: {
         title: 'Specialist Agent Roster',
         subtitle: '7 Domain Remediation Specialists Dispatched over A2A with 15-Minute WIF JIT Tokens'
@@ -2109,11 +2158,11 @@
         `).join('');
       }
       if (takeawayEl) {
-        const isCurrentlyActive = cfg.switchCode && cfg.switchCode === activeTargetCloud;
+        const isCurrentlyActive = cfg.switchCode && cfg.switchCode === detectedDeployedCloud;
         const actionHtml = cfg.switchCode
           ? (isCurrentlyActive
-              ? `<span class="g-badge-green px-3 py-1 rounded-full text-[11px] font-semibold shrink-0"><i class="fa-solid fa-check mr-1"></i>Active in Control Plane</span>`
-              : `<button type="button" onclick="setTargetCloud('${cfg.switchCode}')" class="g-btn-blue px-3.5 py-1.5 rounded-full text-[11px] font-semibold transition cursor-pointer shrink-0">Switch Control Plane to ${escapeHtml(cfg.switchCode.toUpperCase())} →</button>`)
+              ? `<span class="g-badge-green px-3 py-1 rounded-full text-[11px] font-semibold shrink-0"><i class="fa-solid fa-check mr-1"></i>Active on This Deployment (${escapeHtml(cfg.switchCode.toUpperCase())})</span>`
+              : `<span class="px-3 py-1 rounded-full bg-slate-900 border border-slate-800 text-slate-400 text-[11px] font-medium shrink-0"><i class="fa-solid fa-lock mr-1 text-[9px]"></i>Auto-Activates When Hosted on ${escapeHtml(cfg.switchCode.toUpperCase())}</span>`)
           : `<span class="g-badge-yellow px-3 py-1 rounded-full text-[11px] font-semibold shrink-0">Helm &amp; Self-Hosted Ready</span>`;
         takeawayEl.innerHTML = `
           <div class="flex items-center gap-2 min-w-0">
@@ -2159,7 +2208,7 @@
       if (!VIEW_METADATA[viewName]) return;
       currentView = viewName;
 
-      ['command', 'roster', 'audit', 'logs', 'features'].forEach(v => {
+      ['command', 'dispatch', 'roster', 'audit', 'logs', 'features'].forEach(v => {
         const viewEl = document.getElementById(`view-${v}`);
         const navBtn = document.getElementById(`nav-${v}`);
         if (viewEl) {
@@ -2186,6 +2235,8 @@
 
       if (viewName === 'features') {
         renderPlatformCloudMatrix(selectedPlatformCloud);
+      } else if (viewName === 'dispatch') {
+        renderSidePanelDispatchView(latestState || {});
       }
     }
 
@@ -2235,8 +2286,6 @@
     }
 
     let selectedIncidentId = null;
-    let bannerExpanded = false;
-    let pipelineExpanded = false;
 
     // State for Log & A2A Filter / Sort
     let logSortFieldState = 'timestamp';
@@ -2245,46 +2294,6 @@
     // State for Audit & Event Filter / Sort
     let auditSortFieldState = 'occurred_at';
     let auditSortDirState = 'desc';
-
-    function togglePipelineSteps() {
-      pipelineExpanded = !pipelineExpanded;
-      const drawer = document.getElementById('pipelineStepsDrawer');
-      const icon = document.getElementById('pipelineChevronIcon');
-      const txt = document.getElementById('pipelineToggleText');
-      if (drawer) {
-        if (pipelineExpanded) {
-          drawer.classList.remove('hidden');
-        } else {
-          drawer.classList.add('hidden');
-        }
-      }
-      if (icon) {
-        icon.className = pipelineExpanded ? 'fa-solid fa-chevron-up text-[9px]' : 'fa-solid fa-chevron-down text-[9px]';
-      }
-      if (txt) {
-        txt.textContent = pipelineExpanded ? 'Hide Step 1–3' : 'How It Works (Step 1–3)';
-      }
-    }
-
-    function toggleCapabilitiesBanner() {
-      bannerExpanded = !bannerExpanded;
-      const grid = document.getElementById('capabilitiesBannerGrid');
-      const icon = document.getElementById('bannerChevronIcon');
-      const txt = document.getElementById('bannerToggleText');
-      if (grid) {
-        if (bannerExpanded) {
-          grid.classList.remove('hidden');
-        } else {
-          grid.classList.add('hidden');
-        }
-      }
-      if (icon) {
-        icon.className = bannerExpanded ? 'fa-solid fa-chevron-up text-[9px]' : 'fa-solid fa-chevron-down text-[9px]';
-      }
-      if (txt) {
-        txt.textContent = bannerExpanded ? 'Hide Features' : 'Key Features';
-      }
-    }
 
     function consultSpecialistInChat(specId) {
       const promptsByCloud = {
@@ -2368,14 +2377,26 @@
       `;
     }
 
+    let fetchStateInFlight = false;
+
     async function fetchState(forceRender = false) {
+      if (fetchStateInFlight && !forceRender) return;
+      fetchStateInFlight = true;
+      const controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
+      const timeoutId = controller ? setTimeout(() => controller.abort(), 12000) : null;
       try {
-        const res = await fetch('/api/state');
+        const res = await fetch('/api/state', controller ? { signal: controller.signal } : undefined);
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
         const data = await res.json();
         latestState = data;
         renderDashboard(data, forceRender);
       } catch (err) {
-        console.error('Failed to fetch state:', err);
+        if (!err || err.name !== 'AbortError') {
+          console.error('Failed to fetch state:', err);
+        }
+      } finally {
+        if (timeoutId) clearTimeout(timeoutId);
+        fetchStateInFlight = false;
       }
     }
 
@@ -2383,11 +2404,14 @@
       if (data && data.active_user && !currentSsoUser) {
         currentSsoUser = data.active_user;
       }
+      const incidents = data.incidents || [];
+      const logs = data.logs || [];
       if (data && data.platform_runtime) {
         updatePlatformRuntimeUI(data.platform_runtime);
       }
+      updateCloudHealthCard((data && data.platform_runtime) || {}, incidents, logs);
       updateHeaderUserBadge();
-      const incidents = data.incidents || [];
+
       const chosenIncident = selectedIncidentId
         ? incidents.find(i => i.incident_id === selectedIncidentId)
         : null;
@@ -2397,14 +2421,16 @@
         : incidents.find(i => isActionableStatus(i.status));
       const latestIncident = chosenIncident || incidents[0];
 
-      // Update Agent Cards visual state
+      // Null-safe legacy card refs (center-stage pipeline drawer was moved to dedicated Dispatch Tracker side view)
       const watcherCard = document.getElementById('card-log-watcher-agent');
       const orchCard = document.getElementById('card-lead-orchestrator-agent');
       const workerCard = document.getElementById('card-gke-assist-agent');
+      const orchBadge = document.getElementById('badge-orchestrator');
+      const workerBadgeEl = document.getElementById('badge-worker');
 
-      watcherCard.classList.remove('agent-active');
-      orchCard.classList.remove('agent-active');
-      workerCard.classList.remove('agent-active');
+      if (watcherCard) watcherCard.classList.remove('agent-active');
+      if (orchCard) orchCard.classList.remove('agent-active');
+      if (workerCard) workerCard.classList.remove('agent-active');
 
       const generalMsgs = data.general_chat_messages || [];
       const latestGeneralAssistant = [...generalMsgs].reverse().find(m => m.role === 'assistant' && m.specialist_worker && m.id !== 'atlas-welcome');
@@ -2418,16 +2444,6 @@
         : ((activeInc && activeInc.coordinated_specialists) ? activeInc.coordinated_specialists : (activeSpecialist ? [activeSpecialist] : []));
       const activeCoordIds = new Set(coordinatedSpecialists.map(s => s.id));
 
-      // Highlight all matching specialist pills in Step 3 Specialist Roster
-      document.querySelectorAll('#workerBoutiquePills .worker-pill').forEach(pill => {
-        const pillId = pill.getAttribute('data-agent-id');
-        if (activeCoordIds.has(pillId)) {
-          pill.className = 'worker-pill g-badge-green inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-semibold';
-        } else {
-          pill.className = 'worker-pill inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-slate-900 border border-slate-800 text-[10px] text-slate-400';
-        }
-      });
-
       // Render dedicated 7-Specialist Roster Grid
       renderSpecialistRoster(activeSpecialist, coordinatedSpecialists);
 
@@ -2436,94 +2452,72 @@
         : (activeSpecialist ? `${activeSpecialist.name} Ready` : 'Specialist Ready');
 
       const navBadgeCommand = document.getElementById('navBadgeCommand');
-      const compactOrch = document.getElementById('compact-badge-orchestrator');
-      const compactWorker = document.getElementById('compact-badge-worker');
       if (directChatMode) {
-        orchCard.classList.add('agent-active');
-        document.getElementById('badge-orchestrator').textContent = 'Direct Chat • Active';
-        document.getElementById('badge-orchestrator').className = 'g-badge-blue text-[10px] font-semibold px-2.5 py-0.5 rounded-full';
+        if (orchCard) orchCard.classList.add('agent-active');
+        if (orchBadge) {
+          orchBadge.textContent = 'Direct Chat • Active';
+          orchBadge.className = 'g-badge-blue text-[10px] font-semibold px-2.5 py-0.5 rounded-full';
+        }
         const workerStatusText = coordinatedSpecialists.length > 1
           ? `${coordinatedSpecialists.length} Specialists Coordinated`
           : (activeSpecialist ? `${activeSpecialist.name} Consulted` : '7 Specialists Ready');
-        document.getElementById('badge-worker').textContent = workerStatusText;
-        document.getElementById('badge-worker').className = 'g-badge-green text-[10px] font-semibold px-2.5 py-0.5 rounded-full';
-        if (compactOrch) {
-          compactOrch.textContent = '(Chatting)';
-          compactOrch.className = 'text-[10px] text-[#4285F4] font-semibold';
-        }
-        if (compactWorker) {
-          compactWorker.textContent = `(${workerStatusText})`;
-          compactWorker.className = 'text-[10px] text-[#34A853] font-medium';
+        if (workerBadgeEl) {
+          workerBadgeEl.textContent = workerStatusText;
+          workerBadgeEl.className = 'g-badge-green text-[10px] font-semibold px-2.5 py-0.5 rounded-full';
         }
         if (navBadgeCommand) {
           navBadgeCommand.textContent = pending ? '1 Alert' : 'Chatting';
           navBadgeCommand.className = 'g-badge-blue px-2 py-0.5 text-[10px] font-semibold rounded-full shrink-0';
         }
       } else if (activeInc && activeInc.status === 'BLOCKED_PROVIDER_OUTAGE') {
-        orchCard.classList.add('agent-active');
-        document.getElementById('badge-orchestrator').textContent = 'Outage Blocked';
-        document.getElementById('badge-orchestrator').className = 'g-badge-red text-[10px] font-semibold px-2.5 py-0.5 rounded-full';
-        document.getElementById('badge-worker').textContent = 'Safety Brake';
-        document.getElementById('badge-worker').className = 'g-badge-red text-[10px] font-semibold px-2.5 py-0.5 rounded-full';
-        if (compactOrch) {
-          compactOrch.textContent = '(Outage Blocked)';
-          compactOrch.className = 'text-[10px] text-[#EA4335] font-semibold';
+        if (orchCard) orchCard.classList.add('agent-active');
+        if (orchBadge) {
+          orchBadge.textContent = 'Outage Blocked';
+          orchBadge.className = 'g-badge-red text-[10px] font-semibold px-2.5 py-0.5 rounded-full';
         }
-        if (compactWorker) {
-          compactWorker.textContent = '(Safety Brake • 0 JIT)';
-          compactWorker.className = 'text-[10px] text-[#EA4335] font-medium';
+        if (workerBadgeEl) {
+          workerBadgeEl.textContent = 'Safety Brake';
+          workerBadgeEl.className = 'g-badge-red text-[10px] font-semibold px-2.5 py-0.5 rounded-full';
         }
         if (navBadgeCommand) {
           navBadgeCommand.textContent = 'Outage';
           navBadgeCommand.className = 'g-badge-red px-2 py-0.5 text-[10px] font-semibold rounded-full shrink-0';
         }
       } else if (activeInc && activeInc.status === 'AWAITING_HITL_APPROVAL') {
-        orchCard.classList.add('agent-active');
-        document.getElementById('badge-orchestrator').textContent = 'Awaiting Review';
-        document.getElementById('badge-orchestrator').className = 'g-badge-yellow text-[10px] font-semibold px-2.5 py-0.5 rounded-full';
-        document.getElementById('badge-worker').textContent = coordLabel;
-        document.getElementById('badge-worker').className = 'g-badge-green text-[10px] font-semibold px-2.5 py-0.5 rounded-full';
-        if (compactOrch) {
-          compactOrch.textContent = '(Awaiting Approval)';
-          compactOrch.className = 'text-[10px] text-[#FBBC04] font-semibold';
+        if (orchCard) orchCard.classList.add('agent-active');
+        if (orchBadge) {
+          orchBadge.textContent = 'Awaiting Review';
+          orchBadge.className = 'g-badge-yellow text-[10px] font-semibold px-2.5 py-0.5 rounded-full';
         }
-        if (compactWorker) {
-          compactWorker.textContent = `(${coordLabel})`;
-          compactWorker.className = 'text-[10px] text-[#34A853] font-medium';
+        if (workerBadgeEl) {
+          workerBadgeEl.textContent = coordLabel;
+          workerBadgeEl.className = 'g-badge-green text-[10px] font-semibold px-2.5 py-0.5 rounded-full';
         }
         if (navBadgeCommand) {
           navBadgeCommand.textContent = `${incidents.filter(i => i.status === 'AWAITING_HITL_APPROVAL').length} Alert`;
           navBadgeCommand.className = 'g-badge-red px-2 py-0.5 text-[10px] font-semibold rounded-full shrink-0';
         }
       } else if (activeInc && activeInc.status === 'SKIPPED_MANUAL') {
-        document.getElementById('badge-orchestrator').textContent = 'Manual Mode';
-        document.getElementById('badge-orchestrator').className = 'g-badge-yellow text-[10px] font-semibold px-2.5 py-0.5 rounded-full';
-        document.getElementById('badge-worker').textContent = 'Stood Down';
-        document.getElementById('badge-worker').className = 'text-[10px] font-medium px-2.5 py-0.5 rounded-full bg-slate-900 text-slate-400 border border-slate-800';
-        if (compactOrch) {
-          compactOrch.textContent = '(Manual Mode)';
-          compactOrch.className = 'text-[10px] text-[#FBBC04] font-medium';
+        if (orchBadge) {
+          orchBadge.textContent = 'Manual Mode';
+          orchBadge.className = 'g-badge-yellow text-[10px] font-semibold px-2.5 py-0.5 rounded-full';
         }
-        if (compactWorker) {
-          compactWorker.textContent = '(Stood Down)';
-          compactWorker.className = 'text-[10px] text-slate-400';
+        if (workerBadgeEl) {
+          workerBadgeEl.textContent = 'Stood Down';
+          workerBadgeEl.className = 'text-[10px] font-medium px-2.5 py-0.5 rounded-full bg-slate-900 text-slate-400 border border-slate-800';
         }
         if (navBadgeCommand) {
           navBadgeCommand.textContent = 'Manual';
           navBadgeCommand.className = 'g-badge-yellow px-2 py-0.5 text-[10px] font-semibold rounded-full shrink-0';
         }
       } else {
-        document.getElementById('badge-orchestrator').textContent = 'All Clear';
-        document.getElementById('badge-orchestrator').className = 'g-badge-green text-[10px] font-semibold px-2.5 py-0.5 rounded-full';
-        document.getElementById('badge-worker').textContent = activeSpecialist ? `${activeSpecialist.name} • Done` : '7 Specialists';
-        document.getElementById('badge-worker').className = 'g-badge-blue text-[10px] font-semibold px-2.5 py-0.5 rounded-full';
-        if (compactOrch) {
-          compactOrch.textContent = '(All Clear)';
-          compactOrch.className = 'text-[10px] text-[#34A853] font-medium';
+        if (orchBadge) {
+          orchBadge.textContent = 'All Clear';
+          orchBadge.className = 'g-badge-green text-[10px] font-semibold px-2.5 py-0.5 rounded-full';
         }
-        if (compactWorker) {
-          compactWorker.textContent = activeSpecialist ? `(${activeSpecialist.name} • Done)` : '(7 Ready)';
-          compactWorker.className = 'text-[10px] text-slate-400';
+        if (workerBadgeEl) {
+          workerBadgeEl.textContent = activeSpecialist ? `${activeSpecialist.name} • Done` : '7 Specialists';
+          workerBadgeEl.className = 'g-badge-blue text-[10px] font-semibold px-2.5 py-0.5 rounded-full';
         }
         if (navBadgeCommand) {
           navBadgeCommand.textContent = 'Healthy';
@@ -2545,30 +2539,31 @@
 
       const stageEl = document.getElementById('centerStage');
       if (activeDispatchTracker && activeDispatchTracker.mode === 'incident') {
-        workerCard.classList.add('agent-active');
-        const workerBadge = document.getElementById('badge-worker');
-        if (workerBadge) {
-          workerBadge.textContent = 'Dispatch Active';
-          workerBadge.className = 'g-badge-blue text-[10px] font-semibold px-2.5 py-0.5 rounded-full';
+        if (workerCard) workerCard.classList.add('agent-active');
+        if (workerBadgeEl) {
+          workerBadgeEl.textContent = 'Dispatch Active';
+          workerBadgeEl.className = 'g-badge-blue text-[10px] font-semibold px-2.5 py-0.5 rounded-full';
         }
-        stageEl.innerHTML = renderLiveDispatchTrackerCard(activeDispatchTracker);
+        if (stageEl) stageEl.innerHTML = renderLiveDispatchTrackerCard(activeDispatchTracker);
       } else if (!chatDispatchInFlight && (forceRender || stageSig !== lastStageSignature)) {
         const activeInput = document.querySelector('[id^="chatInput-"], #generalChatInput');
         const savedDraft = activeInput ? activeInput.value : '';
         lastStageSignature = stageSig;
 
-        if (directChatMode) {
-          stageEl.innerHTML = renderDirectAtlasChatCard(generalMsgs, pending);
-        } else if (activeInc && activeInc.status === 'BLOCKED_PROVIDER_OUTAGE') {
-          stageEl.innerHTML = renderOutageBlockedCard(activeInc);
-        } else if (activeInc && activeInc.status === 'AWAITING_HITL_APPROVAL') {
-          stageEl.innerHTML = renderCustomerApprovalCard(activeInc);
-        } else if (activeInc && activeInc.status === 'SKIPPED_MANUAL') {
-          stageEl.innerHTML = renderSkippedCard(activeInc);
-        } else if (activeInc && activeInc.status === 'RESOLVED') {
-          stageEl.innerHTML = renderResolvedCard(activeInc);
-        } else {
-          stageEl.innerHTML = renderHealthyCard();
+        if (stageEl) {
+          if (directChatMode) {
+            stageEl.innerHTML = renderDirectAtlasChatCard(generalMsgs, pending);
+          } else if (activeInc && activeInc.status === 'BLOCKED_PROVIDER_OUTAGE') {
+            stageEl.innerHTML = renderOutageBlockedCard(activeInc);
+          } else if (activeInc && activeInc.status === 'AWAITING_HITL_APPROVAL') {
+            stageEl.innerHTML = renderCustomerApprovalCard(activeInc);
+          } else if (activeInc && activeInc.status === 'SKIPPED_MANUAL') {
+            stageEl.innerHTML = renderSkippedCard(activeInc);
+          } else if (activeInc && activeInc.status === 'RESOLVED') {
+            stageEl.innerHTML = renderResolvedCard(activeInc);
+          } else {
+            stageEl.innerHTML = renderHealthyCard();
+          }
         }
 
         const newInput = document.querySelector('[id^="chatInput-"], #generalChatInput');
@@ -2581,8 +2576,10 @@
         }
       }
 
+      // Update Persistent Side-Panel Dispatch Tracker & Mini-Widget
+      renderSidePanelDispatchView(data);
+
       // Render Live Logs & A2A Stream View (with Search, Severity, Date/Time & Sort)
-      const logs = data.logs || [];
       const ledger = data.a2a_ledger || [];
       const navBadgeLogs = document.getElementById('navBadgeLogs');
       if (navBadgeLogs) {
@@ -3166,6 +3163,356 @@
     let dispatchTimerInterval = null;
     let chatDispatchInFlight = false;
     let chatDispatchTimerInterval = null;
+    let activeChatDispatchCfg = null;
+    let selectedDispatchId = null;
+
+    function selectDispatchRecord(dispatchId) {
+      selectedDispatchId = dispatchId;
+      renderSidePanelDispatchView(latestState || {});
+    }
+
+    function buildFullStageRecordCard(rec) {
+      if (!rec) return '';
+      const cloudUpper = String(rec.target_cloud || activeTargetCloud || 'gcp').toUpperCase();
+      const region = rec.region || getCloudProfile(rec.target_cloud || activeTargetCloud).defaultRegion;
+      const specs = (rec.coordinated_specialists && rec.coordinated_specialists.length)
+        ? rec.coordinated_specialists
+        : [rec.primary_specialist || 'Specialist Agent'];
+      const mode = rec.mode || 'ATLAS_ADVISORY';
+      const status = rec.status || 'COMPLETED';
+      const isOutageBlocked = status === 'BLOCKED_PROVIDER_OUTAGE' || mode.includes('BLOCKED');
+      const isPendingApproval = status === 'AWAITING_HITL_APPROVAL' || mode === 'INCIDENT_TRIAGE_PENDING';
+      const isResolved = status === 'RESOLVED' || status === 'VERIFIED_HEALTHY' || mode === 'HARNESS_EXECUTED' || mode === 'INCIDENT_REMEDIATED';
+      const isReadOnly = Boolean(rec.read_only) || mode === 'LIVE_A2A_SPECIALIST' || mode === 'ATLAS_ADVISORY';
+      const tools = rec.tools_invoked || [];
+
+      const stages = [
+        {
+          label: '1. Cloud Health Gate',
+          icon: 'fa-heart-pulse',
+          state: isOutageBlocked ? 'blocked' : 'done',
+          value: isOutageBlocked ? `${cloudUpper} ${region} OUTAGE` : `${cloudUpper} ${region} OK`
+        },
+        {
+          label: '2. Policy & 15m JIT',
+          icon: 'fa-key',
+          state: isOutageBlocked ? 'blocked' : (isPendingApproval ? 'active' : 'done'),
+          value: isOutageBlocked
+            ? '0 JIT Minted (Held)'
+            : (rec.jit_token_id
+                ? `JIT ${String(rec.jit_token_id).slice(0, 14)}`
+                : (isPendingApproval ? 'OPA PASS • HITL Pending' : 'Read-Only • 0 Write Key'))
+        },
+        {
+          label: '3. Specialist Execution',
+          icon: 'fa-microchip',
+          state: isOutageBlocked ? 'skipped' : (isPendingApproval ? 'pending' : 'done'),
+          value: isOutageBlocked ? 'Stood Down' : specs.join(' + ')
+        },
+        {
+          label: '4. GitOps PR Sync',
+          icon: 'fa-code-branch',
+          state: isOutageBlocked || isPendingApproval ? 'pending' : (rec.reconciliation_pr ? 'done' : 'done'),
+          value: rec.reconciliation_pr
+            ? rec.reconciliation_pr
+            : (isReadOnly ? 'N/A (Read-Only)' : (isPendingApproval ? 'Queued on Approval' : 'Config Audited'))
+        },
+        {
+          label: '5. Post-Fix Health Watch',
+          icon: 'fa-shield-halved',
+          state: isOutageBlocked ? 'blocked' : (isPendingApproval ? 'pending' : 'done'),
+          value: rec.watchdog_status || (isResolved ? '45s + 3m VERIFIED' : 'Read-Only Safe')
+        }
+      ];
+
+      let headerBadgeClass = 'g-badge-blue';
+      let headerBadgeText = 'Completed';
+      if (isOutageBlocked) {
+        headerBadgeClass = 'g-badge-red';
+        headerBadgeText = 'Outage Safety Brake';
+      } else if (isPendingApproval) {
+        headerBadgeClass = 'g-badge-yellow';
+        headerBadgeText = 'Awaiting Your Approval';
+      } else if (isResolved) {
+        headerBadgeClass = 'g-badge-green';
+        headerBadgeText = '5/5 Stages Verified';
+      } else if (mode === 'LIVE_A2A_SPECIALIST') {
+        headerBadgeClass = 'g-badge-green';
+        headerBadgeText = 'Live ADK Read-Only';
+      }
+
+      const stageCardsHtml = stages.map((st, idx) => {
+        let borderCls = 'border-slate-800';
+        let badgeHtml = `<span class="text-[9px] mono text-slate-500">Queued</span>`;
+        let iconHtml = `<span class="w-5 h-5 rounded-full bg-slate-900 border border-slate-700 text-slate-500 flex items-center justify-center text-[9px]">${idx + 1}</span>`;
+        if (st.state === 'done') {
+          borderCls = 'border-[#34A853]/40';
+          badgeHtml = `<span class="text-[9px] mono text-[#34A853] font-semibold">PASS</span>`;
+          iconHtml = `<span class="w-5 h-5 rounded-full bg-[#34A853] text-white flex items-center justify-center text-[9px]"><i class="fa-solid fa-check"></i></span>`;
+        } else if (st.state === 'blocked') {
+          borderCls = 'border-[#EA4335]/50';
+          badgeHtml = `<span class="text-[9px] mono text-[#EA4335] font-semibold">HELD</span>`;
+          iconHtml = `<span class="w-5 h-5 rounded-full bg-[#EA4335] text-white flex items-center justify-center text-[9px]"><i class="fa-solid fa-hand"></i></span>`;
+        } else if (st.state === 'active') {
+          borderCls = 'border-[#FBBC04]/55';
+          badgeHtml = `<span class="text-[9px] mono text-[#FBBC04] font-semibold">WAITING</span>`;
+          iconHtml = `<span class="w-5 h-5 rounded-full bg-[#FBBC04] text-slate-950 flex items-center justify-center text-[9px]"><i class="fa-solid fa-hourglass-half"></i></span>`;
+        }
+        return `
+          <div class="p-3 rounded-2xl bg-slate-950/90 border ${borderCls} space-y-1.5">
+            <div class="flex items-center justify-between gap-1">
+              ${iconHtml}
+              ${badgeHtml}
+            </div>
+            <div class="text-[11px] font-bold text-white leading-tight">${escapeHtml(st.label)}</div>
+            <div class="text-[10px] mono text-slate-300 truncate" title="${escapeHtml(st.value)}">${escapeHtml(st.value)}</div>
+          </div>
+        `;
+      }).join('');
+
+      const jumpBtn = rec.incident_id
+        ? `<button type="button" onclick="selectIncidentById('${escapeHtml(rec.incident_id)}'); switchView('command');" class="g-badge-blue px-3 py-1 rounded-full text-[10px] font-semibold cursor-pointer hover:opacity-90 transition">Open Linked Alert →</button>`
+        : '';
+
+      return `
+        <div class="rounded-2xl bg-slate-950/85 border border-slate-800 p-4 space-y-3.5">
+          <div class="flex flex-wrap items-center justify-between gap-2 pb-3 border-b border-slate-800">
+            <div class="min-w-0 space-y-1">
+              <div class="flex flex-wrap items-center gap-1.5">
+                <span class="${headerBadgeClass} px-2.5 py-0.5 rounded-full text-[10px] font-semibold">${escapeHtml(headerBadgeText)}</span>
+                <span class="px-2 py-0.5 rounded-full bg-slate-900 border border-slate-700 mono text-[10px] text-slate-300">${escapeHtml(cloudUpper)} • ${escapeHtml(region)}</span>
+                <span class="mono text-[10px] text-slate-500">${formatAuditTime(rec.timestamp)}</span>
+              </div>
+              <div class="text-sm font-bold text-white truncate">${escapeHtml(rec.title || rec.workload || 'Specialist Dispatch')}</div>
+            </div>
+            <div class="flex items-center gap-2 shrink-0">
+              ${jumpBtn}
+            </div>
+          </div>
+
+          <div class="flex flex-wrap items-center gap-2 text-[11px]">
+            <span class="font-bold text-[#4285F4]">Atlas • AaaS Lead</span>
+            <span class="text-slate-500">── A2A ──▶</span>
+            ${specs.map(s => `<span class="g-badge-green px-2.5 py-0.5 rounded-full text-[10px] font-semibold">${escapeHtml(s)}</span>`).join('')}
+            ${rec.workload ? `<span class="mono text-[10px] text-slate-400 ml-auto">${escapeHtml(rec.workload)}</span>` : ''}
+          </div>
+
+          <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-2.5">
+            ${stageCardsHtml}
+          </div>
+
+          ${tools.length ? `
+            <div class="flex flex-wrap items-center gap-1.5 pt-1 text-[10px]">
+              <span class="text-slate-400 font-semibold uppercase tracking-wider text-[9px]">ADK Tools Executed:</span>
+              ${tools.map(t => `<span class="mono px-2 py-0.5 rounded-lg bg-slate-900 border border-slate-700 text-slate-200">${escapeHtml(t)}</span>`).join('')}
+            </div>
+          ` : ''}
+          ${rec.command ? `
+            <div class="p-2.5 rounded-xl bg-slate-900/90 border border-slate-800 text-[10px] mono text-slate-300 truncate" title="${escapeHtml(rec.command)}">
+              <span class="text-slate-500 mr-1.5">$</span>${escapeHtml(rec.command)}
+            </div>
+          ` : ''}
+        </div>
+      `;
+    }
+
+    function renderSidePanelDispatchView(data) {
+      const history = (data && data.dispatch_history) || [];
+      const navBadge = document.getElementById('navBadgeDispatch');
+      const viewPill = document.getElementById('dispatchViewStatusPill');
+      const miniEl = document.getElementById('sidebarDispatchMini');
+      const stageEl = document.getElementById('sidePanelDispatchStage');
+      const listEl = document.getElementById('sidePanelDispatchHistory');
+      const countBadge = document.getElementById('dispatchHistoryCountBadge');
+
+      const liveRunning = Boolean(activeDispatchTracker) || Boolean(chatDispatchInFlight && activeChatDispatchCfg);
+
+      // 1. Update Sidebar Nav Badge + Mini-Widget
+      if (liveRunning) {
+        const runningStep = activeDispatchTracker
+          ? `Step ${(activeDispatchTracker.activeStep || 0) + 1}/${activeDispatchTracker.stages.length}`
+          : `Step ${(activeChatDispatchCfg.activeStep || 0) + 1}/${activeChatDispatchCfg.stages.length}`;
+        const runningSpec = activeDispatchTracker
+          ? ((activeDispatchTracker.specialists && activeDispatchTracker.specialists[0] && activeDispatchTracker.specialists[0].name) || 'Specialist')
+          : ((activeChatDispatchCfg.specialist && activeChatDispatchCfg.specialist.name) || 'Specialist');
+        const elapsed = ((Date.now() - (activeDispatchTracker ? activeDispatchTracker.startedAt : activeChatDispatchCfg.startedAt)) / 1000).toFixed(1);
+
+        if (navBadge) {
+          navBadge.textContent = 'Running';
+          navBadge.className = 'g-badge-blue px-2 py-0.5 text-[10px] font-semibold rounded-full shrink-0';
+        }
+        if (viewPill) {
+          viewPill.textContent = `Live Dispatch • ${runningStep} (${elapsed}s)`;
+          viewPill.className = 'g-badge-blue px-2.5 py-0.5 rounded-full text-[10px] font-semibold';
+        }
+        if (miniEl) {
+          miniEl.className = 'p-3 rounded-2xl bg-slate-900/95 border border-[#4285F4]/60 transition cursor-pointer space-y-2 step-active-ring';
+          miniEl.innerHTML = `
+            <div class="flex items-center justify-between gap-1.5">
+              <span class="text-[10px] font-bold uppercase tracking-wider text-[#4285F4] flex items-center gap-1.5">
+                <i class="fa-solid fa-spinner fa-spin text-[10px]"></i>
+                <span>Live Dispatch</span>
+              </span>
+              <span class="text-[9px] mono text-[#4285F4] font-bold">${elapsed}s</span>
+            </div>
+            <div class="text-[11px] font-semibold text-white truncate">${escapeHtml(runningSpec)} • ${escapeHtml(runningStep)}</div>
+            <div class="dispatch-beam w-full"></div>
+          `;
+        }
+      } else if (history.length > 0) {
+        const latest = history[0];
+        const isBlocked = latest.status === 'BLOCKED_PROVIDER_OUTAGE';
+        const isWaiting = latest.status === 'AWAITING_HITL_APPROVAL';
+        const badgeLabel = isBlocked ? 'Held' : (isWaiting ? 'Pending' : `${history.length} Done`);
+        const badgeCls = isBlocked
+          ? 'g-badge-red px-2 py-0.5 text-[10px] font-semibold rounded-full shrink-0'
+          : (isWaiting
+              ? 'g-badge-yellow px-2 py-0.5 text-[10px] font-semibold rounded-full shrink-0'
+              : 'g-badge-green px-2 py-0.5 text-[10px] font-semibold rounded-full shrink-0');
+
+        if (navBadge) {
+          navBadge.textContent = badgeLabel;
+          navBadge.className = badgeCls;
+        }
+        if (viewPill) {
+          viewPill.textContent = isBlocked ? 'Outage Brake Engaged' : (isWaiting ? 'HITL Review Pending' : `${history.length} Dispatches Recorded`);
+          viewPill.className = isBlocked
+            ? 'g-badge-red px-2.5 py-0.5 rounded-full text-[10px] font-semibold'
+            : (isWaiting ? 'g-badge-yellow px-2.5 py-0.5 rounded-full text-[10px] font-semibold' : 'g-badge-green px-2.5 py-0.5 rounded-full text-[10px] font-semibold');
+        }
+        if (miniEl) {
+          const dots = isBlocked
+            ? ['bg-[#EA4335]', 'bg-[#EA4335]', 'bg-slate-700', 'bg-slate-700', 'bg-slate-700']
+            : (isWaiting
+                ? ['bg-[#34A853]', 'bg-[#FBBC04]', 'bg-slate-700', 'bg-slate-700', 'bg-slate-700']
+                : ['bg-[#34A853]', 'bg-[#34A853]', 'bg-[#34A853]', 'bg-[#34A853]', 'bg-[#34A853]']);
+          miniEl.className = 'p-3 rounded-2xl bg-slate-900/85 hover:bg-slate-800/80 border border-slate-800 transition cursor-pointer space-y-2';
+          miniEl.innerHTML = `
+            <div class="flex items-center justify-between gap-1.5">
+              <span class="text-[10px] font-bold uppercase tracking-wider text-slate-300 flex items-center gap-1.5">
+                <i class="fa-solid fa-diagram-project text-[#34A853] text-[10px]"></i>
+                <span>Last Dispatch</span>
+              </span>
+              <span class="text-[9px] mono text-slate-400">${escapeHtml(badgeLabel)}</span>
+            </div>
+            <div class="text-[11px] font-semibold text-white truncate">${escapeHtml(latest.primary_specialist || 'Specialist Agent')}</div>
+            <div class="text-[10px] text-slate-400 truncate">${escapeHtml(latest.title || latest.workload || '')}</div>
+            <div class="flex items-center gap-1">
+              ${dots.map(c => `<span class="h-1 flex-1 rounded-full ${c}"></span>`).join('')}
+            </div>
+          `;
+        }
+      } else {
+        if (navBadge) {
+          navBadge.textContent = 'Standby';
+          navBadge.className = 'px-2 py-0.5 text-[10px] mono rounded-full bg-slate-800 text-slate-300 shrink-0';
+        }
+        if (viewPill) {
+          viewPill.textContent = '5-Stage Pipeline Ready';
+          viewPill.className = 'g-badge-blue px-2.5 py-0.5 rounded-full text-[10px] font-semibold';
+        }
+      }
+
+      if (countBadge) {
+        countBadge.textContent = `${history.length} ${history.length === 1 ? 'dispatch' : 'dispatches'}`;
+      }
+
+      // 2. Render Primary Full-Stage Pipeline View inside #view-dispatch
+      if (stageEl) {
+        if (activeDispatchTracker) {
+          stageEl.innerHTML = renderLiveDispatchTrackerCard(activeDispatchTracker);
+        } else if (chatDispatchInFlight && activeChatDispatchCfg) {
+          stageEl.innerHTML = renderInlineChatDispatchBubble(activeChatDispatchCfg);
+        } else if (history.length > 0) {
+          const selected = (selectedDispatchId && history.find(h => h.dispatch_id === selectedDispatchId)) || history[0];
+          stageEl.innerHTML = buildFullStageRecordCard(selected);
+        } else {
+          const profile = getCloudProfile(activeTargetCloud);
+          stageEl.innerHTML = `
+            <div class="rounded-2xl bg-slate-950/85 border border-slate-800 p-4 space-y-3.5">
+              <div class="flex flex-wrap items-center justify-between gap-2 pb-2 border-b border-slate-800">
+                <div class="text-xs font-bold text-white flex items-center gap-2">
+                  <span class="w-2 h-2 rounded-full bg-[#34A853]"></span>
+                  <span>Governed 5-Stage Dispatch Pipeline (${escapeHtml(profile.label)} Ready)</span>
+                </div>
+                <span class="text-[10px] mono text-slate-400">Zero Standing Write Privileges</span>
+              </div>
+              <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-2.5 text-left">
+                <div class="p-3 rounded-2xl bg-slate-900/90 border border-slate-800 space-y-1">
+                  <div class="text-[10px] font-bold text-[#4285F4]">1. Cloud Health Gate</div>
+                  <p class="text-[10px] text-slate-400">Verifies ${escapeHtml(profile.label)} regional status before allowing any write action.</p>
+                </div>
+                <div class="p-3 rounded-2xl bg-slate-900/90 border border-slate-800 space-y-1">
+                  <div class="text-[10px] font-bold text-[#FBBC04]">2. Policy &amp; 15m JIT</div>
+                  <p class="text-[10px] text-slate-400">Runs OPA safety checks, locks resource, and mints a 15-minute key only on your sign-off.</p>
+                </div>
+                <div class="p-3 rounded-2xl bg-slate-900/90 border border-slate-800 space-y-1">
+                  <div class="text-[10px] font-bold text-[#34A853]">3. Specialist Execution</div>
+                  <p class="text-[10px] text-slate-400">Dispatches the right domain specialist(s) via A2A JSON-RPC 2.0.</p>
+                </div>
+                <div class="p-3 rounded-2xl bg-slate-900/90 border border-slate-800 space-y-1">
+                  <div class="text-[10px] font-bold text-[#4285F4]">4. GitOps PR Sync</div>
+                  <p class="text-[10px] text-slate-400">Correlates suspect releases and opens a reconciliation PR to prevent drift.</p>
+                </div>
+                <div class="p-3 rounded-2xl bg-slate-900/90 border border-slate-800 space-y-1">
+                  <div class="text-[10px] font-bold text-[#34A853]">5. Post-Fix Health Watch</div>
+                  <p class="text-[10px] text-slate-400">Watches 45s logs + 3m metrics and auto-reverts if errors return.</p>
+                </div>
+              </div>
+              <div class="flex flex-wrap items-center justify-between gap-2 pt-1 text-[11px] text-slate-400">
+                <span>No dispatches recorded yet in this session. Poll live logs or ask Atlas to see every stage light up live.</span>
+                <div class="flex items-center gap-2">
+                  <button type="button" onclick="pollLiveCloudLogging()" class="px-3 py-1 rounded-full bg-slate-900 hover:bg-slate-800 border border-slate-700 text-xs text-white cursor-pointer">
+                    <i class="fa-solid fa-satellite-dish text-[#4285F4] mr-1"></i>Poll Live Logs
+                  </button>
+                  <button type="button" onclick="openDirectAtlasChat()" class="g-btn-blue px-3 py-1 rounded-full text-xs font-semibold cursor-pointer">
+                    Ask Atlas →
+                  </button>
+                </div>
+              </div>
+            </div>
+          `;
+        }
+      }
+
+      // 3. Render Clickable History Feed
+      if (listEl) {
+        if (!history.length) {
+          listEl.innerHTML = `<div class="p-4 rounded-xl bg-slate-950/60 border border-slate-800 text-center text-xs text-slate-400">Dispatches from Incident Approvals, Live ADK Specialists, and Atlas Chat appear here automatically.</div>`;
+        } else {
+          const activeId = (selectedDispatchId && history.some(h => h.dispatch_id === selectedDispatchId))
+            ? selectedDispatchId
+            : history[0].dispatch_id;
+          listEl.innerHTML = history.map(item => {
+            const isSel = item.dispatch_id === activeId;
+            const isBlk = item.status === 'BLOCKED_PROVIDER_OUTAGE';
+            const isWait = item.status === 'AWAITING_HITL_APPROVAL';
+            const stCls = isBlk ? 'g-badge-red' : (isWait ? 'g-badge-yellow' : 'g-badge-green');
+            const stText = isBlk ? 'Outage Held' : (isWait ? 'Awaiting Approval' : (item.mode === 'LIVE_A2A_SPECIALIST' ? 'Live ADK' : 'Verified'));
+            return `
+              <button type="button" onclick="selectDispatchRecord('${escapeHtml(item.dispatch_id)}')"
+                class="w-full text-left p-3 rounded-2xl border transition cursor-pointer flex flex-wrap items-center justify-between gap-2 ${
+                  isSel ? 'bg-[#4285F4]/12 border-[#4285F4]/70' : 'bg-slate-950/75 hover:bg-slate-900/90 border-slate-800'
+                }">
+                <div class="min-w-0 flex-1 space-y-0.5">
+                  <div class="flex flex-wrap items-center gap-1.5">
+                    <span class="${stCls} px-2 py-0.5 rounded-full text-[9px] font-semibold">${escapeHtml(stText)}</span>
+                    <span class="text-xs font-bold text-white truncate">${escapeHtml(item.title || item.workload || 'Specialist Dispatch')}</span>
+                  </div>
+                  <div class="text-[10px] text-slate-400 flex flex-wrap items-center gap-1.5">
+                    <span class="text-[#34A853] font-semibold">${escapeHtml((item.coordinated_specialists || [item.primary_specialist || 'Specialist']).join(' + '))}</span>
+                    <span>•</span>
+                    <span class="mono">${escapeHtml(String(item.target_cloud || 'gcp').toUpperCase())} / ${escapeHtml(item.region || 'us-central1')}</span>
+                    ${item.workload ? `<span>•</span><span class="mono truncate">${escapeHtml(item.workload)}</span>` : ''}
+                  </div>
+                </div>
+                <span class="mono text-[10px] text-slate-500 shrink-0">${formatAuditTime(item.timestamp)}</span>
+              </button>
+            `;
+          }).join('');
+        }
+      }
+    }
 
     function detectLikelySpecialist(text) {
       const q = String(text || '').toLowerCase();
@@ -3355,6 +3702,7 @@
       if (stageEl) {
         stageEl.innerHTML = renderLiveDispatchTrackerCard(activeDispatchTracker);
       }
+      renderSidePanelDispatchView(latestState || {});
 
       dispatchTimerInterval = setInterval(() => {
         if (!activeDispatchTracker) return;
@@ -3371,6 +3719,7 @@
           const clk = document.getElementById('dispatchElapsedClock');
           if (clk) clk.textContent = `${(elapsedMs / 1000).toFixed(1)}s`;
         }
+        renderSidePanelDispatchView(latestState || {});
       }, 150);
     }
 
@@ -3380,6 +3729,7 @@
         dispatchTimerInterval = null;
       }
       activeDispatchTracker = null;
+      renderSidePanelDispatchView(latestState || {});
     }
 
     function renderCompletedDispatchStepper(inc) {
@@ -3640,6 +3990,8 @@
         specialist,
         stages
       };
+      activeChatDispatchCfg = cfg;
+      renderSidePanelDispatchView(latestState || {});
 
       const wrapper = document.createElement('div');
       wrapper.id = 'chatLiveDispatchMount';
@@ -3650,18 +4002,20 @@
       const stepMs = mode === 'terraform' ? 420 : 650;
       chatDispatchTimerInterval = setInterval(() => {
         const mount = document.getElementById('chatLiveDispatchMount');
-        if (!mount) return;
         const elapsedMs = Date.now() - cfg.startedAt;
         const nextStep = Math.min(cfg.stages.length - 1, Math.floor(elapsedMs / stepMs));
         if (nextStep !== cfg.activeStep) {
           cfg.activeStep = nextStep;
-          mount.innerHTML = renderInlineChatDispatchBubble(cfg);
-          const box = document.getElementById(containerId);
-          if (box) box.scrollTop = box.scrollHeight;
+          if (mount) {
+            mount.innerHTML = renderInlineChatDispatchBubble(cfg);
+            const box = document.getElementById(containerId);
+            if (box) box.scrollTop = box.scrollHeight;
+          }
         } else {
           const clk = document.getElementById('chatDispatchClock');
           if (clk) clk.textContent = `${(elapsedMs / 1000).toFixed(1)}s`;
         }
+        renderSidePanelDispatchView(latestState || {});
       }, 150);
     }
 
@@ -3671,6 +4025,8 @@
         chatDispatchTimerInterval = null;
       }
       chatDispatchInFlight = false;
+      activeChatDispatchCfg = null;
+      renderSidePanelDispatchView(latestState || {});
     }
 
     function renderChatBubbles(messages) {
@@ -4623,7 +4979,8 @@
         btn.innerHTML = `<i class="fa-solid fa-spinner fa-spin"></i><span>Dispatching Specialist Agent...</span>`;
       }
 
-      document.getElementById('card-gke-assist-agent').classList.add('agent-active');
+      const gkeCard = document.getElementById('card-gke-assist-agent');
+      if (gkeCard) gkeCard.classList.add('agent-active');
       const incObj = ((latestState && latestState.incidents) || []).find(i => i.incident_id === incidentId);
       const startedAt = Date.now();
       startIncidentDispatchTracker(incObj || { incident_id: incidentId });
@@ -4707,26 +5064,52 @@
 
       if (btn) btn.disabled = true;
       if (liveIcon) liveIcon.className = 'fa-solid fa-spinner fa-spin text-[#4285F4]';
-      if (liveText) liveText.textContent = 'Polling GCP...';
+      if (liveText) liveText.textContent = `Polling ${getCloudProfile(activeTargetCloud).label}...`;
       if (drawerIcon) drawerIcon.className = 'fa-solid fa-rotate fa-spin mr-1';
 
-      document.getElementById('card-log-watcher-agent').classList.add('agent-active');
+      const watcherCardEl = document.getElementById('card-log-watcher-agent');
+      if (watcherCardEl) watcherCardEl.classList.add('agent-active');
 
+      const controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
+      const timeoutId = controller ? setTimeout(() => controller.abort(), 35000) : null;
+      let pollFailed = false;
       try {
-        await fetch('/api/poll-cloud-logging', { method: 'POST' });
+        const res = await fetch('/api/poll-cloud-logging', {
+          method: 'POST',
+          signal: controller ? controller.signal : undefined
+        });
+        if (!res.ok) {
+          throw new Error(`HTTP ${res.status}`);
+        }
+        lastStageSignature = '';
         await fetchState(true);
+      } catch (err) {
+        pollFailed = true;
+        console.error('Poll Live Logs failed or timed out:', err);
+        if (liveText) {
+          liveText.textContent = (err && err.name === 'AbortError') ? 'Poll Timed Out' : 'Poll Failed';
+        }
       } finally {
+        if (timeoutId) clearTimeout(timeoutId);
         if (btn) btn.disabled = false;
         if (liveIcon) liveIcon.className = 'fa-solid fa-satellite-dish text-[#4285F4]';
-        if (liveText) liveText.textContent = 'Poll Live Logs';
         if (drawerIcon) drawerIcon.className = 'fa-solid fa-rotate mr-1';
+        if (pollFailed && liveText) {
+          setTimeout(() => {
+            if (liveText) liveText.textContent = 'Poll Live Logs';
+          }, 2500);
+        } else if (liveText) {
+          liveText.textContent = 'Poll Live Logs';
+        }
       }
     }
 
+    updateTargetCloudSwitcherUI();
     renderPlatformCloudMatrix(selectedPlatformCloud);
+    renderSidePanelDispatchView({});
     initGoogleSsoSession();
     fetchState();
-    setInterval(fetchState, 5000);
+    setInterval(fetchState, 8000);
   </script>
 </body>
 </html>

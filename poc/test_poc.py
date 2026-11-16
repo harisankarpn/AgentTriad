@@ -33,15 +33,20 @@ def run_e2e_tests() -> None:
     assert "Audit &amp; Event Tracker" in res_ui.text
     for nav_id in (
         "nav-command",
+        "nav-dispatch",
         "nav-roster",
         "nav-audit",
         "nav-logs",
         "nav-features",
         "view-command",
+        "view-dispatch",
         "view-roster",
         "view-audit",
         "view-logs",
         "view-features",
+        "sidebarDispatchMini",
+        "sidePanelDispatchStage",
+        "sidePanelDispatchHistory",
         "platformCloudTabs",
         "platformCloudMatrixGrid",
         "btnOpenDirectChat",
@@ -76,11 +81,20 @@ def run_e2e_tests() -> None:
         "startInlineChatDispatch",
         "selectPlatformCloudTab",
         "launchWorkflowMode",
+        "detectDeployedCloudFromUrl",
+        "updateCloudHealthCard",
+        "renderSidePanelDispatchView",
+        "focusActiveCloudIssue",
+        "Post-Fix Auto-Rollback",
+        "Live Health Watch",
+        "Provider:",
         "Cloud Outage Safety Brake",
         "Five-Layer Zero-Trust Protection",
         "Bounded AI",
     ):
         assert p4_ui_token in res_ui.text, f"Missing Multi-Cloud / Phase 4 / Dispatch UI token {p4_ui_token} in Dashboard UI"
+    assert "pipelineStepsDrawer" not in res_ui.text, "Redundant center-stage pipelineStepsDrawer should be removed"
+    assert "capabilitiesBannerGrid" not in res_ui.text, "Redundant center-stage capabilitiesBannerGrid should be removed"
     assert "Sign in to AaaS Command Center" in res_ui.text
     assert "Continue with Google SSO" in res_ui.text
     assert "accounts.google.com/gsi/client" in res_ui.text
@@ -403,11 +417,14 @@ def run_e2e_tests() -> None:
         f"Executed ({resolved_inc['execution_result']['reconciliation_pr']}) & 45s Watchdog Verified!"
     )
 
-    # 6. Verify Audit & Event Tracker and Agent Harness Status endpoint
+    # 6. Verify Audit & Event Tracker, Dispatch History, and Agent Harness Status endpoint
     state_res = client.get("/api/state")
     assert state_res.status_code == 200
     state_json = state_res.json()
     assert "agent_harness_status" in state_json
+    assert "dispatch_history" in state_json and isinstance(state_json["dispatch_history"], list)
+    assert len(state_json["dispatch_history"]) >= 1, "Expected persisted dispatch_history entries in /api/state"
+    assert state_json["dispatch_history"][0].get("primary_specialist"), state_json["dispatch_history"][0]
     ledger = state_json["a2a_ledger"]
     assert len(ledger) >= 3
     audit_events_2 = state_json["audit_events"]

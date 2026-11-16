@@ -13,7 +13,9 @@ Hosts:
 
 from __future__ import annotations
 
+import asyncio
 import os
+import time
 from pathlib import Path
 from typing import Any, Dict, Optional
 
@@ -51,8 +53,10 @@ if STATIC_DIR.exists():
     app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 
 # Initialize core services and the 3-Agent Triad on the A2A Protocol Hub
+# `initial_poll=False` prevents blocking container startup on Cloud Logging queries;
+# logs are warmed asynchronously on FastAPI startup and refreshed in the background.
 a2a_hub = A2AProtocolHub()
-logging_service = CloudLoggingService()
+logging_service = CloudLoggingService(initial_poll=False)
 remediator = GKERemediator(logging_service=logging_service)
 
 watcher_agent = CloudLoggingWatcherAgent(a2a_hub=a2a_hub, logging_service=logging_service)
@@ -256,6 +260,69 @@ async def serve_dashboard() -> FileResponse:
 _last_watcher_sync_ts: float = 0.0
 _seen_anomaly_ids: set[str] = set()
 _real_poll_cursor: int = 0
+_watcher_refresh_in_flight: bool = False
+_watcher_sync_lock = asyncio.Lock()
+_WATCHER_REFRESH_TTL_SECONDS: float = float(os.getenv("AAAS_WATCHER_REFRESH_TTL_SECONDS", "30.0"))
+
+
+async def _run_watcher_sync_once(force: bool = False) -> None:
+    """Executes one Cloud Logging / remote watcher sync without blocking the asyncio event loop."""
+    global _last_watcher_sync_ts, _watcher_refresh_in_flight
+    async with _watcher_sync_lock:
+        _watcher_refresh_in_flight = True
+        try:
+            _last_watcher_sync_ts = time.time()
+            if os.getenv("WATCHER_AGENT_URL"):
+                try:
+                    scan_resp = await a2a_hub.send_a2a_task(
+                        sender_id="lead-orchestrator-agent",
+                        recipient_id="log-watcher-agent",
+                        skill_id="scan_cloud_logging",
+                        payload={"force": force, "limit": 25},
+                        summary="Poll live Google Cloud Logging across project `agent-triad`",
+                    )
+                    remote_logs = scan_resp.result.get("logs", [])
+                    if remote_logs:
+                        known_local = {item.get("log_id") for item in logging_service._local_logs}
+                        for item in remote_logs:
+                            if item.get("log_id") not in known_local:
+                                logging_service._local_logs.append(item)
+                                known_local.add(item.get("log_id"))
+                        logging_service._local_logs.sort(
+                            key=lambda x: (1 if x.get("is_anomaly") else 0, x.get("timestamp", "")),
+                            reverse=True,
+                        )
+                    if scan_resp.result.get("suppressed_routine_logs") is not None:
+                        logging_service.suppressed_routine_logs_count = max(
+                            logging_service.suppressed_routine_logs_count,
+                            int(scan_resp.result.get("suppressed_routine_logs", 0)),
+                        )
+                    return
+                except Exception:
+                    pass
+            await asyncio.to_thread(
+                logging_service.fetch_recent_logs,
+                25,
+                True,
+                force,
+            )
+        finally:
+            _last_watcher_sync_ts = time.time()
+            _watcher_refresh_in_flight = False
+
+
+async def _background_log_refresh(force: bool = False) -> None:
+    """Fire-and-forget wrapper for background Cloud Logging refreshes so polling never stalls HTTP routes."""
+    try:
+        await _run_watcher_sync_once(force=force)
+    except Exception:
+        pass
+
+
+@app.on_event("startup")
+async def _startup_warm_caches() -> None:
+    """Warm Cloud Logging cache in the background immediately after Uvicorn binds port 8080."""
+    asyncio.create_task(_background_log_refresh(force=False))
 
 
 async def sync_real_logs_from_watcher(
@@ -265,44 +332,18 @@ async def sync_real_logs_from_watcher(
     Polls real Google Cloud Logging via `log-watcher-agent` (either remote `agent-triad-watcher`
     Cloud Run service over A2A HTTPS or local `CloudLoggingService`) and optionally escalates
     unseen real GCP errors to `lead-orchestrator-agent`.
+
+    When `force=False` (used by `GET /api/state`), returns cached logs immediately (<5ms) and
+    schedules a single coalesced background refresh when the TTL expires so dashboard reloads
+    never block on external Cloud Logging RPCs.
     """
-    import time
-
-    global _last_watcher_sync_ts
     now_ts = time.time()
-    should_sync = force or (now_ts - _last_watcher_sync_ts >= 12.0)
+    should_sync = force or (now_ts - _last_watcher_sync_ts >= _WATCHER_REFRESH_TTL_SECONDS)
 
-    if os.getenv("WATCHER_AGENT_URL") and should_sync:
-        _last_watcher_sync_ts = now_ts
-        try:
-            scan_resp = await a2a_hub.send_a2a_task(
-                sender_id="lead-orchestrator-agent",
-                recipient_id="log-watcher-agent",
-                skill_id="scan_cloud_logging",
-                payload={"force": force, "limit": 25},
-                summary="Poll live Google Cloud Logging across project `agent-triad`",
-            )
-            remote_logs = scan_resp.result.get("logs", [])
-            if remote_logs:
-                known_local = {item.get("log_id") for item in logging_service._local_logs}
-                for item in remote_logs:
-                    if item.get("log_id") not in known_local:
-                        logging_service._local_logs.append(item)
-                        known_local.add(item.get("log_id"))
-                logging_service._local_logs.sort(
-                    key=lambda x: (1 if x.get("is_anomaly") else 0, x.get("timestamp", "")),
-                    reverse=True,
-                )
-            if scan_resp.result.get("suppressed_routine_logs") is not None:
-                logging_service.suppressed_routine_logs_count = max(
-                    logging_service.suppressed_routine_logs_count,
-                    int(scan_resp.result.get("suppressed_routine_logs", 0)),
-                )
-        except Exception:
-            logging_service.fetch_recent_logs(limit=25, poll_gcp=True, force=force)
-    elif should_sync:
-        _last_watcher_sync_ts = now_ts
-        logging_service.fetch_recent_logs(limit=25, poll_gcp=True, force=force)
+    if force:
+        await _run_watcher_sync_once(force=True)
+    elif should_sync and not _watcher_refresh_in_flight:
+        asyncio.create_task(_background_log_refresh(force=False))
 
     logs = logging_service.fetch_recent_logs(limit=25, poll_gcp=False)
 
@@ -353,6 +394,7 @@ def _build_platform_runtime() -> Dict[str, Any]:
 async def get_system_state() -> Dict[str, Any]:
     """Returns real-time state of all 3 agents, live GCP Cloud Logging stream, incidents, audit tracker, and A2A traces."""
     logs = await sync_real_logs_from_watcher(force=False, auto_escalate=False)
+    platform_runtime = await asyncio.to_thread(_build_platform_runtime)
     return {
         "gcp_status": {
             "project_id": logging_service.project_id,
@@ -362,13 +404,14 @@ async def get_system_state() -> Dict[str, Any]:
             "suppressed_routine_logs": logging_service.suppressed_routine_logs_count,
             "heartbeat_metric": "custom.googleapis.com/aaas/heartbeat_tick (15s PASS)",
         },
-        "platform_runtime": _build_platform_runtime(),
+        "platform_runtime": platform_runtime,
         "agents": [card.model_dump() for card in a2a_hub.agents.values()],
         "worker_boutique": WORKER_AGENT_BOUTIQUE,
         "agent_harness_status": agent_harness.get_global_harness_status(),
         "logs": logs,
         "incidents": lead_orchestrator.list_incidents(),
         "audit_events": lead_orchestrator.list_audit_events(),
+        "dispatch_history": lead_orchestrator.list_dispatch_history(),
         "general_chat_messages": lead_orchestrator.list_general_chat_messages(),
         "active_session_id": lead_orchestrator.active_session_id,
         "chat_sessions": lead_orchestrator.list_chat_sessions(),
@@ -391,10 +434,11 @@ async def set_platform_target_cloud(req: SetTargetCloudRequest) -> Dict[str, Any
         updated_cloud = lead_orchestrator.set_target_cloud(req.target_cloud)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+    platform_runtime = await asyncio.to_thread(_build_platform_runtime)
     return {
         "status": "TARGET_CLOUD_UPDATED",
         "target_cloud": updated_cloud,
-        "platform_runtime": _build_platform_runtime(),
+        "platform_runtime": platform_runtime,
     }
 
 
@@ -405,7 +449,8 @@ async def get_cloud_provider_preflight_status(
     service: Optional[str] = None,
 ) -> Dict[str, Any]:
     """Pre-flight Cloud Provider regional outage check (`gcp` | `aws` | `azure`)."""
-    return cloud_status_service.check_region_status(
+    return await asyncio.to_thread(
+        cloud_status_service.check_region_status,
         cloud_provider=cloud,
         region=region,
         service_hint=service,

@@ -9,6 +9,7 @@ enriched with the unified OpenTelemetry anomaly schema (`normalize_otel_anomaly`
 
 from __future__ import annotations
 
+import concurrent.futures
 import datetime
 import os
 import time
@@ -514,13 +515,22 @@ class GCPCloudLoggingAdapter(TelemetryIngestionAdapter):
         if should_poll:
             self._last_poll_time = now_ts
             try:
+                lookback_hours = max(1, int(os.getenv("AAAS_LOG_LOOKBACK_HOURS", "72")))
+                since_iso = (
+                    datetime.datetime.now(datetime.timezone.utc)
+                    - datetime.timedelta(hours=lookback_hours)
+                ).isoformat()
+
                 # 0. Prioritize real Cloud SQL (`testdbinstance1`) and Cloud SQL Auth Proxy FATAL/ALERT/ERROR logs
                 cloudsql_anomaly_filter = (
+                    f'timestamp>="{since_iso}" AND ('
                     '(resource.type="cloudsql_database" AND (severity>=WARNING OR textPayload:"FATAL")) '
                     'OR (logName:"cloud-sql-proxy" AND severity>=WARNING)'
+                    ')'
                 )
                 # 1. Query real warnings/errors across Cloud SQL, GCE VMs, Cloud Run, Cloud Functions & ReasoningEngine
                 anomaly_filter = (
+                    f'timestamp>="{since_iso}" AND '
                     '(resource.type="cloudsql_database" OR resource.type="gce_instance" '
                     'OR resource.type="cloud_run_revision" OR resource.type="cloud_function" '
                     'OR resource.type="aiplatform.googleapis.com/ReasoningEngine") '
@@ -531,30 +541,39 @@ class GCPCloudLoggingAdapter(TelemetryIngestionAdapter):
                 )
                 # 2. Query recent general operational logs (Cloud SQL, Cloud Run startup/system, GCE)
                 telemetry_filter = (
+                    f'timestamp>="{since_iso}" AND '
                     '(resource.type="cloudsql_database" OR resource.type="cloud_run_revision" '
                     'OR resource.type="gce_instance" OR resource.type="aiplatform.googleapis.com/ReasoningEngine") '
                     'AND NOT protoPayload.@type="type.googleapis.com/google.cloud.audit.AuditLog" '
                     'AND NOT logName:"ops-agent-health"'
                 )
 
-                raw_entries = []
-                for flt, max_res in (
-                    (cloudsql_anomaly_filter, 15),
-                    (anomaly_filter, 25),
-                    (telemetry_filter, 25),
-                ):
+                def _query_entries(flt: str, max_res: int) -> List[Any]:
                     try:
-                        raw_entries.extend(
-                            list(
-                                self._client.list_entries(
-                                    filter_=flt,
-                                    order_by=gcp_logging.DESCENDING,
-                                    max_results=max_res,
-                                )
+                        return list(
+                            self._client.list_entries(
+                                filter_=flt,
+                                order_by=gcp_logging.DESCENDING,
+                                max_results=max_res,
+                                page_size=max_res,
                             )
                         )
                     except Exception:
-                        pass
+                        return []
+
+                raw_entries: List[Any] = []
+                query_specs = (
+                    (cloudsql_anomaly_filter, 15),
+                    (anomaly_filter, 25),
+                    (telemetry_filter, 25),
+                )
+                with concurrent.futures.ThreadPoolExecutor(max_workers=3) as pool:
+                    futures = [pool.submit(_query_entries, flt, mr) for flt, mr in query_specs]
+                    for fut in futures:
+                        try:
+                            raw_entries.extend(fut.result(timeout=10.0))
+                        except Exception:
+                            pass
 
                 known_ids = {item.get("log_id") for item in self._local_logs}
                 existing_sig_ts = {

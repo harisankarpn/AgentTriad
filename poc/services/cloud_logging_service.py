@@ -59,6 +59,7 @@ class CloudLoggingService:
         project_id: str = PROJECT_ID,
         provider: Optional[str] = None,
         adapter: Optional[TelemetryIngestionAdapter] = None,
+        initial_poll: bool = True,
     ) -> None:
         self.project_id = project_id
         self.log_name = LOG_NAME
@@ -66,7 +67,7 @@ class CloudLoggingService:
             provider=provider,
             project_id=project_id,
             log_name=self.log_name,
-            initial_poll=True,
+            initial_poll=initial_poll,
         )
 
     @property
