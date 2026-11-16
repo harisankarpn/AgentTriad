@@ -77,11 +77,16 @@ def run_e2e_tests() -> None:
         "btnBulkQueueSeparate",
         "multiAlertOptionsRow",
         "btnOpenTicketIntake",
+        "btnQuickRecreateScenario1",
+        "btnRecreateScenario1Modal",
         "ticketIntakeModal",
     ):
         assert nav_id in res_ui.text, f"Missing sidebar/view/theme/SSO/session/cloud element {nav_id} in Dashboard UI"
     for p4_ui_token in (
         "renderOutageBlockedCard",
+        "renderFailedRemediationCard",
+        "recreateScenario1Fault",
+        "REMEDIATION_FAILED",
         "renderPhase4IntelligencePanels",
         "recheckIncidentProvider",
         "BLOCKED_PROVIDER_OUTAGE",
@@ -1363,10 +1368,89 @@ def run_e2e_tests() -> None:
     )
     assert sec_reject.status_code == 200
     assert sec_reject.json()["result"]["status"] == "REJECTED_INVALID_JIT_TOKEN"
+
+    # 14g. Honest Failure Handling: 403 / LIVE_IAM_EXECUTION_ERROR MUST mark REMEDIATION_FAILED (never RESOLVED) & log ERROR
+    from services.security_iam_service import security_iam_service as _live_iam_svc
+    from app import logging_service as _app_log_svc
+
+    fail_ticket_res = client.post(
+        "/api/tickets/ingest",
+        json={
+            "customer_name": "HSBC Global Services (UK) Limited",
+            "project_id": "projects/agent-triad",
+            "region": "europe-west2",
+            "service_agent_email": "service-1041190629307@gcp-sa-datastream.iam.gserviceaccount.com",
+        },
+    )
+    assert fail_ticket_res.status_code == 200
+    fail_inc_id = fail_ticket_res.json()["incident_id"]
+
+    _orig_apply = _live_iam_svc.apply_iam_policy_binding_live
+
+    def _mock_403_apply(*args, **kwargs):
+        return {
+            "status": "LIVE_IAM_EXECUTION_ERROR",
+            "live_executed": False,
+            "project_id": "agent-triad",
+            "member": "serviceAccount:service-1041190629307@gcp-sa-datastream.iam.gserviceaccount.com",
+            "role": "roles/compute.networkAdmin",
+            "command": expected_live_cli,
+            "jit_token_id": kwargs.get("jit_token_id", ""),
+            "jit_impersonation_mode": "LIVE_GCP_ADMIN_FALLBACK_TOKEN",
+            "impersonation_error": "HTTP 403 simulated impersonation denial",
+            "verified_after_apply": False,
+            "error": "HTTPStatusError: Client error '403 Forbidden' for url 'https://cloudresourcemanager.googleapis.com/v1/projects/agent-triad:setIamPolicy'",
+            "summary": "[Security Agent • GCP IAM API] Live setIamPolicy error: HTTPStatusError: Client error '403 Forbidden'",
+        }
+
+    try:
+        _live_iam_svc.apply_iam_policy_binding_live = _mock_403_apply
+        approve_fail_res = client.post(
+            f"/api/incidents/{fail_inc_id}/approve",
+            json={"approved_by": "Hari", "execution_mode": "live"},
+        )
+    finally:
+        _live_iam_svc.apply_iam_policy_binding_live = _orig_apply
+
+    assert approve_fail_res.status_code == 200, approve_fail_res.text
+    fail_body = approve_fail_res.json()
+    assert fail_body["status"] == "REMEDIATION_FAILED", f"Expected REMEDIATION_FAILED, got {fail_body['status']}"
+    fail_inc = fail_body["incident"]
+    assert fail_inc["status"] == "REMEDIATION_FAILED", f"Must NOT claim RESOLVED on 403! Got {fail_inc['status']}"
+    assert fail_inc.get("resolved_at") is None
+    assert fail_inc["execution_result"]["status"] == "FAILED"
+    assert fail_inc["execution_result"].get("reconciliation_pr") is None
+    assert fail_inc["iam_audit"]["binding_present"] is False
+    assert any(
+        (lg.get("severity") == "ERROR" and "403 Forbidden" in str(lg.get("message", "")) and lg.get("error_code") == "REMEDIATION_ERROR")
+        for lg in _app_log_svc._local_logs[:10]
+    ), "Expected ERROR log entry in Cloud Logging / View Logs stream on live IAM 403 failure"
+
+    # Reopen failed incident cleanly back to AWAITING_HITL_APPROVAL
+    reopen_fail_res = client.post(f"/api/incidents/{fail_inc_id}/reopen")
+    assert reopen_fail_res.status_code == 200
+    assert reopen_fail_res.json()["incident"]["status"] == "AWAITING_HITL_APPROVAL"
+
+    # 14h. One-Click Scenario 1 Fault Re-Creator endpoint + strict sandbox guardrail
+    recreate_ok = client.post(
+        "/api/scenarios/datastream-iam-drift/recreate",
+        json={"execute_live": False},
+    )
+    assert recreate_ok.status_code == 200, recreate_ok.text
+    assert recreate_ok.json()["status"] == "FAULT_RECREATED_SANDBOX_DRY_RUN"
+    assert recreate_ok.json()["verified_stripped"] is True
+
+    recreate_blocked = client.post(
+        "/api/scenarios/datastream-iam-drift/recreate",
+        json={"project_id": "projects/HSBC_Target", "execute_live": False},
+    )
+    assert recreate_blocked.status_code == 400, f"External project reset must be blocked, got {recreate_blocked.status_code}"
+
     print(
         "[PASS] Scenario 1 Live Datastream IAM Drift Role-Play verified: real GCP audit log normalizer, "
         "live Security Agent + Infra Agent Cloud Run ADK A2A parallel delegation, Phase 1-4 Blameless RCA, "
-        "exact live CLI, HSBC reference ticket, Direct Atlas Chat, and strict Stage 2 HITL zero-autonomy!"
+        "exact live CLI, HSBC reference ticket, Direct Atlas Chat, honest 403 REMEDIATION_FAILED + Cloud Logging ERROR, "
+        "1-click Scenario 1 fault re-creator (+sandbox guardrail), and strict Stage 2 HITL zero-autonomy!"
     )
 
 

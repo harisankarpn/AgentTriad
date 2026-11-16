@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import datetime
 import json
+import logging
 import os
 import re
 import shlex
@@ -30,6 +31,8 @@ from typing import Any, Dict, List, Optional
 import httpx
 
 from services.gcp_auth import get_gcp_credentials
+
+logger = logging.getLogger("agent_triad.security_iam")
 
 try:
     from google.auth.transport.requests import Request as GoogleAuthRequest
@@ -183,6 +186,12 @@ class SecurityIAMService:
                     "expire_time": data.get("expireTime"),
                     "lifetime_seconds": int(lifetime_seconds),
                 }
+            logger.error(
+                "[SecurityIAMService] JIT generateAccessToken failed for %s (HTTP %s): %s",
+                sa_email,
+                resp.status_code,
+                resp.text[:240],
+            )
             return {
                 "minted": False,
                 "mode": "IMPERSONATION_FALLBACK",
@@ -191,6 +200,12 @@ class SecurityIAMService:
                 "error": resp.text[:240],
             }
         except Exception as exc:
+            logger.error(
+                "[SecurityIAMService] JIT generateAccessToken exception for %s: %s: %s",
+                sa_email,
+                type(exc).__name__,
+                exc,
+            )
             return {
                 "minted": False,
                 "mode": "IMPERSONATION_FALLBACK",
@@ -446,6 +461,7 @@ class SecurityIAMService:
                 "command": cli_cmd,
                 "jit_token_id": jit_token_id,
                 "jit_impersonation_mode": jit_mode,
+                "impersonation_error": None if impersonated.get("minted") else impersonated.get("error"),
                 "verified_after_apply": False,
                 "summary": "Unable to obtain GCP credentials to execute setIamPolicy.",
                 "completed_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
@@ -518,6 +534,17 @@ class SecurityIAMService:
                 "completed_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
             }
         except Exception as exc:
+            err_msg = f"{type(exc).__name__}: {exc}"
+            imp_err = None if impersonated.get("minted") else impersonated.get("error")
+            logger.error(
+                "[SecurityIAMService] Live setIamPolicy FAILED on %s (member=%s, role=%s, jit_mode=%s, imp_err=%s): %s",
+                clean_project,
+                member,
+                role,
+                jit_mode,
+                imp_err,
+                err_msg,
+            )
             return {
                 "status": "LIVE_IAM_EXECUTION_ERROR",
                 "live_executed": False,
@@ -527,9 +554,196 @@ class SecurityIAMService:
                 "command": cli_cmd,
                 "jit_token_id": jit_token_id,
                 "jit_impersonation_mode": jit_mode,
+                "impersonation_error": imp_err,
                 "verified_after_apply": False,
-                "error": f"{type(exc).__name__}: {exc}",
-                "summary": f"[Security Agent • GCP IAM API] Live setIamPolicy error: {type(exc).__name__}: {exc}",
+                "error": err_msg,
+                "summary": f"[Security Agent • GCP IAM API] Live setIamPolicy error: {err_msg}",
+                "started_at": started_at,
+                "completed_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+            }
+
+    def remove_datastream_iam_bindings_live(
+        self,
+        project_id: Optional[str] = None,
+        service_agent_email: Optional[str] = None,
+        roles_to_remove: Optional[List[str]] = None,
+        execute_live: bool = True,
+    ) -> Dict[str, Any]:
+        """
+        Re-creates the Scenario 1 Datastream IAM Drift fault strictly for the sandbox
+        Datastream Service Agent on `self.project_id` (`agent-triad`), enabling repeatable
+        multi-team demos via a single click.
+
+        Safety Guardrail: Refuses to remove IAM bindings from any project other than
+        `self.project_id` or any member other than the sandbox Datastream service agent
+        (`service-{project_number}@gcp-sa-datastream.iam.gserviceaccount.com`).
+        """
+        clean_project = (project_id or self.project_id).replace("projects/", "").strip() or self.project_id
+        expected_sa = self.default_datastream_service_agent(self.project_id)
+        sa_email = (service_agent_email or expected_sa).strip()
+        if sa_email.startswith("serviceAccount:"):
+            sa_email = sa_email.split(":", 1)[1]
+        member = f"serviceAccount:{sa_email}"
+        target_roles = list(roles_to_remove or ["roles/compute.networkAdmin", "roles/datastream.serviceAgent"])
+        started_at = datetime.datetime.now(datetime.timezone.utc).isoformat()
+
+        # Strict guardrail: only allow re-arming the sandbox Datastream SA in our own project
+        if clean_project != self.project_id or sa_email != expected_sa:
+            return {
+                "status": "REJECTED_BY_SANDBOX_GUARDRAIL",
+                "live_executed": False,
+                "project_id": clean_project,
+                "member": member,
+                "removed_roles": [],
+                "remaining_roles": [],
+                "verified_stripped": False,
+                "error": (
+                    f"Scenario 1 fault re-creation is strictly restricted to sandbox project `{self.project_id}` "
+                    f"and Datastream service agent `{expected_sa}`."
+                ),
+                "summary": (
+                    f"[Guardrail] Blocked IAM removal outside sandbox `{self.project_id}` / `{expected_sa}`."
+                ),
+                "started_at": started_at,
+                "completed_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+            }
+
+        if not execute_live:
+            return {
+                "status": "FAULT_RECREATED_SANDBOX_DRY_RUN",
+                "live_executed": False,
+                "project_id": clean_project,
+                "member": member,
+                "removed_roles": target_roles,
+                "remaining_roles": [],
+                "verified_stripped": True,
+                "jit_impersonation_mode": "SANDBOX_DRY_RUN",
+                "summary": (
+                    f"[Scenario 1 Demo Reset • Dry-Run] Re-armed Datastream IAM drift for `{sa_email}` on `{clean_project}`."
+                ),
+                "started_at": started_at,
+                "completed_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+            }
+
+        impersonated = self.mint_gcp_sandbox_jit_token(lifetime_seconds=900)
+        exec_token = impersonated.get("access_token") if impersonated.get("minted") else self._get_bearer_token()
+        jit_mode = (
+            f"LIVE_15M_IMPERSONATED_TOKEN ({self.sandbox_sa}, expires {impersonated.get('expire_time')})"
+            if impersonated.get("minted")
+            else "LIVE_GCP_ADMIN_FALLBACK_TOKEN"
+        )
+        if not exec_token:
+            return {
+                "status": "LIVE_IAM_EXECUTION_ERROR",
+                "live_executed": False,
+                "project_id": clean_project,
+                "member": member,
+                "removed_roles": [],
+                "remaining_roles": [],
+                "verified_stripped": False,
+                "jit_impersonation_mode": jit_mode,
+                "impersonation_error": None if impersonated.get("minted") else impersonated.get("error"),
+                "error": "Unable to obtain GCP credentials to re-create Scenario 1 IAM drift.",
+                "summary": "Unable to obtain GCP credentials to re-create Scenario 1 IAM drift.",
+                "started_at": started_at,
+                "completed_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+            }
+
+        try:
+            policy = self._get_iam_policy(clean_project, exec_token)
+            policy["version"] = 3
+            bindings = list(policy.get("bindings") or [])
+
+            removed_roles: List[str] = []
+            updated_bindings: List[Dict[str, Any]] = []
+            for binding in bindings:
+                b_role = str(binding.get("role") or "")
+                members_list = list(binding.get("members") or [])
+                if b_role in target_roles and member in members_list:
+                    new_members = [m for m in members_list if m != member]
+                    removed_roles.append(b_role)
+                    if new_members:
+                        updated_binding = dict(binding)
+                        updated_binding["members"] = new_members
+                        updated_bindings.append(updated_binding)
+                else:
+                    updated_bindings.append(binding)
+
+            updated_etag = policy.get("etag")
+            if removed_roles:
+                policy["bindings"] = updated_bindings
+                set_url = f"https://cloudresourcemanager.googleapis.com/v1/projects/{clean_project}:setIamPolicy"
+                with httpx.Client(timeout=10.0) as client:
+                    resp = client.post(
+                        set_url,
+                        headers={
+                            "Authorization": f"Bearer {exec_token}",
+                            "Content-Type": "application/json",
+                        },
+                        json={"policy": policy},
+                    )
+                    resp.raise_for_status()
+                    updated_policy = resp.json()
+                    updated_etag = updated_policy.get("etag")
+                    final_bindings = updated_policy.get("bindings") or []
+            else:
+                final_bindings = bindings
+
+            remaining_roles = sorted(
+                {
+                    str(b.get("role") or "")
+                    for b in final_bindings
+                    if member in (b.get("members") or [])
+                }
+            )
+            verified_stripped = not any(r in remaining_roles for r in target_roles)
+            status = "FAULT_RECREATED_LIVE" if removed_roles else "ALREADY_ARMED_LIVE"
+            return {
+                "status": status,
+                "live_executed": True,
+                "project_id": clean_project,
+                "member": member,
+                "service_agent": sa_email,
+                "removed_roles": removed_roles,
+                "remaining_roles": remaining_roles,
+                "verified_stripped": verified_stripped,
+                "updated_etag": updated_etag,
+                "jit_impersonation_mode": jit_mode,
+                "summary": (
+                    f"[Scenario 1 Demo Reset • Live GCP] Stripped {', '.join(removed_roles)} from `{sa_email}` "
+                    f"on `{clean_project}` via `projects.setIamPolicy` (etag `{updated_etag}`, SetIamPolicy REMOVE audit log written; "
+                    f"remaining roles={len(remaining_roles)})."
+                    if removed_roles
+                    else f"[Scenario 1 Demo Reset • Live GCP] `{sa_email}` on `{clean_project}` is already armed "
+                    f"(0 Datastream/networkAdmin IAM roles present; ready for Support Ticket triage)."
+                ),
+                "started_at": started_at,
+                "completed_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+            }
+        except Exception as exc:
+            err_msg = f"{type(exc).__name__}: {exc}"
+            imp_err = None if impersonated.get("minted") else impersonated.get("error")
+            logger.error(
+                "[SecurityIAMService] Scenario 1 fault re-creation FAILED on %s (%s, jit_mode=%s, imp_err=%s): %s",
+                clean_project,
+                member,
+                jit_mode,
+                imp_err,
+                err_msg,
+            )
+            return {
+                "status": "LIVE_IAM_EXECUTION_ERROR",
+                "live_executed": False,
+                "project_id": clean_project,
+                "member": member,
+                "service_agent": sa_email,
+                "removed_roles": [],
+                "remaining_roles": [],
+                "verified_stripped": False,
+                "jit_impersonation_mode": jit_mode,
+                "impersonation_error": imp_err,
+                "error": err_msg,
+                "summary": f"[Scenario 1 Demo Reset • Error] Failed to strip IAM binding: {err_msg}",
                 "started_at": started_at,
                 "completed_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
             }

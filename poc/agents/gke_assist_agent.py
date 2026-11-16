@@ -77,6 +77,13 @@ class GKEAssistAgent:
     ) -> str:
         """Synthesizes a deterministic, zero-token SRE execution report back to Atlas."""
         coord_names = [s.get("name", specialist_name) for s in (coordinated_specialists or [])] or [specialist_name]
+        if exec_result.get("status") in ("FAILED", "BLOCKED_BY_OPA_POLICY"):
+            err_msg = exec_result.get("error") or exec_result.get("live_stderr") or "Live remediation failed."
+            return (
+                f"{specialist_name} execution FAILED for `{data.get('workload')}` while running "
+                f"`{exec_result.get('command')}` ({exec_result.get('execution_mode')}): {err_msg} "
+                f"State lock `.tflock` released and JIT token revoked; incident NOT resolved."
+            )
         if exec_result.get("has_terraform"):
             tf_res = exec_result.get("terraform_resources_applied", [])
             return (
@@ -159,10 +166,11 @@ class GKEAssistAgent:
                 },
             )
 
+            exec_failed = exec_result.get("status") in ("FAILED", "BLOCKED_BY_OPA_POLICY")
             return A2ATaskResponse(
                 id=request.id,
                 result={
-                    "status": "REMEDIATION_APPLIED",
+                    "status": "REMEDIATION_FAILED" if exec_failed else "REMEDIATION_APPLIED",
                     "agent": self.AGENT_ID,
                     "specialist_worker": specialist,
                     "coordinated_specialists": coordinated_specialists,

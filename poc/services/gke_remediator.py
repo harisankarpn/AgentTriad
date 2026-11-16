@@ -14,11 +14,14 @@ Executes Atlas-authorized GCP remediations via the 7-Agent Specialist Roster at 
 from __future__ import annotations
 
 import datetime
+import logging
 import os
 import shlex
 import subprocess
 import uuid
 from typing import Any, Dict, List, Optional
+
+logger = logging.getLogger("agent_triad.remediator")
 
 from services.agent_harness import OWNED_SERVICES, agent_harness
 from services.gitops_correlator import gitops_correlator
@@ -251,6 +254,70 @@ class GKERemediator:
                 execute_live=(execution_mode == "live"),
             )
             steps.append(iam_execution_result["summary"])
+            iam_status = str(iam_execution_result.get("status") or "")
+            iam_failed = (
+                iam_status in ("LIVE_IAM_EXECUTION_ERROR", "FAILED_NO_CREDENTIALS")
+                or (execution_mode == "live" and iam_execution_result.get("verified_after_apply") is False)
+            )
+            if iam_failed:
+                err_text = (
+                    iam_execution_result.get("error")
+                    or iam_execution_result.get("summary")
+                    or f"Live GCP IAM execution failed ({iam_status})"
+                )
+                live_stderr = err_text
+                release_info = self.harness.release_state_lock(cluster=cluster, namespace=namespace, workload=workload)
+                steps.append(
+                    f"[Agent Harness] Live IAM remediation FAILED ({iam_status}); released state lock `{lock_id}`, "
+                    f"revoked single-use JIT token, and aborted GitOps PR / Watchdog closure."
+                )
+                logger.error(
+                    "[GKERemediator] Live IAM remediation FAILED for incident %s (%s): %s",
+                    incident_id,
+                    command_executed,
+                    err_text,
+                )
+                if self.logging_service is not None:
+                    try:
+                        self.logging_service.record_system_log(
+                            severity="ERROR",
+                            workload=workload,
+                            namespace=namespace,
+                            cluster=cluster,
+                            message=(
+                                f"FAILED live IAM remediation `{command_executed}` for incident {incident_id} "
+                                f"[{iam_status} / {iam_execution_result.get('jit_impersonation_mode', 'unknown')}]: {err_text}"
+                            ),
+                        )
+                    except Exception:
+                        pass
+                return {
+                    "execution_id": f"exec-failed-{uuid.uuid4().hex[:8]}",
+                    "incident_id": incident_id,
+                    "status": "FAILED",
+                    "error": err_text,
+                    "execution_mode": execution_mode,
+                    "command": command_executed,
+                    "has_terraform": tf_validation["has_terraform"],
+                    "terraform_resources_applied": [],
+                    "specialist_worker": specialist,
+                    "coordinated_specialists": coord_list,
+                    "terraform_lock": lock_id,
+                    "reconciliation_pr": None,
+                    "gitops_pr_payload": None,
+                    "iam_execution_result": iam_execution_result,
+                    "steps": steps,
+                    "harness_report": {
+                        "lock_release": release_info,
+                        "opa_policy": policy_eval,
+                        "terraform_dry_run": tf_validation,
+                        "watchdog": {"status": "SKIPPED_EXECUTION_FAILED"},
+                    },
+                    "live_stdout": "",
+                    "live_stderr": live_stderr,
+                    "started_at": started_at,
+                    "completed_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+                }
             live_stdout = iam_execution_result["summary"]
         else:
             gcp_api_step = self._inspect_or_remediate_gcp_api(

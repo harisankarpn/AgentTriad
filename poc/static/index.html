@@ -495,6 +495,10 @@
             <span>Support Ticket</span>
           </button>
 
+          <button id="btnQuickRecreateScenario1" type="button" onclick="recreateScenario1Fault(this, { openTicketModal: true })" title="Re-Create Scenario 1 Fault (Strip Datastream SA IAM role in agent-triad sandbox for repeatable Support Ticket demo)" aria-label="Re-Create Scenario 1 Fault" class="w-7 h-7 rounded-full bg-slate-900 hover:bg-slate-800 text-[#FBBC04] hover:text-white border border-slate-700 transition cursor-pointer inline-flex items-center justify-center shrink-0">
+            <i id="quickRecreateS1Icon" class="fa-solid fa-flask-vial text-[11px]"></i>
+          </button>
+
           <button id="btnPollLiveLogs" type="button" onclick="pollLiveCloudLogging()" title="Poll Real GCP Cloud Logging via Heartbeat &amp; Telemetry" class="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-full bg-slate-900 hover:bg-slate-800 text-slate-200 border border-slate-700 text-[11px] font-medium transition cursor-pointer whitespace-nowrap shrink-0">
             <i class="fa-solid fa-satellite-dish text-[#4285F4]" id="livePollIcon"></i>
             <span id="livePollText">Poll Live Logs</span>
@@ -691,6 +695,7 @@
                   <option value="ALL">All Statuses</option>
                   <option value="AWAITING_HITL_APPROVAL">Awaiting Approval</option>
                   <option value="RESOLVED">Resolved</option>
+                  <option value="REMEDIATION_FAILED">Remediation Failed</option>
                   <option value="SKIPPED_MANUAL">Skipped (Manual)</option>
                 </select>
               </div>
@@ -1333,15 +1338,22 @@
         </div>
       </div>
 
-      <div class="flex flex-wrap items-center gap-2 text-[11px]">
-        <span class="text-slate-400 font-semibold">Environment:</span>
-        <button id="ticketPresetSandbox" type="button" onclick="applyTicketPreset('live-agent-triad')" class="g-badge-green px-3 py-1 rounded-full font-semibold cursor-pointer transition">
-          Sandbox: agent-triad (1041190629307)
-        </button>
-        <button id="ticketPresetTarget" type="button" onclick="applyTicketPreset('hsbc-target')" class="px-3 py-1 rounded-full bg-slate-900 hover:bg-slate-800 border border-slate-700 text-slate-200 font-medium cursor-pointer transition">
-          HSBC_Target Project
+      <div class="flex flex-wrap items-center justify-between gap-2 text-[11px]">
+        <div class="flex flex-wrap items-center gap-2">
+          <span class="text-slate-400 font-semibold">Environment:</span>
+          <button id="ticketPresetSandbox" type="button" onclick="applyTicketPreset('live-agent-triad')" class="g-badge-green px-3 py-1 rounded-full font-semibold cursor-pointer transition">
+            Sandbox: agent-triad (1041190629307)
+          </button>
+          <button id="ticketPresetTarget" type="button" onclick="applyTicketPreset('hsbc-target')" class="px-3 py-1 rounded-full bg-slate-900 hover:bg-slate-800 border border-slate-700 text-slate-200 font-medium cursor-pointer transition">
+            HSBC_Target Project
+          </button>
+        </div>
+        <button id="btnRecreateScenario1Modal" type="button" onclick="recreateScenario1Fault(this, { openTicketModal: false })" title="Strip Datastream SA IAM role in sandbox (agent-triad) and write a real SetIamPolicy REMOVE audit log to re-arm Scenario 1" class="px-3 py-1 rounded-full bg-slate-900 hover:bg-slate-800 border border-[#FBBC04]/50 text-[#FBBC04] font-semibold cursor-pointer transition inline-flex items-center gap-1.5">
+          <i class="fa-solid fa-flask-vial text-[10px]"></i>
+          <span>Re-Create Fault</span>
         </button>
       </div>
+      <div id="ticketRecreateFeedback" class="hidden p-2.5 rounded-xl border text-[11px]"></div>
 
       <form id="ticketIntakeForm" onsubmit="submitCustomerTicketIntake(event)" class="space-y-3">
         <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -2723,6 +2735,19 @@
           navBadgeCommand.textContent = `${incidents.filter(i => i.status === 'AWAITING_HITL_APPROVAL').length} Alert`;
           navBadgeCommand.className = 'g-badge-red px-2 py-0.5 text-[10px] font-semibold rounded-full shrink-0';
         }
+      } else if (activeInc && activeInc.status === 'REMEDIATION_FAILED') {
+        if (orchBadge) {
+          orchBadge.textContent = 'Exec Failed';
+          orchBadge.className = 'g-badge-red text-[10px] font-semibold px-2.5 py-0.5 rounded-full';
+        }
+        if (workerBadgeEl) {
+          workerBadgeEl.textContent = 'Action Required';
+          workerBadgeEl.className = 'g-badge-red text-[10px] font-semibold px-2.5 py-0.5 rounded-full';
+        }
+        if (navBadgeCommand) {
+          navBadgeCommand.textContent = 'Failed';
+          navBadgeCommand.className = 'g-badge-red px-2 py-0.5 text-[10px] font-semibold rounded-full shrink-0';
+        }
       } else if (activeInc && activeInc.status === 'SKIPPED_MANUAL') {
         if (orchBadge) {
           orchBadge.textContent = 'Manual Mode';
@@ -2783,6 +2808,8 @@
             stageEl.innerHTML = renderOutageBlockedCard(activeInc);
           } else if (activeInc && activeInc.status === 'AWAITING_HITL_APPROVAL') {
             stageEl.innerHTML = renderCustomerApprovalCard(activeInc);
+          } else if (activeInc && activeInc.status === 'REMEDIATION_FAILED') {
+            stageEl.innerHTML = renderFailedRemediationCard(activeInc);
           } else if (activeInc && activeInc.status === 'SKIPPED_MANUAL') {
             stageEl.innerHTML = renderSkippedCard(activeInc);
           } else if (activeInc && activeInc.status === 'RESOLVED') {
@@ -3706,6 +3733,8 @@
         let statusBadge = '';
         if (status === 'RESOLVED') {
           statusBadge = `<span class="g-badge-green inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-semibold"><i class="fa-solid fa-check"></i> Resolved</span>`;
+        } else if (status === 'REMEDIATION_FAILED') {
+          statusBadge = `<span class="g-badge-red inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-semibold"><i class="fa-solid fa-circle-xmark"></i> Failed</span>`;
         } else if (status === 'SKIPPED_MANUAL') {
           statusBadge = `<span class="g-badge-yellow inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-semibold"><i class="fa-regular fa-clock"></i> Skipped (Manual)</span>`;
         } else {
@@ -3866,8 +3895,9 @@
       const mode = rec.mode || 'ATLAS_ADVISORY';
       const status = rec.status || 'COMPLETED';
       const isOutageBlocked = status === 'BLOCKED_PROVIDER_OUTAGE' || mode.includes('BLOCKED');
+      const isFailed = status === 'REMEDIATION_FAILED' || mode === 'REMEDIATION_FAILED';
       const isPendingApproval = status === 'AWAITING_HITL_APPROVAL' || mode === 'INCIDENT_TRIAGE_PENDING';
-      const isResolved = status === 'RESOLVED' || status === 'VERIFIED_HEALTHY' || mode === 'HARNESS_EXECUTED' || mode === 'INCIDENT_REMEDIATED';
+      const isResolved = !isFailed && (status === 'RESOLVED' || status === 'VERIFIED_HEALTHY' || mode === 'HARNESS_EXECUTED' || mode === 'INCIDENT_REMEDIATED');
       const isReadOnly = Boolean(rec.read_only) || mode === 'LIVE_A2A_SPECIALIST' || mode === 'ATLAS_ADVISORY';
       const tools = rec.tools_invoked || [];
 
@@ -3891,22 +3921,24 @@
         {
           label: '3. Specialist Execution',
           icon: 'fa-microchip',
-          state: isOutageBlocked ? 'skipped' : (isPendingApproval ? 'pending' : 'done'),
-          value: isOutageBlocked ? 'Stood Down' : specs.join(' + ')
+          state: isOutageBlocked ? 'skipped' : (isFailed ? 'blocked' : (isPendingApproval ? 'pending' : 'done')),
+          value: isOutageBlocked ? 'Stood Down' : (isFailed ? `FAILED (${specs.join(' + ')})` : specs.join(' + '))
         },
         {
           label: '4. GitOps PR Sync',
           icon: 'fa-code-branch',
-          state: isOutageBlocked || isPendingApproval ? 'pending' : (rec.reconciliation_pr ? 'done' : 'done'),
-          value: rec.reconciliation_pr
-            ? rec.reconciliation_pr
-            : (isReadOnly ? 'N/A (Read-Only)' : (isPendingApproval ? 'Queued on Approval' : 'Config Audited'))
+          state: isOutageBlocked || isPendingApproval ? 'pending' : (isFailed ? 'blocked' : 'done'),
+          value: isFailed
+            ? 'Aborted (Exec Failed)'
+            : (rec.reconciliation_pr
+                ? rec.reconciliation_pr
+                : (isReadOnly ? 'N/A (Read-Only)' : (isPendingApproval ? 'Queued on Approval' : 'Config Audited')))
         },
         {
           label: '5. Post-Fix Health Watch',
           icon: 'fa-shield-halved',
-          state: isOutageBlocked ? 'blocked' : (isPendingApproval ? 'pending' : 'done'),
-          value: rec.watchdog_status || (isResolved ? '45s + 3m VERIFIED' : 'Read-Only Safe')
+          state: isOutageBlocked || isFailed ? 'blocked' : (isPendingApproval ? 'pending' : 'done'),
+          value: isFailed ? 'Aborted (Not Fixed)' : (rec.watchdog_status || (isResolved ? '45s + 3m VERIFIED' : 'Read-Only Safe'))
         }
       ];
 
@@ -3915,6 +3947,9 @@
       if (isOutageBlocked) {
         headerBadgeClass = 'g-badge-red';
         headerBadgeText = 'Outage Safety Brake';
+      } else if (isFailed) {
+        headerBadgeClass = 'g-badge-red';
+        headerBadgeText = 'Remediation Failed';
       } else if (isPendingApproval) {
         headerBadgeClass = 'g-badge-yellow';
         headerBadgeText = 'Awaiting Your Approval';
@@ -4816,15 +4851,23 @@
             </div>
           ` : ''}
 
-          ${iamExec ? `
-            <div class="p-2.5 rounded-xl bg-[#34A853]/12 border border-[#34A853]/40 text-[11px] text-slate-200 space-y-1">
-              <div class="font-semibold text-[#34A853] flex items-center gap-1.5">
-                <i class="fa-solid fa-circle-check"></i>
-                <span>${escapeHtml(iamExec.status || 'APPLIED')} — ${escapeHtml(iamExec.jit_impersonation_mode || '15m JIT Token')}</span>
+          ${iamExec ? (() => {
+            const iamFailed = Boolean(
+              iamExec.error ||
+              iamExec.status === 'LIVE_IAM_EXECUTION_ERROR' ||
+              iamExec.status === 'FAILED_NO_CREDENTIALS'
+            );
+            return `
+              <div class="p-2.5 rounded-xl ${iamFailed ? 'bg-[#EA4335]/12 border border-[#EA4335]/45' : 'bg-[#34A853]/12 border border-[#34A853]/40'} text-[11px] text-slate-200 space-y-1">
+                <div class="font-semibold ${iamFailed ? 'text-[#EA4335]' : 'text-[#34A853]'} flex items-center gap-1.5">
+                  <i class="fa-solid ${iamFailed ? 'fa-circle-xmark' : 'fa-circle-check'}"></i>
+                  <span>${escapeHtml(iamExec.status || (iamFailed ? 'FAILED' : 'APPLIED'))} — ${escapeHtml(iamExec.jit_impersonation_mode || '15m JIT Token')}</span>
+                </div>
+                <div class="text-[10px] mono text-slate-300 break-all">${escapeHtml(iamExec.summary || iamExec.error || '')}</div>
+                ${iamExec.impersonation_error ? `<div class="text-[10px] mono text-[#FBBC04] break-all">JIT Impersonation detail: ${escapeHtml(iamExec.impersonation_error)}</div>` : ''}
               </div>
-              <div class="text-[10px] mono text-slate-300">${escapeHtml(iamExec.summary || '')}</div>
-            </div>
-          ` : ''}
+            `;
+          })() : ''}
         </div>
       `;
     }
@@ -5528,6 +5571,66 @@
       `;
     }
 
+    function renderFailedRemediationCard(inc) {
+      const copy = getCustomerCopy(inc);
+      const impact = inc.impact_analysis || {};
+      const spec = inc.specialist_worker || { name: 'Security Agent' };
+      const execRes = inc.execution_result || {};
+      const iamExec = execRes.iam_execution_result || {};
+      const errMsg = execRes.error || iamExec.error || execRes.live_stderr || execRes.sre_specialist_notes || 'Live remediation execution failed.';
+      const uname = getCurrentUserName();
+
+      return `
+        <div class="glass g-card-red border border-[#EA4335]/50 rounded-3xl p-6 text-center space-y-4">
+          <div class="w-12 h-12 rounded-2xl g-badge-red flex items-center justify-center text-xl mx-auto">
+            <i class="fa-solid fa-circle-xmark"></i>
+          </div>
+          <div class="space-y-1">
+            <span class="text-[11px] font-bold uppercase tracking-wider text-[#EA4335]">Remediation Failed — Action Required</span>
+            <h2 class="text-lg font-bold text-white">${escapeHtml(copy.headline)} — Not Fixed</h2>
+            <p class="text-xs text-slate-300 max-w-lg mx-auto leading-relaxed">
+              Sorry, ${escapeHtml(uname)} — live execution via <strong>${escapeHtml(spec.name)}</strong> returned an error, so this issue was <strong>not</strong> marked resolved. The <code>.tflock</code> lease was released, the JIT token was revoked, and an <code>ERROR</code> log was recorded in Cloud Logging.
+            </p>
+          </div>
+
+          <div class="p-3.5 rounded-2xl bg-[#EA4335]/10 border border-[#EA4335]/40 text-left space-y-1.5">
+            <div class="text-[11px] font-bold text-[#EA4335] flex items-center gap-1.5">
+              <i class="fa-solid fa-triangle-exclamation"></i>
+              <span>Execution Error (${escapeHtml(iamExec.status || execRes.status || 'FAILED')})</span>
+            </div>
+            <pre class="mono text-[10px] text-slate-200 whitespace-pre-wrap break-all">${escapeHtml(errMsg)}</pre>
+            ${iamExec.impersonation_error ? `<div class="text-[10px] mono text-[#FBBC04] break-all">JIT Impersonation Detail: ${escapeHtml(iamExec.impersonation_error)}</div>` : ''}
+          </div>
+
+          <div class="flex flex-wrap items-center justify-center gap-2.5">
+            <button type="button" onclick="reopenIncident('${escapeHtml(inc.incident_id)}')"
+              class="g-btn-blue px-4 py-2 rounded-full text-xs font-semibold cursor-pointer inline-flex items-center gap-1.5">
+              <i class="fa-solid fa-rotate-right text-[10px]"></i>
+              <span>Reopen &amp; Retry</span>
+            </button>
+            <button type="button" onclick="switchView('logs')"
+              class="px-4 py-2 rounded-full bg-slate-900 hover:bg-slate-800 border border-slate-700 text-xs font-medium text-slate-200 cursor-pointer inline-flex items-center gap-1.5">
+              <i class="fa-solid fa-terminal text-[#4285F4] text-[10px]"></i>
+              <span>Inspect Error in Logs</span>
+            </button>
+          </div>
+
+          ${renderPhase4IntelligencePanels(inc)}
+
+          <details class="text-left pt-2 border-t border-slate-800">
+            <summary class="text-xs text-slate-400 hover:text-slate-200 cursor-pointer flex items-center justify-center gap-1.5">
+              <span>View Execution Trace &amp; Manual CLI Fallback</span>
+              <i class="fa-solid fa-chevron-down text-[10px]"></i>
+            </summary>
+            <div class="mt-3 p-3.5 rounded-2xl bg-slate-950/90 border border-slate-800 space-y-1.5 text-xs text-slate-300">
+              <div class="mono text-[11px] text-slate-200 break-all">Command: ${escapeHtml(impact.recommended_kubectl || execRes.command || '')}</div>
+              ${(execRes.steps || []).map(s => `<div class="text-[10px] mono text-slate-400">• ${escapeHtml(s)}</div>`).join('')}
+            </div>
+          </details>
+        </div>
+      `;
+    }
+
     function renderResolvedCard(inc) {
       const copy = getCustomerCopy(inc);
       const impact = inc.impact_analysis || {};
@@ -5535,6 +5638,7 @@
       const execRes = inc.execution_result || {};
       const harnessExec = execRes.agent_harness_execution || {};
       const uname = getCurrentUserName();
+      const isScenario1 = inc.scenario_id === 'datastream_iam_drift' || Boolean(inc.iam_audit);
 
       return `
         <div class="glass g-card-green border border-slate-800 rounded-3xl p-6 text-center space-y-4">
@@ -5548,6 +5652,22 @@
               Thanks, ${escapeHtml(uname)}! Following your approval, <strong>Atlas (AaaS Lead)</strong> dispatched the <strong>${escapeHtml(spec.name)}</strong> harness, verified the 45s Telemetry Watchdog, and released the <code>.tflock</code> state lease.
             </p>
           </div>
+
+          ${isScenario1 ? `
+            <div class="flex flex-wrap items-center justify-center gap-2.5 pt-1">
+              <button id="btnRecreateScenario1Card" type="button" onclick="recreateScenario1Fault(this, { openTicketModal: true })"
+                title="Strip Datastream SA IAM role in sandbox (agent-triad) and write a real SetIamPolicy REMOVE audit log to demo Scenario 1 again"
+                class="px-4 py-2 rounded-full bg-slate-900 hover:bg-slate-800 border border-[#FBBC04]/60 text-[#FBBC04] text-xs font-semibold transition cursor-pointer inline-flex items-center gap-1.5">
+                <i class="fa-solid fa-flask-vial text-[11px]"></i>
+                <span>Re-Create Scenario 1 Fault</span>
+              </button>
+              <button type="button" onclick="openTicketIntakeModal()"
+                class="px-4 py-2 rounded-full bg-slate-900 hover:bg-slate-800 border border-slate-700 text-slate-200 text-xs font-medium transition cursor-pointer inline-flex items-center gap-1.5">
+                <i class="fa-solid fa-ticket text-[#34A853] text-[11px]"></i>
+                <span>New Support Ticket</span>
+              </button>
+            </div>
+          ` : ''}
 
           ${renderCompletedDispatchStepper(inc)}
 
@@ -5846,12 +5966,17 @@
       }
     }
 
-    function openTicketIntakeModal() {
+    function openTicketIntakeModal(preserveRecreateFeedback = false) {
       const modal = document.getElementById('ticketIntakeModal');
       const errEl = document.getElementById('ticketIntakeError');
+      const fbEl = document.getElementById('ticketRecreateFeedback');
       if (errEl) {
         errEl.classList.add('hidden');
         errEl.textContent = '';
+      }
+      if (fbEl && !preserveRecreateFeedback) {
+        fbEl.classList.add('hidden');
+        fbEl.textContent = '';
       }
       if (modal) modal.classList.remove('hidden');
     }
@@ -5859,6 +5984,64 @@
     function closeTicketIntakeModal() {
       const modal = document.getElementById('ticketIntakeModal');
       if (modal) modal.classList.add('hidden');
+    }
+
+    async function recreateScenario1Fault(btnEl, opts = {}) {
+      const openModal = opts && opts.openTicketModal !== false;
+      const prevHtml = btnEl ? btnEl.innerHTML : '';
+      const isIconOnly = btnEl && btnEl.id === 'btnQuickRecreateScenario1';
+      if (btnEl) {
+        btnEl.disabled = true;
+        btnEl.innerHTML = isIconOnly
+          ? `<i class="fa-solid fa-spinner fa-spin text-[11px]"></i>`
+          : `<i class="fa-solid fa-spinner fa-spin text-[10px]"></i><span>Re-Creating Fault...</span>`;
+      }
+      try {
+        const res = await fetch('/api/scenarios/datastream-iam-drift/recreate', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ execute_live: true })
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(data.detail || data.error || `HTTP ${res.status}`);
+
+        applyTicketPreset('live-agent-triad');
+        const fbEl = document.getElementById('ticketRecreateFeedback');
+        if (fbEl) {
+          const removedTxt = (data.removed_roles && data.removed_roles.length)
+            ? `Removed ${data.removed_roles.join(', ')} (live SetIamPolicy REMOVE audit log written)`
+            : 'Datastream SA already has 0 IAM roles (armed)';
+          fbEl.className = 'p-2.5 rounded-xl bg-[#34A853]/12 border border-[#34A853]/45 text-[11px] text-[#81C995] flex items-start gap-2';
+          fbEl.innerHTML = `
+            <i class="fa-solid fa-circle-check text-[#34A853] mt-0.5 shrink-0"></i>
+            <span><strong class="text-white">Scenario 1 Re-Armed in agent-triad:</strong> ${escapeHtml(removedTxt)}. Ready to click <strong>Run 4-Phase Agent-Triad Triage</strong>!</span>
+          `;
+          fbEl.classList.remove('hidden');
+        }
+        if (openModal) {
+          openTicketIntakeModal(true);
+        }
+        lastStageSignature = '';
+        await fetchState(true);
+      } catch (err) {
+        const fbEl = document.getElementById('ticketRecreateFeedback');
+        if (fbEl) {
+          fbEl.className = 'p-2.5 rounded-xl bg-[#EA4335]/15 border border-[#EA4335]/50 text-[11px] text-[#EA4335] flex items-start gap-2';
+          fbEl.innerHTML = `
+            <i class="fa-solid fa-circle-xmark mt-0.5 shrink-0"></i>
+            <span><strong>Scenario 1 fault re-creation failed:</strong> ${escapeHtml(err.message || String(err))}</span>
+          `;
+          fbEl.classList.remove('hidden');
+        }
+        if (openModal) {
+          openTicketIntakeModal(true);
+        }
+      } finally {
+        if (btnEl) {
+          btnEl.disabled = false;
+          btnEl.innerHTML = prevHtml;
+        }
+      }
     }
 
     function applyTicketPreset(preset) {

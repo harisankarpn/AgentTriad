@@ -707,6 +707,53 @@ async def ingest_customer_support_ticket(req: CustomerTicketIngestRequest) -> Di
     }
 
 
+class RecreateScenario1Request(BaseModel):
+    project_id: Optional[str] = None
+    execute_live: bool = True
+
+
+@app.post("/api/scenarios/datastream-iam-drift/recreate")
+async def recreate_scenario1_datastream_iam_drift(
+    req: Optional[RecreateScenario1Request] = None,
+) -> Dict[str, Any]:
+    """
+    One-click demo reset for Scenario 1 (Datastream Private Connectivity IAM Drift).
+    Strips `roles/compute.networkAdmin` / `roles/datastream.serviceAgent` from the sandbox
+    Datastream service agent on `agent-triad` via `sa-aaas-execution-sandbox` impersonation,
+    writing a real `SetIamPolicy REMOVE` Cloud Audit Log so the next Support Ticket triage
+    detects genuine IAM drift end-to-end.
+    """
+    payload = req or RecreateScenario1Request()
+    target_project = (payload.project_id or logging_service.project_id).replace("projects/", "").strip()
+    result = await asyncio.to_thread(
+        security_iam_service.remove_datastream_iam_bindings_live,
+        project_id=target_project,
+        execute_live=bool(payload.execute_live),
+    )
+    ok = result.get("status") in (
+        "FAULT_RECREATED_LIVE",
+        "ALREADY_ARMED_LIVE",
+        "FAULT_RECREATED_SANDBOX_DRY_RUN",
+    )
+    try:
+        await asyncio.to_thread(
+            logging_service.record_system_log,
+            severity="WARNING" if ok else "ERROR",
+            workload="datastream/private-connectivity-ew2",
+            namespace="datastream",
+            cluster="europe-west2",
+            message=result.get("summary") or f"Scenario 1 fault reset status: {result.get('status')}",
+        )
+    except Exception:
+        pass
+    if not ok:
+        raise HTTPException(
+            status_code=500 if result.get("status") == "LIVE_IAM_EXECUTION_ERROR" else 400,
+            detail=result.get("error") or result.get("summary") or "Failed to re-create Scenario 1 fault",
+        )
+    return result
+
+
 @app.post("/api/logs/ignore")
 async def mark_logs_safe_to_ignore(req: LogTriageBatchRequest) -> Dict[str, Any]:
     """
@@ -949,11 +996,13 @@ async def approve_incident_remedy(incident_id: str, req: ApproveRemedyRequest) -
         execution_mode=req.execution_mode,
         custom_kubectl=req.custom_kubectl,
     )
-    resp_status = (
-        "BLOCKED_PROVIDER_OUTAGE"
-        if updated_incident.get("status") == "BLOCKED_PROVIDER_OUTAGE"
-        else "REMEDIATION_COMPLETED_AND_VERIFIED"
-    )
+    inc_status = updated_incident.get("status")
+    if inc_status == "BLOCKED_PROVIDER_OUTAGE":
+        resp_status = "BLOCKED_PROVIDER_OUTAGE"
+    elif inc_status == "REMEDIATION_FAILED":
+        resp_status = "REMEDIATION_FAILED"
+    else:
+        resp_status = "REMEDIATION_COMPLETED_AND_VERIFIED"
     return {
         "status": resp_status,
         "incident": updated_incident,

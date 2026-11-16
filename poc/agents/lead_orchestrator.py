@@ -1935,17 +1935,100 @@ resource "google_project_iam_member" "datastream_sa_network_admin" {{
         )
 
         incident["execution_result"] = gke_resp.result.get("execution", gke_resp.result)
+        exec_res = incident["execution_result"] or {}
+        iam_exec = exec_res.get("iam_execution_result")
+        exec_failed = (
+            exec_res.get("status") in ("FAILED", "BLOCKED_BY_OPA_POLICY")
+            or gke_resp.result.get("status") == "REMEDIATION_FAILED"
+            or (
+                isinstance(iam_exec, dict)
+                and str(iam_exec.get("status") or "") in ("LIVE_IAM_EXECUTION_ERROR", "FAILED_NO_CREDENTIALS")
+            )
+        )
         exec_time = datetime.datetime.now(datetime.timezone.utc).isoformat()
         incident["timeline"].append(
             {
                 "timestamp": exec_time,
                 "agent": coord_names,
                 "event": (
-                    f"Executed via Agent Harness (`{execution_mode}`). "
-                    f"{incident['execution_result'].get('sre_specialist_notes', '')}"
+                    f"Execution FAILED via Agent Harness (`{execution_mode}`): "
+                    f"{exec_res.get('error') or (iam_exec.get('error') if isinstance(iam_exec, dict) else '') or exec_res.get('sre_specialist_notes', '')}"
+                    if exec_failed
+                    else (
+                        f"Executed via Agent Harness (`{execution_mode}`). "
+                        f"{exec_res.get('sre_specialist_notes', '')}"
+                    )
                 ),
             }
         )
+
+        uname = self.active_user.get("name") or "Hari"
+        if exec_failed:
+            err_detail = (
+                exec_res.get("error")
+                or (iam_exec.get("error") if isinstance(iam_exec, dict) else None)
+                or exec_res.get("live_stderr")
+                or exec_res.get("sre_specialist_notes")
+                or "Live remediation execution returned an error."
+            )
+            imp_err = iam_exec.get("impersonation_error") if isinstance(iam_exec, dict) else None
+            jit_mode = iam_exec.get("jit_impersonation_mode") if isinstance(iam_exec, dict) else "N/A"
+
+            incident["status"] = "REMEDIATION_FAILED"
+            incident["resolved_at"] = None
+            incident["updated_at"] = exec_time
+            incident["verification_result"] = {
+                "status": "SKIPPED_EXECUTION_FAILED",
+                "healthy": False,
+                "summary": f"Post-fix Watchdog verification skipped because live remediation failed: {err_detail}",
+            }
+            if incident.get("agent_harness") and incident["agent_harness"].get("lock"):
+                incident["agent_harness"]["lock"]["status"] = "RELEASED"
+            if isinstance(incident.get("iam_audit"), dict):
+                incident["iam_audit"]["binding_present"] = False
+                incident["iam_audit"]["status"] = "MISSING_REQUIRED_IAM_BINDING"
+
+            incident.setdefault("chat_messages", []).append(
+                {
+                    "role": "assistant",
+                    "sender": "Atlas • AaaS Lead",
+                    "text": (
+                        f"❌ **Remediation Failed**, {uname} — the fix was **NOT** applied, so this incident remains **unresolved**.\n"
+                        f"• **Command Attempted**: `{kubectl_cmd}`\n"
+                        f"• **Execution Error**: `{err_detail}`\n"
+                        f"• **JIT Token Mode**: `{jit_mode}`"
+                        + (f" (Impersonation detail: `{imp_err}`)" if imp_err else "")
+                        + "\n"
+                        f"• **Safety Controls**: `.tflock` lease released, single-use JIT token revoked, `ERROR` logged to Cloud Logging, and Watchdog closure aborted.\n"
+                        f"• **Next Step**: Click **Reopen & Retry** after fixing the permission/API issue, or run the CLI command directly with an authorized IAM admin."
+                    ),
+                    "timestamp": exec_time,
+                }
+            )
+            self._upsert_audit_event(incident, event_type="REMEDIATION_FAILED")
+            self.record_dispatch_event(
+                {
+                    "dispatch_id": f"disp-{incident_id}",
+                    "incident_id": incident_id,
+                    "mode": "REMEDIATION_FAILED",
+                    "status": "REMEDIATION_FAILED",
+                    "title": (incident.get("impact_analysis") or {}).get("customer_headline") or incident.get("title", "Incident Remediation"),
+                    "workload": incident.get("workload", ""),
+                    "target_cloud": target_cloud,
+                    "region": preflight_status.get("region") or incident.get("cluster") or "us-central1",
+                    "primary_specialist": specialist.get("name", "Specialist Agent"),
+                    "coordinated_specialists": [s.get("name", "") for s in coordinated_specialists],
+                    "jit_token_id": jit_token["token_id"],
+                    "reconciliation_pr": None,
+                    "watchdog_status": "SKIPPED_EXECUTION_FAILED",
+                    "mutations_allowed": True,
+                    "approved_by": approved_by,
+                    "command": kubectl_cmd,
+                    "error": err_detail,
+                    "timestamp": exec_time,
+                }
+            )
+            return incident
 
         # 3. Trigger Closed-Loop 45s Post-Verification with Heartbeat & Telemetry via A2A
         verify_resp = await self.a2a_hub.send_a2a_task(
@@ -1976,8 +2059,6 @@ resource "google_project_iam_member" "datastream_sa_network_admin" {{
             }
         )
 
-        uname = self.active_user.get("name") or "Hari"
-        iam_exec = (incident.get("execution_result") or {}).get("iam_execution_result")
         iam_exec_line = ""
         if isinstance(iam_exec, dict):
             if iam_exec.get("live_executed"):

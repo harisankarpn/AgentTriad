@@ -546,7 +546,12 @@ class GCPCloudLoggingAdapter(TelemetryIngestionAdapter):
         }
         if self._logger is not None:
             try:
-                self._logger.log_struct(audit_payload, severity="NOTICE")
+                audit_severity = (
+                    "ERROR"
+                    if str(action_status or "").upper() in ("REMEDIATION_FAILED", "FAILED", "BLOCKED_BY_OPA_POLICY")
+                    else "NOTICE"
+                )
+                self._logger.log_struct(audit_payload, severity=audit_severity)
                 audit_payload["persisted_to_gcp"] = True
             except Exception as exc:
                 audit_payload["gcp_write_warning"] = str(exc)
@@ -562,11 +567,12 @@ class GCPCloudLoggingAdapter(TelemetryIngestionAdapter):
     ) -> Dict[str, Any]:
         """Appends a verification or remediation log entry to Cloud Logging and local buffer."""
         now_iso = datetime.datetime.now(datetime.timezone.utc).isoformat()
+        sev_upper = str(severity or "INFO").upper()
         entry = normalize_otel_anomaly(
             log_id=f"log-{uuid.uuid4().hex[:8]}",
-            signature_key=f"watchdog:{workload}:{severity}",
+            signature_key=f"watchdog:{workload}:{sev_upper}",
             timestamp=now_iso,
-            severity=severity,
+            severity=sev_upper,
             scenario_id="watchdog_telemetry",
             title=message[:75],
             source="aaas-watchdog",
@@ -576,7 +582,7 @@ class GCPCloudLoggingAdapter(TelemetryIngestionAdapter):
             workload=workload,
             pod=workload.split("/")[-1],
             container="aaas-watchdog",
-            error_code="OK",
+            error_code="REMEDIATION_ERROR" if sev_upper in ("ERROR", "CRITICAL") else "OK",
             message=message,
             is_anomaly=False,
             persisted_to_gcp=False,
@@ -584,7 +590,7 @@ class GCPCloudLoggingAdapter(TelemetryIngestionAdapter):
         )
         if self._logger is not None:
             try:
-                self._logger.log_struct(entry, severity=severity)
+                self._logger.log_struct(entry, severity=sev_upper)
                 entry["persisted_to_gcp"] = True
             except Exception:
                 pass
