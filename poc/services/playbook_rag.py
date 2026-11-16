@@ -317,6 +317,88 @@ resource "google_cloud_run_v2_service" "app_service" {
         "downtime_badge": "Zero Downtime",
         "safety_badge": "OPA + State Lock Verified",
     },
+    {
+        "playbook_id": "PB-IAM-DS-601",
+        "scenario_key": "datastream_iam_drift",
+        "scenario_type": "SCENARIO_1_CLI_FIX",
+        "scenario_badge": "Scenario 1 • External IaC / IAM Drift",
+        "title": "Datastream Private Connectivity Shared VPC / Host Project IAM Remediation",
+        "keywords": [
+            "datastream",
+            "failed_precondition",
+            "missing permissions",
+            "ip range",
+            "private connectivity",
+            "shared vpc",
+            "host project",
+            "gcp-sa-datastream",
+            "networkadmin",
+            "cloudsql",
+            "europe-west2",
+        ],
+        "primary_specialist_id": "security-agent",
+        "coordinated_specialist_ids": ["security-agent", "infra-agent"],
+        "blast_radius_tier": "MEDIUM (Non-Production System Impaired — Private Connectivity Blocked)",
+        "rollback_mode": "STATEFUL_SAFE_MODE_ISOLATION",
+        "affected_services": [
+            "datastream/private-connectivity",
+            "iam/gcp-sa-datastream",
+            "vpc/repro-vpc (europe-west2)",
+        ],
+        "business_impact": (
+            "Non-Production System impaired: Datastream private connectivity creation to Cloud SQL is blocked "
+            "with `generic::FAILED_PRECONDITION` because IP range validation fails."
+        ),
+        "root_cause": (
+            "GCP infrastructure in `europe-west2` is OPERATIONAL (Green). External IAM/Terraform state drift "
+            "removed `roles/compute.networkAdmin` from the Datastream Service Agent on the host project."
+        ),
+        "remedy_summary": (
+            "Restore `roles/compute.networkAdmin` to the Datastream Service Agent via Stage 2 HITL 15-minute JIT token "
+            "and open a Bidirectional GitOps Reconciliation PR so Terraform state stays synchronized."
+        ),
+        "recommended_cli": (
+            f'gcloud projects add-iam-policy-binding {PROJECT_ID} '
+            f'--member="serviceAccount:service-{os.getenv("GCP_PROJECT_NUMBER", "1041190629307")}@gcp-sa-datastream.iam.gserviceaccount.com" '
+            '--role="roles/compute.networkAdmin"'
+        ),
+        "terraform_code": f"""terraform {{
+  required_version = ">= 1.5.0"
+  required_providers {{
+    google = {{
+      source  = "hashicorp/google"
+      version = "~> 5.0"
+    }}
+  }}
+}}
+
+# Security Agent + Infra Agent: Bidirectional GitOps Reconciliation for Datastream SA IAM Drift
+resource "google_project_iam_member" "datastream_sa_network_admin" {{
+  project = "{PROJECT_ID}"
+  role    = "roles/compute.networkAdmin"
+  member  = "serviceAccount:service-{os.getenv("GCP_PROJECT_NUMBER", "1041190629307")}@gcp-sa-datastream.iam.gserviceaccount.com"
+
+  lifecycle {{
+    prevent_destroy = true
+  }}
+}}""",
+        "rollback_plan": (
+            "Stateful Safe-Mode Isolation: additive IAM binding (`google_project_iam_member` with `prevent_destroy = true`) "
+            "preserves all existing policies and reconciles Terraform state via GitOps PR without removing service accounts."
+        ),
+        "customer_headline": "Datastream Private Connectivity Blocked by IAM Drift",
+        "customer_what_happened": (
+            "GCP europe-west2 is healthy (OPERATIONAL). External IaC/IAM drift removed `roles/compute.networkAdmin` "
+            "from the Datastream service agent, blocking VPC IP range validation for Cloud SQL private connectivity."
+        ),
+        "customer_why_approve": (
+            "Restores the missing `roles/compute.networkAdmin` IAM binding using a 15-minute single-use JIT token "
+            "and opens a Bidirectional GitOps PR to prevent Terraform state drift from removing it again."
+        ),
+        "risk_badge": "Low Risk • Additive IAM + GitOps Sync",
+        "downtime_badge": "Zero Downtime",
+        "safety_badge": "15m JIT + Stateful Safe-Mode",
+    },
 ]
 
 

@@ -46,6 +46,7 @@ from services.playbook_rag import (
     playbook_rag_service,
     query_playbook_rag_tool,
 )
+from services.security_iam_service import security_iam_service
 from services.session_store_service import session_store_service
 
 try:
@@ -580,6 +581,11 @@ class LeadOrchestratorAgent:
         )
         playbook = GOLDEN_PLAYBOOKS.get(scenario_id, rag_result or GOLDEN_PLAYBOOKS["real_gcp_anomaly"])
 
+        otel_attrs = ((log_entry.get("otel") or {}).get("attributes") or {})
+        lock_recommended_cli = bool(
+            scenario_id == "datastream_iam_drift"
+            or otel_attrs.get("lock_recommended_cli")
+        )
         default_kubectl = (
             log_entry.get("recommended_kubectl")
             or playbook.get("recommended_cli")
@@ -595,6 +601,7 @@ class LeadOrchestratorAgent:
             "playbook_title": playbook["title"],
             "scenario_type": scenario_type,
             "scenario_badge": scenario_badge,
+            "coordinated_specialist_ids": list(playbook.get("coordinated_specialist_ids") or []),
             "rag_similarity_score": rag_score,
             "rag_engine": rag_result.get("rag_engine", "Vertex AI Playbook RAG"),
             "blast_radius_tier": playbook["blast_radius_tier"],
@@ -615,7 +622,7 @@ class LeadOrchestratorAgent:
             "reasoning_engine": f"ADK Root Agent (Atlas • {MODEL_NAME}) + RAG Playbook {playbook['playbook_id']} (score={rag_score})",
         }
 
-        if self._llm_client.is_available:
+        if self._llm_client.is_available and not lock_recommended_cli:
             try:
                 prompt = (
                     "You are Atlas, the Single Authorizing ADK Root Gemini Agent for Google Cloud AaaS (AgentTriad).\n"
@@ -664,6 +671,8 @@ class LeadOrchestratorAgent:
         source = str(log_entry.get("source", "")).lower()
         scen = str(log_entry.get("scenario_id", "")).lower()
         workload = str(log_entry.get("workload", "service"))
+        if "datastream" in source or "datastream" in scen or "datastream" in workload.lower():
+            return f"Datastream Private Connectivity ({workload})"
         if "cloud_run" in source or "cloud_run" in scen:
             return f"Cloud Run ({workload})"
         if "cloud_function" in source or "cloud_function" in scen:
@@ -683,6 +692,14 @@ class LeadOrchestratorAgent:
         workload = str(log_entry.get("workload", "")).lower()
         msg = str(log_entry.get("message", "")).lower()
 
+        if (
+            scen == "datastream_iam_drift"
+            or "datastream" in source
+            or "datastream" in workload
+            or "gcp-sa-datastream" in msg
+            or ("failed_precondition" in msg and "permission" in msg)
+        ):
+            return WORKER_AGENT_BOUTIQUE[5]  # Security Agent (with Infra Agent coordinated)
         if any(k in msg or k in source or k in workload for k in ("billing", "budget", "cost", "finops")):
             return WORKER_AGENT_BOUTIQUE[6]  # Billing Agent
         if any(k in msg or k in source or k in workload for k in ("iam", "permission", "unauthorized", "forbidden", "secret", "armor")):
@@ -749,6 +766,103 @@ class LeadOrchestratorAgent:
                 pass
         return audit_entry
 
+    @staticmethod
+    def _build_datastream_iam_hcl(project_id: str, sa_email: str) -> str:
+        clean_proj = (project_id or PROJECT_ID).replace("projects/", "").strip() or PROJECT_ID
+        clean_sa = (sa_email or security_iam_service.default_datastream_service_agent(clean_proj)).strip()
+        if clean_sa.startswith("serviceAccount:"):
+            clean_sa = clean_sa.split(":", 1)[1]
+        return f"""terraform {{
+  required_version = ">= 1.5.0"
+  required_providers {{
+    google = {{
+      source  = "hashicorp/google"
+      version = "~> 5.0"
+    }}
+  }}
+}}
+
+# Security Agent + Infra Agent: Bidirectional GitOps Reconciliation for Datastream SA IAM Drift
+resource "google_project_iam_member" "datastream_sa_network_admin" {{
+  project = "{clean_proj}"
+  role    = "roles/compute.networkAdmin"
+  member  = "serviceAccount:{clean_sa}"
+
+  lifecycle {{
+    prevent_destroy = true
+  }}
+}}"""
+
+    @staticmethod
+    def _format_datastream_four_phase_rca(
+        *,
+        uname: str,
+        cloud_provider_status: Dict[str, Any],
+        iam_audit: Dict[str, Any],
+        gitops_correlation: Optional[Dict[str, Any]] = None,
+        customer_ticket: Optional[Dict[str, Any]] = None,
+    ) -> str:
+        region = str(cloud_provider_status.get("region") or iam_audit.get("region") or "europe-west2")
+        provider_state = str(cloud_provider_status.get("status") or "OPERATIONAL")
+        is_green = bool(cloud_provider_status.get("mutations_allowed", True))
+        provider_display = (
+            f"OPERATIONAL (Green • {provider_state})"
+            if is_green
+            else f"ACTIVE OUTAGE ({provider_state})"
+        )
+        target_project = str(iam_audit.get("project_id") or PROJECT_ID)
+        sa_email = str(iam_audit.get("target_service_agent") or "")
+        req_role = str(iam_audit.get("required_role") or "roles/compute.networkAdmin")
+        recommended_cli = str(iam_audit.get("recommended_cli") or "")
+        iam_source_badge = (
+            "Live GCP `projects.getIamPolicy`"
+            if iam_audit.get("live_gcp_verified")
+            else "Security Agent IAM Posture Audit"
+        )
+        assigned_roles = iam_audit.get("assigned_roles") or []
+        roles_str = ", ".join(assigned_roles) if assigned_roles else "NONE"
+
+        suspect = (gitops_correlation or {}).get("highest_confidence_match")
+        if suspect:
+            delta_m = suspect.get("delta_minutes_before_incident")
+            delta_label = f"{delta_m} min prior" if delta_m is not None else "recently"
+            gitops_line = (
+                f"Correlated suspect IaC / IAM drift (`{suspect.get('short_sha')}` by `{suspect.get('author')}`, "
+                f"{delta_label}, confidence `{suspect.get('confidence')}`): {suspect.get('subject')}"
+            )
+        else:
+            gitops_line = (
+                "External Terraform / IAM state drift removed the Datastream service agent binding on the host project."
+            )
+
+        ticket_header = ""
+        if customer_ticket and customer_ticket.get("customer_name"):
+            ticket_header = (
+                f"Customer: **{customer_ticket.get('customer_name')}** • "
+                f"Project: `projects/{target_project}` • Region: `{region}` • "
+                f"Impact: `{customer_ticket.get('business_impact', 'Non-Production System impaired')}`\n\n"
+            )
+
+        return (
+            f"Hey {uname} 👋 I completed the 4-phase Agent-Triad investigation for **Datastream Private Connectivity** on `{target_project}`.\n\n"
+            f"{ticket_header}"
+            f"• **Phase 1 — Pre-Flight Cloud Provider Status (`Cloud_Provider_Health_Tool`)**: "
+            f"GCP `{region}` is **`{provider_display}`**. "
+            f"There is **no Google Cloud regional outage** — Safety Brake remains disengaged; fault classified as `External • IaC / IAM Configuration Drift`.\n"
+            f"• **Phase 2 — Specialist Routing (Parallel A2A)**:\n"
+            f"  - **Security Agent (`Security_Agent_Tool` • {iam_source_badge})**: Confirmed Datastream service agent "
+            f"`{sa_email}` is missing `{req_role}` on `{target_project}` (current roles: `{roles_str}`).\n"
+            f"  - **Infra Agent (`GitOps_Correlator_Tool`)**: {gitops_line}\n"
+            f"• **Phase 3 — Blameless RCA & Direct Guidance**: Google Cloud infrastructure in `{region}` is healthy; "
+            f"an external IaC/IAM state drift deployment caused this regression. **Do NOT remove the Datastream service account** — "
+            f"removing it will not allow private connectivity outside Shared VPC and breaks peering validation. Restoring `{req_role}` "
+            f"unblocks IP range validation for Cloud SQL private connectivity immediately.\n"
+            f"• **Phase 4 — Stage 2 HITL Remediation (Zero Autonomous Execution)**:\n"
+            f"  Proposed CLI Fix:\n"
+            f"  `{recommended_cli}`\n\n"
+            f"**Click 'I Accept' to mint a 15-minute JIT token and execute this GitOps synchronization.**"
+        )
+
     def _build_initial_chat_greeting(
         self,
         log_entry: Dict[str, Any],
@@ -758,6 +872,26 @@ class LeadOrchestratorAgent:
         harness_bundle: Dict[str, Any],
         now_iso: str,
     ) -> List[Dict[str, Any]]:
+        uname = self.active_user.get("name", "Hari")
+        iam_audit = impact.get("iam_audit")
+        if iam_audit:
+            opening_text = self._format_datastream_four_phase_rca(
+                uname=uname,
+                cloud_provider_status=impact.get("cloud_provider_status") or {"region": log_entry.get("cluster", "europe-west2"), "status": "OPERATIONAL", "mutations_allowed": True},
+                iam_audit=iam_audit,
+                gitops_correlation=impact.get("gitops_correlation"),
+                customer_ticket=impact.get("customer_ticket") or log_entry.get("customer_ticket"),
+            )
+            return [
+                {
+                    "role": "assistant",
+                    "sender": "Atlas • AaaS Lead",
+                    "scenario_badge": impact.get("scenario_badge", "Scenario 1 • External IaC / IAM Drift"),
+                    "text": opening_text,
+                    "timestamp": now_iso,
+                }
+            ]
+
         service_label = self._friendly_service_name(log_entry)
         severity = log_entry.get("severity", "ERROR")
         what_happened = impact.get("customer_what_happened") or log_entry.get("message", "")
@@ -773,7 +907,6 @@ class LeadOrchestratorAgent:
             if w_spec.get("rollback_mode") == "STATEFUL_SAFE_MODE_ISOLATION"
             else "Stateless Canary Auto-Rollback"
         )
-        uname = self.active_user.get("name", "Hari")
         opening_text = (
             f"Hey {uname} 👋 There's an issue I just found with **{service_label}**.\n\n"
             f"• **Classification**: `{impact.get('scenario_badge', 'Scenario 1 • 1-Line CLI/API Fix')}` (Playbook Match: `{int(rag_score * 100)}%`)\n"
@@ -812,7 +945,33 @@ class LeadOrchestratorAgent:
             raw_cloud = str(log_entry.get("cloud_provider") or "").strip().lower()
             event_cloud = raw_cloud if raw_cloud in ("gcp", "aws", "azure") else self.active_target_cloud
 
-            async def _fetch_specialist_diag() -> tuple[Optional[Dict[str, Any]], Optional[Dict[str, Any]]]:
+            is_datastream_iam = (
+                log_entry.get("scenario_id") == "datastream_iam_drift"
+                or "datastream" in str(log_entry.get("source") or "").lower()
+                or "datastream" in workload.lower()
+                or "gcp-sa-datastream" in str(log_entry.get("message") or "").lower()
+            )
+            target_project = (
+                str(log_entry.get("project_id") or PROJECT_ID).replace("projects/", "").strip()
+                or PROJECT_ID
+            )
+            target_datastream_sa = str(
+                (log_entry.get("metrics_snapshot") or {}).get("datastream_sa")
+                or ((log_entry.get("otel") or {}).get("attributes") or {}).get("gcp.datastream.service_agent")
+                or (log_entry.get("customer_ticket") or {}).get("service_agent_email")
+                or security_iam_service.default_datastream_service_agent(target_project)
+            ).strip()
+
+            async def _fetch_specialist_diag() -> tuple[Optional[Dict[str, Any]], Optional[Dict[str, Any]], Optional[Dict[str, Any]]]:
+                if is_datastream_iam:
+                    iam_res = await asyncio.to_thread(
+                        security_iam_service.inspect_datastream_iam_posture,
+                        project_id=target_project,
+                        region=cluster,
+                        service_agent_email=target_datastream_sa,
+                        execute_live=(target_project == PROJECT_ID),
+                    )
+                    return None, None, iam_res
                 if specialist.get("id") == "database-agent":
                     target_inst = str(log_entry.get("pod") or "testdbinstance1").split(":")[-1]
                     db_d = await asyncio.to_thread(
@@ -824,7 +983,7 @@ class LeadOrchestratorAgent:
                         instance_name=target_inst,
                         target_cloud=event_cloud,
                     )
-                    return db_d, None
+                    return db_d, None, None
                 if specialist.get("id") == "infra-agent":
                     target_inst = str(log_entry.get("pod") or workload.split("/")[-1] or "auto").split(":")[-1]
                     inf_d = await asyncio.to_thread(
@@ -838,8 +997,8 @@ class LeadOrchestratorAgent:
                         target_instance=target_inst,
                         target_cloud=event_cloud,
                     )
-                    return None, inf_d
-                return None, None
+                    return None, inf_d, None
+                return None, None, None
 
             async def _fetch_preflight() -> Dict[str, Any]:
                 if data.get("cloud_provider_status"):
@@ -847,11 +1006,11 @@ class LeadOrchestratorAgent:
                 return await self._run_cloud_provider_preflight_check(
                     cloud_provider=event_cloud or "gcp",
                     region=cluster,
-                    service_hint=str(log_entry.get("source") or ""),
+                    service_hint="datastream" if is_datastream_iam else str(log_entry.get("source") or ""),
                 )
 
             # Run Atlas RAG/LLM analysis, live specialist A2A diagnosis, and provider pre-flight in parallel
-            impact_and_remedy, (live_db_diag, live_infra_diag), cloud_provider_status = await asyncio.gather(
+            impact_and_remedy, (live_db_diag, live_infra_diag, iam_audit), cloud_provider_status = await asyncio.gather(
                 asyncio.to_thread(self._analyze_impact_and_remedy, log_entry),
                 _fetch_specialist_diag(),
                 _fetch_preflight(),
@@ -861,6 +1020,42 @@ class LeadOrchestratorAgent:
                 rag_playbook=impact_and_remedy,
                 primary_specialist=specialist,
             )
+            if is_datastream_iam:
+                for required_sid in ("security-agent", "infra-agent"):
+                    req_spec = SPECIALIST_BY_ID.get(required_sid)
+                    if req_spec and all(s["id"] != required_sid for s in coordinated_specialists):
+                        coordinated_specialists.append(req_spec)
+
+            customer_ticket = log_entry.get("customer_ticket")
+            if customer_ticket:
+                impact_and_remedy["customer_ticket"] = customer_ticket
+
+            if iam_audit:
+                impact_and_remedy["iam_audit"] = iam_audit
+                impact_and_remedy["recommended_kubectl"] = iam_audit["recommended_cli"]
+                impact_and_remedy["terraform_code"] = self._build_datastream_iam_hcl(
+                    target_project,
+                    iam_audit.get("target_service_agent") or target_datastream_sa,
+                )
+                impact_and_remedy["root_cause"] = (
+                    f"GCP infrastructure in `{cluster}` is OPERATIONAL (Green). {iam_audit['finding']}"
+                )
+                self.a2a_hub.message_ledger.insert(
+                    0,
+                    {
+                        "id": f"a2a-sec-{uuid.uuid4().hex[:8]}",
+                        "timestamp": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+                        "sender": self.AGENT_ID,
+                        "recipient": "security-agent (Security_Agent_Tool)",
+                        "skill_id": "inspect_iam_policy_posture",
+                        "summary": (
+                            f"Atlas delegated IAM posture verification for `{target_project}` -> "
+                            f"`{iam_audit.get('target_service_agent')}` missing `{iam_audit.get('required_role')}` "
+                            f"(live_gcp_verified={iam_audit.get('live_gcp_verified')})"
+                        ),
+                        "status": "COMPLETED",
+                    },
+                )
 
             if live_db_diag:
                 impact_and_remedy["live_database_agent_diagnosis"] = live_db_diag
@@ -949,9 +1144,44 @@ class LeadOrchestratorAgent:
             # Phase 4: GitOps / Recent Deployment Correlation & Bidirectional GitOps PR Payload (Infra/Serverless path)
             gitops_correlation: Optional[Dict[str, Any]] = None
             gitops_pr_payload: Optional[Dict[str, Any]] = None
-            if specialist.get("id") in ("infra-agent", "serverless-agent"):
+            has_infra_or_serverless = any(
+                s.get("id") in ("infra-agent", "serverless-agent") for s in coordinated_specialists
+            )
+            if has_infra_or_serverless:
                 if live_infra_diag and live_infra_diag.get("gitops_correlation"):
                     gitops_correlation = live_infra_diag["gitops_correlation"]
+                elif is_datastream_iam:
+                    iam_drift_deployments: List[Dict[str, Any]] = list(log_entry.get("mock_deployments") or [])
+                    if target_project == PROJECT_ID:
+                        live_audit_drifts = await asyncio.to_thread(
+                            security_iam_service.fetch_recent_iam_drift_audit_events,
+                            project_id=target_project,
+                            lookback_hours=72,
+                        )
+                        if live_audit_drifts:
+                            iam_drift_deployments = live_audit_drifts + iam_drift_deployments
+                    gitops_correlation = gitops_correlator.correlate_recent_deployments(
+                        incident_timestamp=occurred_at,
+                        workload=workload,
+                        window_minutes=4320,
+                        deployments=iam_drift_deployments or None,
+                    )
+                    top_drift = (gitops_correlation or {}).get("highest_confidence_match")
+                    self.a2a_hub.message_ledger.insert(
+                        0,
+                        {
+                            "id": f"a2a-gitops-{uuid.uuid4().hex[:8]}",
+                            "timestamp": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+                            "sender": self.AGENT_ID,
+                            "recipient": "infra-agent (GitOps_Correlator_Tool)",
+                            "skill_id": "correlate_recent_deployments",
+                            "summary": (
+                                f"Atlas delegated CI/CD & IAM drift correlation for `{workload}` -> "
+                                f"{top_drift.get('short_sha') + ' (' + str(top_drift.get('confidence')) + ')' if top_drift else 'scanned recent commits & audit logs'}"
+                            ),
+                            "status": "COMPLETED",
+                        },
+                    )
                 else:
                     gitops_correlation = gitops_correlator.correlate_recent_deployments(
                         incident_timestamp=occurred_at,
@@ -1036,6 +1266,8 @@ class LeadOrchestratorAgent:
                 "target_cloud": event_cloud or "gcp",
                 "cloud_provider_status": cloud_provider_status,
                 "fault_attribution": fault_attribution,
+                "iam_audit": iam_audit,
+                "customer_ticket": customer_ticket,
                 "query_introspection": query_introspection,
                 "gitops_correlation": gitops_correlation,
                 "gitops_pr_payload": gitops_pr_payload,
@@ -1068,7 +1300,11 @@ class LeadOrchestratorAgent:
             diag_tools = list(
                 (live_db_diag or {}).get("tools_invoked")
                 or (live_infra_diag or {}).get("tools_invoked")
-                or []
+                or (
+                    ["Cloud_Provider_Health_Tool", "Security_Agent_Tool", "GitOps_Correlator_Tool"]
+                    if iam_audit
+                    else []
+                )
             )
             self.record_dispatch_event(
                 {
@@ -1518,6 +1754,24 @@ class LeadOrchestratorAgent:
         )
 
         uname = self.active_user.get("name") or "Hari"
+        iam_exec = (incident.get("execution_result") or {}).get("iam_execution_result")
+        iam_exec_line = ""
+        if isinstance(iam_exec, dict):
+            if iam_exec.get("live_executed"):
+                iam_exec_line = (
+                    f"• **Live GCP IAM Execution**: `{iam_exec.get('status')}` via `{iam_exec.get('jit_impersonation_mode')}` "
+                    f"(etag `{iam_exec.get('updated_etag')}`, live `getIamPolicy` verify=`{'PASS' if iam_exec.get('verified_after_apply') else 'PENDING'}`).\n"
+                )
+                if isinstance(incident.get("iam_audit"), dict):
+                    incident["iam_audit"]["binding_present"] = bool(iam_exec.get("verified_after_apply", True))
+                    incident["iam_audit"]["status"] = "IAM_BINDING_PRESENT"
+                    if iam_exec.get("role") and iam_exec["role"] not in (incident["iam_audit"].get("assigned_roles") or []):
+                        incident["iam_audit"].setdefault("assigned_roles", []).append(iam_exec["role"])
+            else:
+                iam_exec_line = (
+                    f"• **IAM Sandbox Verification**: `{iam_exec.get('status')}` (`{iam_exec.get('jit_impersonation_mode')}`).\n"
+                )
+
         incident.setdefault("chat_messages", []).append(
             {
                 "role": "assistant",
@@ -1527,6 +1781,7 @@ class LeadOrchestratorAgent:
                     f"logged your approval (`{approved_by}` at `{approved_at}`) in the **Audit Event Tracker**, "
                     f"and dispatched **{coord_names}** via our **Agent Harness Sandbox**.\n"
                     f"• **Executed**: `{kubectl_cmd}`\n"
+                    f"{iam_exec_line}"
                     f"• **Harness & Lock**: `.tflock` released & Reconciliation PR `{incident['execution_result'].get('reconciliation_pr')}` opened.\n"
                     f"• **45s Watchdog Check**: **Heartbeat & Telemetry** verified `{incident['workload']}` is back to 100% health with 0 error logs."
                 ),
@@ -1836,6 +2091,8 @@ class LeadOrchestratorAgent:
 
     def _select_specialist_for_query(self, query_text: str) -> Dict[str, str]:
         lower = query_text.lower()
+        if any(k in lower for k in ("datastream", "gcp-sa-datastream", "failed_precondition")):
+            return WORKER_AGENT_BOUTIQUE[5]  # Security Agent (paired with Infra Agent for Datastream IAM drift)
         if any(k in lower for k in ("sql", "database", "db", "postgres", "alloydb", "spanner", "connection pool", "socket", "testdbinstance1", "telemetrics")):
             return WORKER_AGENT_BOUTIQUE[1]  # Database Agent
         if any(k in lower for k in ("billing", "cost", "budget", "finops", "price", "spend", "invoice")):
@@ -2101,7 +2358,19 @@ class LeadOrchestratorAgent:
             tf_code or "",
             re.DOTALL,
         )
-        if sql_match or (primary_spec and primary_spec.get("id") == "database-agent"):
+        if (
+            (recommended_cli_from_bundle and "add-iam-policy-binding" in recommended_cli_from_bundle)
+            or "gcp-sa-datastream" in (tf_code or "").lower()
+            or "datastream" in scen_badge.lower()
+        ):
+            cluster = (
+                (latest_tf_msg.get("terraform_bundle") or {}).get("region")
+                if latest_tf_msg
+                else None
+            ) or "europe-west2"
+            workload = "datastream/private-connectivity-iam"
+            namespace = "datastream"
+        elif sql_match or (primary_spec and primary_spec.get("id") == "database-agent"):
             sql_body = sql_match.group(1) if sql_match else ""
             name_m = re.search(r'name\s*=\s*"([^"]+)"', sql_body)
             reg_m = re.search(r'region\s*=\s*"([^"]+)"', sql_body)
@@ -2236,10 +2505,18 @@ class LeadOrchestratorAgent:
 
         coord_names = ", ".join(s["name"] for s in coord_specs)
         tf_resources = exec_result.get("terraform_resources_applied", [])
+        chat_iam_exec = exec_result.get("iam_execution_result")
+        chat_iam_line = ""
+        if isinstance(chat_iam_exec, dict):
+            chat_iam_line = (
+                f"• **CLI / Live IAM Executed**: `{cli_cmd}` -> `{chat_iam_exec.get('status')}` "
+                f"(`{chat_iam_exec.get('jit_impersonation_mode')}`, verified=`{chat_iam_exec.get('verified_after_apply')}`)\n"
+            )
         confirm_text = (
-            f"✅ **Terraform Execution Complete via Agent Harness!**\n"
+            f"✅ **Terraform & GitOps Synchronization Complete via Agent Harness!**\n"
             f"• **Authorized By**: `{approved_by}` (JIT Token `{jit_token['token_id'][:18]}...`)\n"
             f"• **Coordinated Specialists**: {coord_names} (`$0` extra LLM token cost)\n"
+            f"{chat_iam_line}"
             f"• **Resources Reconciled ({len(tf_resources)})**: `{', '.join(tf_resources)}` \n"
             f"• **State Lock & GitOps**: `.tflock` released cleanly • Reconciliation PR `{exec_result.get('reconciliation_pr')}` opened.\n"
             f"• **45s Telemetry Watchdog**: `{verify_resp.result.get('status', 'VERIFIED_HEALTHY')}`"
@@ -2426,6 +2703,171 @@ class LeadOrchestratorAgent:
                 "consulted_specialist": primary_spec,
                 "terraform_bundle": None,
                 "live_database_agent_diagnosis": None,
+                "active_session_id": self.active_session_id,
+                "messages": list(self.general_chat_messages),
+            }
+
+        # Dedicated Scenario 1 External IaC / IAM Drift role-play in Direct Atlas Chat
+        # (Datastream Private Connectivity FAILED_PRECONDITION / Missing Datastream SA permissions)
+        is_datastream_ticket_chat = (
+            ("datastream" in lower_msg or "gcp-sa-datastream" in lower_msg)
+            and any(
+                k in lower_msg
+                for k in (
+                    "failed_precondition",
+                    "missing permissions",
+                    "private connectivity",
+                    "shared vpc",
+                    "host project",
+                    "networkadmin",
+                    "ip range",
+                    "service account",
+                )
+            )
+        )
+        if is_datastream_ticket_chat:
+            proj_match = re.search(r"projects/([a-z][a-z0-9-]{4,40})", clean_msg, re.IGNORECASE)
+            reg_match = re.search(
+                r"\b((?:europe|us|asia|australia|northamerica|southamerica|me|africa)-[a-z]+[0-9])\b",
+                clean_msg,
+                re.IGNORECASE,
+            )
+            sa_match = re.search(r"(service-[a-z0-9-]+@gcp-sa-datastream\.iam\.gserviceaccount\.com)", clean_msg, re.IGNORECASE)
+            chat_project = proj_match.group(1) if proj_match else PROJECT_ID
+            chat_region = reg_match.group(1).lower() if reg_match else "europe-west2"
+            chat_sa = (
+                sa_match.group(1)
+                if sa_match
+                else security_iam_service.default_datastream_service_agent(chat_project)
+            )
+
+            # Phase 1: Cloud Provider Status Pre-Flight (`Cloud_Provider_Health_Tool`)
+            chat_preflight = await self._run_cloud_provider_preflight_check(
+                cloud_provider="gcp",
+                region=chat_region,
+                service_hint="datastream",
+            )
+            # Phase 2: Parallel Security Agent (`Security_Agent_Tool`) + Infra Agent (`GitOps_Correlator_Tool`)
+            chat_iam_audit, live_audit_drifts = await asyncio.gather(
+                asyncio.to_thread(
+                    security_iam_service.inspect_datastream_iam_posture,
+                    project_id=chat_project,
+                    region=chat_region,
+                    service_agent_email=chat_sa,
+                    execute_live=(chat_project == PROJECT_ID),
+                ),
+                asyncio.to_thread(
+                    security_iam_service.fetch_recent_iam_drift_audit_events,
+                    project_id=chat_project,
+                    lookback_hours=72,
+                ),
+            )
+            chat_gitops = gitops_correlator.correlate_recent_deployments(
+                incident_timestamp=now_iso,
+                workload="datastream/private-connectivity",
+                window_minutes=4320,
+                deployments=live_audit_drifts or None,
+            )
+
+            sec_spec = SPECIALIST_BY_ID["security-agent"]
+            infra_spec = SPECIALIST_BY_ID["infra-agent"]
+            coord_specs = [sec_spec, infra_spec]
+            coord_names = ", ".join(s["name"] for s in coord_specs)
+            chat_hcl = self._build_datastream_iam_hcl(chat_project, chat_iam_audit["target_service_agent"])
+            dry_run_report = agent_harness.validate_terraform_dry_run(chat_hcl)
+            opa_policy = agent_harness.evaluate_policy_gate(
+                workload="datastream/private-connectivity-iam",
+                terraform_code=chat_hcl,
+                specialist_ids=["security-agent", "infra-agent"],
+            )
+            tf_bundle = {
+                "status": "READY_FOR_HARNESS_EXECUTION",
+                "title": "Scenario 1 • Datastream SA IAM & Bidirectional GitOps Sync",
+                "scenario_type": "SCENARIO_1_CLI_FIX",
+                "scenario_badge": "Scenario 1 • External IaC / IAM Drift",
+                "region": chat_region,
+                "recommended_cli": chat_iam_audit["recommended_cli"],
+                "hcl_code": chat_hcl,
+                "terraform_code": chat_hcl,
+                "dry_run": dry_run_report,
+                "dry_run_report": dry_run_report,
+                "policy_gate": opa_policy,
+                "opa_policy": opa_policy,
+                "coordinated_specialists": coord_specs,
+            }
+            chat_reply = self._format_datastream_four_phase_rca(
+                uname=uname,
+                cloud_provider_status=chat_preflight,
+                iam_audit=chat_iam_audit,
+                gitops_correlation=chat_gitops,
+            )
+            chat_tools = [
+                "Cloud_Provider_Health_Tool",
+                "Security_Agent_Tool",
+                "GitOps_Correlator_Tool",
+            ]
+            dispatch_telemetry = {
+                "mode": "TERRAFORM_PROPOSAL",
+                "status": "AWAITING_HITL_APPROVAL",
+                "target_cloud": "gcp",
+                "region": chat_region,
+                "primary_specialist": sec_spec["name"],
+                "coordinated_specialists": [s["name"] for s in coord_specs],
+                "tools_invoked": chat_tools,
+                "read_only": False,
+                "scenario_badge": "Scenario 1 • External IaC / IAM Drift",
+            }
+            reply_msg = {
+                "role": "assistant",
+                "sender": f"Atlas • AaaS Lead (with {coord_names})",
+                "specialist": sec_spec,
+                "specialist_worker": sec_spec,
+                "coordinated_specialists": coord_specs,
+                "scenario_type": "SCENARIO_1_CLI_FIX",
+                "scenario_badge": "Scenario 1 • External IaC / IAM Drift",
+                "terraform_bundle": tf_bundle,
+                "iam_audit": chat_iam_audit,
+                "cloud_provider_status": chat_preflight,
+                "gitops_correlation": chat_gitops,
+                "dispatch_telemetry": dispatch_telemetry,
+                "text": chat_reply,
+                "timestamp": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+            }
+            self.general_chat_messages.append(reply_msg)
+            self._persist_active_session()
+            self.record_dispatch_event(
+                {
+                    "dispatch_id": f"disp-chat-{uuid.uuid4().hex[:8]}",
+                    "mode": "TERRAFORM_PROPOSAL",
+                    "status": "AWAITING_HITL_APPROVAL",
+                    "title": f"Datastream Private Connectivity IAM Drift ({chat_project})",
+                    "scenario_badge": "Scenario 1 • External IaC / IAM Drift",
+                    "workload": "datastream/private-connectivity",
+                    "target_cloud": "gcp",
+                    "region": chat_region,
+                    "primary_specialist": sec_spec["name"],
+                    "coordinated_specialists": [s["name"] for s in coord_specs],
+                    "tools_invoked": chat_tools,
+                    "read_only": False,
+                    "mutations_allowed": bool(chat_preflight.get("mutations_allowed", True)),
+                    "watchdog_status": "AWAITING_HITL_APPROVAL",
+                    "timestamp": reply_msg["timestamp"],
+                }
+            )
+            return {
+                "action_taken": "DIRECT_ATLAS_CHAT_REPLY",
+                "target_cloud": "gcp",
+                "scenario_type": "SCENARIO_1_CLI_FIX",
+                "scenario_badge": "Scenario 1 • External IaC / IAM Drift",
+                "reply": chat_reply,
+                "specialist_worker": sec_spec,
+                "coordinated_specialists": coord_specs,
+                "consulted_specialist": sec_spec,
+                "terraform_bundle": tf_bundle,
+                "iam_audit": chat_iam_audit,
+                "cloud_provider_status": chat_preflight,
+                "gitops_correlation": chat_gitops,
+                "dispatch_telemetry": dispatch_telemetry,
                 "active_session_id": self.active_session_id,
                 "messages": list(self.general_chat_messages),
             }

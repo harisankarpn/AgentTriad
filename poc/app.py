@@ -17,6 +17,7 @@ import asyncio
 import datetime
 import os
 import time
+import uuid
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -29,12 +30,14 @@ from agents.a2a_protocol import A2AProtocolHub, A2ATaskRequest
 from agents.gke_assist_agent import GKEAssistAgent
 from agents.lead_orchestrator import LeadOrchestratorAgent, WORKER_AGENT_BOUTIQUE
 from agents.watcher_agent import CloudLoggingWatcherAgent
+from providers.base_telemetry import normalize_otel_anomaly
 from providers.cloud_factory import normalize_target_cloud
 from services.agent_harness import agent_harness
 from services.auth_broker import AuthVerificationError, auth_broker
 from services.cloud_logging_service import CloudLoggingService
 from services.cloud_status_service import cloud_status_service
 from services.gke_remediator import GKERemediator
+from services.security_iam_service import security_iam_service
 from services.session_store_service import session_store_service
 
 
@@ -111,6 +114,27 @@ class LogTriageBatchRequest(BaseModel):
     target_cloud: Optional[str] = None
     strategy: str = "auto"
     ignore_similar_signatures: bool = False
+
+
+class CustomerTicketIngestRequest(BaseModel):
+    customer_name: str = "HSBC Global Services (UK) Limited"
+    project_id: str = os.getenv("GCP_PROJECT_ID", "agent-triad")
+    region: str = "europe-west2"
+    business_impact: str = "Non-Production System impaired"
+    error_message: str = (
+        "com.google.apps.framework.request.StatusException: generic::FAILED_PRECONDITION: "
+        "Missing permissions to validate that the provided IP range is available. "
+        "Please check that Datastream SA has the required permissions."
+    )
+    ticket_description: str = (
+        "1. We are not able to create private connectivity with the VPC to establish connection with cloudSQL service.\n"
+        "2. Host service account for datastream does not exist in the Host project.\n"
+        "3. Now, we would like to create the private connectivity outside shared VPC, but its not allowing. "
+        "Could you please help us to remove the service account or do we have any other way to create private connectivity without facing this issue."
+    )
+    service_agent_email: Optional[str] = None
+    workload: str = "datastream/private-connectivity-ew2"
+    mock_deployments: Optional[List[Dict[str, Any]]] = None
 
 
 DEFAULT_GOOGLE_OAUTH_CLIENT_ID = "1041190629307-vfatcreibv4a82lcj0v6t11vlic9rivn.apps.googleusercontent.com"
@@ -553,7 +577,7 @@ async def poll_cloud_logging() -> Dict[str, Any]:
     real_anomalies.sort(
         key=lambda e: (
             str(e.get("timestamp", "")),
-            1 if str(e.get("log_id", "")).startswith("gcp-sql-") else 0,
+            1 if str(e.get("log_id", "")).startswith(("gcp-ds-", "gcp-sql-")) else 0,
         ),
         reverse=True,
     )
@@ -588,6 +612,98 @@ async def poll_cloud_logging() -> Dict[str, Any]:
         "incident": lead_orchestrator.incidents.get(incident_id) if incident_id else None,
         "newly_reported_incidents": newly_reported,
         "total_logs": len(logs),
+    }
+
+
+@app.post("/api/tickets/ingest")
+async def ingest_customer_support_ticket(req: CustomerTicketIngestRequest) -> Dict[str, Any]:
+    """
+    Ingests an enterprise support ticket (e.g., Scenario 1 Datastream Private Connectivity
+    FAILED_PRECONDITION / IAM state drift) into the Agent-Triad 4-phase A2A pipeline:
+      Phase 1: Cloud_Provider_Health_Tool pre-flight check (OPERATIONAL Green -> proceed)
+      Phase 2: Parallel Security Agent (`Security_Agent_Tool`) + Infra Agent (`GitOps_Correlator_Tool`)
+      Phase 3: Atlas Blameless RCA synthesis + exact live `gcloud projects add-iam-policy-binding` CLI
+      Phase 4: Stage 2 HITL gate (`AWAITING_HITL_APPROVAL`, zero autonomous execution until 'I accept')
+    """
+    clean_project = (req.project_id or logging_service.project_id).replace("projects/", "").strip() or logging_service.project_id
+    clean_region = (req.region or "europe-west2").strip()
+    sa_email = (
+        (req.service_agent_email or "").strip()
+        or security_iam_service.default_datastream_service_agent(clean_project)
+    )
+    if sa_email.startswith("serviceAccount:"):
+        sa_email = sa_email.split(":", 1)[1]
+
+    now_iso = datetime.datetime.now(datetime.timezone.utc).isoformat()
+    ticket_id = f"tkt-ds-{uuid.uuid4().hex[:8]}"
+    rec_cli = (
+        f'gcloud projects add-iam-policy-binding {clean_project} '
+        f'--member="serviceAccount:{sa_email}" --role="roles/compute.networkAdmin"'
+    )
+    customer_ticket_meta = {
+        "ticket_id": ticket_id,
+        "customer_name": (req.customer_name or "Enterprise Customer").strip(),
+        "project_id": f"projects/{clean_project}",
+        "clean_project_id": clean_project,
+        "region": clean_region,
+        "business_impact": (req.business_impact or "Non-Production System impaired").strip(),
+        "observed_error": (req.error_message or "").strip(),
+        "ticket_description": (req.ticket_description or "").strip(),
+        "service_agent_email": sa_email,
+        "submitted_at": now_iso,
+    }
+
+    ticket_entry = normalize_otel_anomaly(
+        log_id=ticket_id,
+        signature_key=f"datastream:{clean_project}:IAM_FAILED_PRECONDITION",
+        timestamp=now_iso,
+        severity="ERROR",
+        scenario_id="datastream_iam_drift",
+        title=f"Datastream Private Connectivity ({clean_project}): Missing Datastream SA IAM Permissions",
+        source="gcp:datastream.googleapis.com",
+        project_id=clean_project,
+        cluster=clean_region,
+        namespace="datastream",
+        workload=(req.workload or "datastream/private-connectivity-ew2").strip(),
+        pod="datastream-private-connectivity",
+        container="datastream-private-connectivity",
+        error_code="DATASTREAM_FAILED_PRECONDITION_IAM",
+        message=(req.error_message or "").strip(),
+        metrics_snapshot={
+            "service": "datastream.googleapis.com",
+            "region": clean_region,
+            "project_id": clean_project,
+            "datastream_sa": sa_email,
+            "business_impact": customer_ticket_meta["business_impact"],
+        },
+        recommended_kubectl=rec_cli,
+        recommended_action_type="datastream_iam_policy_remediation",
+        is_anomaly=True,
+        persisted_to_gcp=(clean_project == logging_service.project_id),
+        cloud_provider="gcp",
+        extra_attributes={
+            "gcp.service": "datastream.googleapis.com",
+            "gcp.datastream.service_agent": sa_email,
+            "gcp.region": clean_region,
+            "customer.name": customer_ticket_meta["customer_name"],
+            "lock_recommended_cli": True,
+        },
+    )
+    ticket_entry["customer_ticket"] = customer_ticket_meta
+    if req.mock_deployments:
+        ticket_entry["mock_deployments"] = req.mock_deployments
+
+    logging_service._local_logs.insert(0, ticket_entry)
+    _seen_anomaly_ids.add(ticket_id)
+    orchestrator_result = await watcher_agent.detect_and_report_anomaly(ticket_entry)
+    incident_id = orchestrator_result.get("incident_id", ticket_id)
+    incident = lead_orchestrator.incidents.get(incident_id)
+    return {
+        "status": "TICKET_INGESTED_AWAITING_HITL",
+        "incident_id": incident_id,
+        "ticket": customer_ticket_meta,
+        "incident": incident,
+        "orchestrator_result": orchestrator_result,
     }
 
 

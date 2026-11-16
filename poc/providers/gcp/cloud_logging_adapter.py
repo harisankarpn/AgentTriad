@@ -163,6 +163,98 @@ class GCPCloudLoggingAdapter(TelemetryIngestionAdapter):
             self._suppressed_routine_logs_count += 1
             return None
 
+        # Real Datastream Cloud Audit Logs (`audited_resource` / `datastream.googleapis.com`)
+        proto_service = (
+            str(payload.get("serviceName") or "")
+            if isinstance(payload, dict)
+            else ""
+        )
+        if res_type == "audited_resource" and (
+            labels.get("service") == "datastream.googleapis.com" or proto_service == "datastream.googleapis.com"
+        ):
+            status_obj = (payload.get("status") or {}) if isinstance(payload, dict) else {}
+            status_code = status_obj.get("code")
+            status_msg = str(status_obj.get("message") or raw_msg or "").strip()
+            resource_name = str((payload.get("resourceName") or "") if isinstance(payload, dict) else "")
+            method_name = str(
+                (payload.get("methodName") or labels.get("method") or "Datastream.CreatePrivateConnection")
+                if isinstance(payload, dict)
+                else (labels.get("method") or "Datastream.CreatePrivateConnection")
+            )
+            res_locs = (
+                ((payload.get("resourceLocation") or {}).get("currentLocations") or [])
+                if isinstance(payload, dict)
+                else []
+            )
+            region = str(res_locs[0]) if res_locs else ""
+            if not region and "/locations/" in resource_name:
+                region = resource_name.split("/locations/", 1)[1].split("/", 1)[0]
+            region = region or "europe-west2"
+            conn_id = resource_name.rstrip("/").split("/")[-1] if resource_name else "datastream-private-conn"
+            is_anom = (
+                severity in ("ERROR", "CRITICAL", "ALERT", "EMERGENCY")
+                or status_code == 9
+                or "FAILED_PRECONDITION" in status_msg
+                or "Missing permissions" in status_msg
+            )
+            if not is_anom:
+                self._suppressed_routine_logs_count += 1
+                return None
+
+            proj_num = os.getenv("GCP_PROJECT_NUMBER", "1041190629307").strip()
+            ds_sa = f"service-{proj_num}@gcp-sa-datastream.iam.gserviceaccount.com"
+            is_iam_missing = (
+                "Missing permissions" in status_msg
+                or "Datastream SA" in status_msg
+                or "FAILED_PRECONDITION" in status_msg
+            )
+            rec_cli = (
+                f'gcloud projects add-iam-policy-binding {self.project_id} '
+                f'--member="serviceAccount:{ds_sa}" --role="roles/compute.networkAdmin"'
+            )
+            return normalize_otel_anomaly(
+                log_id=f"gcp-ds-{entry.insert_id or uuid.uuid4().hex[:8]}",
+                signature_key=f"datastream:{conn_id}:{'IAM_FAILED_PRECONDITION' if is_iam_missing else 'ERROR'}",
+                timestamp=ts_iso,
+                severity="ERROR",
+                scenario_id="datastream_iam_drift" if is_iam_missing else "real_gcp_anomaly",
+                title=(
+                    f"Datastream Private Connectivity ({conn_id}): Missing Datastream SA IAM Permissions"
+                    if is_iam_missing
+                    else f"Datastream ({conn_id}): {status_msg[:65]}"
+                ),
+                source="gcp:datastream.googleapis.com",
+                project_id=self.project_id,
+                cluster=region,
+                namespace="datastream",
+                workload=f"datastream/{conn_id}",
+                pod=conn_id,
+                container="datastream-private-connectivity",
+                error_code="DATASTREAM_FAILED_PRECONDITION_IAM" if is_iam_missing else "DATASTREAM_API_ERROR",
+                message=status_msg or raw_msg.strip(),
+                metrics_snapshot={
+                    "service": "datastream.googleapis.com",
+                    "method": method_name,
+                    "region": region,
+                    "resource_name": resource_name,
+                    "grpc_code": status_code,
+                    "datastream_sa": ds_sa,
+                },
+                recommended_kubectl=rec_cli,
+                recommended_action_type="datastream_iam_policy_remediation",
+                is_anomaly=True,
+                persisted_to_gcp=True,
+                cloud_provider="gcp",
+                trace_id=trace_id,
+                span_id=span_id,
+                extra_attributes={
+                    "gcp.service": "datastream.googleapis.com",
+                    "gcp.datastream.service_agent": ds_sa,
+                    "gcp.region": region,
+                    "lock_recommended_cli": True,
+                },
+            )
+
         # Real Cloud Run revision logs (`cloud_run_revision`)
         if res_type == "cloud_run_revision":
             service_name = labels.get("service_name") or labels.get("configuration_name") or "cloud-run-service"
@@ -526,6 +618,13 @@ class GCPCloudLoggingAdapter(TelemetryIngestionAdapter):
                     f'timestamp>="{since_iso}" AND '
                     'resource.type="cloudsql_database" AND severity>=WARNING'
                 )
+                # 0b. Prioritize real Datastream Private Connectivity IAM / FAILED_PRECONDITION Audit Logs
+                datastream_audit_filter = (
+                    f'timestamp>="{since_iso}" AND '
+                    'resource.type="audited_resource" AND '
+                    'protoPayload.serviceName="datastream.googleapis.com" AND '
+                    'severity>=ERROR'
+                )
                 # 1. Query real warnings/errors across Cloud SQL, GCE VMs, Cloud Run, Cloud Functions & ReasoningEngine
                 anomaly_filter = (
                     f'timestamp>="{since_iso}" AND '
@@ -561,12 +660,13 @@ class GCPCloudLoggingAdapter(TelemetryIngestionAdapter):
 
                 raw_entries: List[Any] = []
                 query_specs = (
+                    (datastream_audit_filter, 10),
                     (cloudsql_anomaly_filter, 15),
                     (anomaly_filter, 25),
                     (telemetry_filter, 25),
                 )
                 poll_timeout = float(os.getenv("AAAS_LOG_POLL_TIMEOUT_SECONDS", "6.0"))
-                pool = concurrent.futures.ThreadPoolExecutor(max_workers=3)
+                pool = concurrent.futures.ThreadPoolExecutor(max_workers=4)
                 try:
                     futures = [pool.submit(_query_entries, flt, mr) for flt, mr in query_specs]
                     done, _ = concurrent.futures.wait(futures, timeout=poll_timeout)

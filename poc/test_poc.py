@@ -76,6 +76,8 @@ def run_e2e_tests() -> None:
         "btnBulkFixLogsViaChat",
         "btnBulkQueueSeparate",
         "multiAlertOptionsRow",
+        "btnOpenTicketIntake",
+        "ticketIntakeModal",
     ):
         assert nav_id in res_ui.text, f"Missing sidebar/view/theme/SSO/session/cloud element {nav_id} in Dashboard UI"
     for p4_ui_token in (
@@ -110,6 +112,9 @@ def run_e2e_tests() -> None:
         "Cloud Outage Safety Brake",
         "Five-Layer Zero-Trust Protection",
         "Bounded AI",
+        "renderSecurityIamAuditPanel",
+        "submitCustomerTicketIntake",
+        "Security_Agent_Tool",
     ):
         assert p4_ui_token in res_ui.text, f"Missing Multi-Cloud / Phase 4 / Dispatch UI token {p4_ui_token} in Dashboard UI"
     assert "pipelineStepsDrawer" not in res_ui.text, "Redundant center-stage pipelineStepsDrawer should be removed"
@@ -1147,6 +1152,183 @@ def run_e2e_tests() -> None:
     print(
         "[PASS] Graceful Multi-Alert Live Log Triage verified: /api/logs/ignore (+similar storm suppression), "
         "/api/logs/unignore, single-alert incident handoff, unified multi-alert AaaS Chat, and separate-incident queuing!"
+    )
+
+    # 14. Scenario 1 Live GCP Role-Play: External IaC / IAM Drift (Datastream Private Connectivity to Cloud SQL)
+    import datetime as _dt
+    from types import SimpleNamespace as _SimpleNamespace
+    from providers.gcp.cloud_logging_adapter import GCPCloudLoggingAdapter
+
+    # 14a. Verify real Datastream Cloud Audit Log normalization (`audited_resource` / `datastream.googleapis.com`, gRPC code 9)
+    ds_adapter = GCPCloudLoggingAdapter(project_id="agent-triad", initial_poll=False)
+    sample_ds_entry = _SimpleNamespace(
+        severity="ERROR",
+        resource=_SimpleNamespace(
+            type="audited_resource",
+            labels={
+                "service": "datastream.googleapis.com",
+                "method": "google.cloud.datastream.v1.Datastream.CreatePrivateConnection",
+                "project_id": "agent-triad",
+            },
+        ),
+        log_name="projects/agent-triad/logs/cloudaudit.googleapis.com%2Factivity",
+        timestamp=_dt.datetime(2026, 11, 16, 11, 45, 0, tzinfo=_dt.timezone.utc),
+        insert_id="t636n0d8nfp",
+        trace=None,
+        span_id=None,
+        payload={
+            "serviceName": "datastream.googleapis.com",
+            "methodName": "google.cloud.datastream.v1.Datastream.CreatePrivateConnection",
+            "resourceName": "projects/agent-triad/locations/europe-west2/privateConnections/ds-priv-conn-iam-check",
+            "resourceLocation": {"currentLocations": ["europe-west2"]},
+            "status": {
+                "code": 9,
+                "message": (
+                    "com.google.cloud.datastream.clh.handlers.CreatePrivateConnectionHandler$ValidationErrorException: "
+                    "<eye3 title='FAILED_PRECONDITION'/> generic::FAILED_PRECONDITION: "
+                    "Missing permissions to validate that the provided IP range is available. "
+                    "Please check that Datastream SA has the required permissions."
+                ),
+            },
+        },
+    )
+    norm_ds = ds_adapter._normalize_gcp_entry(sample_ds_entry)
+    assert norm_ds is not None, "Expected Datastream audit error entry to normalize"
+    assert norm_ds["log_id"] == "gcp-ds-t636n0d8nfp", norm_ds
+    assert norm_ds["scenario_id"] == "datastream_iam_drift", norm_ds
+    assert norm_ds["cluster"] == "europe-west2", norm_ds
+    assert norm_ds["workload"] == "datastream/ds-priv-conn-iam-check", norm_ds
+    assert (
+        'gcloud projects add-iam-policy-binding agent-triad '
+        '--member="serviceAccount:service-1041190629307@gcp-sa-datastream.iam.gserviceaccount.com" '
+        '--role="roles/compute.networkAdmin"'
+    ) == norm_ds["recommended_kubectl"], norm_ds["recommended_kubectl"]
+
+    # 14b. Live `agent-triad` Support Ticket Intake -> Phase 1-4 verification (Zero Autonomous Writes)
+    live_tkt_res = client.post(
+        "/api/tickets/ingest",
+        json={
+            "customer_name": "HSBC Global Services (UK) Limited",
+            "project_id": "projects/agent-triad",
+            "region": "europe-west2",
+            "business_impact": "Non-Production System impaired",
+            "service_agent_email": "service-1041190629307@gcp-sa-datastream.iam.gserviceaccount.com",
+        },
+    )
+    assert live_tkt_res.status_code == 200, live_tkt_res.text
+    live_tkt_body = live_tkt_res.json()
+    assert live_tkt_body["status"] == "TICKET_INGESTED_AWAITING_HITL", live_tkt_body
+    live_inc = live_tkt_body["incident"]
+    live_inc_id = live_tkt_body["incident_id"]
+
+    # Phase 1: Green regional health -> Safety Brake disengaged
+    assert live_inc["cloud_provider_status"]["status"] in ("HEALTHY", "OPERATIONAL"), live_inc["cloud_provider_status"]
+    assert live_inc["cloud_provider_status"]["mutations_allowed"] is True
+    assert live_inc["cloud_provider_status"]["region"] == "europe-west2"
+    assert live_inc["fault_attribution"]["origin"] == "EXTERNAL_APP_WORKLOAD"
+
+    # Phase 2: Parallel Security Agent + Infra Agent findings
+    assert live_inc["specialist_worker"]["id"] == "security-agent", live_inc["specialist_worker"]
+    coord_ids = [s["id"] for s in live_inc["coordinated_specialists"]]
+    assert "security-agent" in coord_ids and "infra-agent" in coord_ids, coord_ids
+    assert live_inc["iam_audit"]["tool_name"] == "Security_Agent_Tool"
+    assert live_inc["iam_audit"]["binding_present"] is False, live_inc["iam_audit"]
+    assert live_inc["iam_audit"]["required_role"] == "roles/compute.networkAdmin"
+    assert live_inc["gitops_correlation"] is not None
+
+    # Phase 3: Blameless RCA + exact live CLI + exact HITL prompt
+    expected_live_cli = (
+        'gcloud projects add-iam-policy-binding agent-triad '
+        '--member="serviceAccount:service-1041190629307@gcp-sa-datastream.iam.gserviceaccount.com" '
+        '--role="roles/compute.networkAdmin"'
+    )
+    assert live_inc["impact_analysis"]["recommended_kubectl"] == expected_live_cli
+    greeting_text = live_inc["chat_messages"][0]["text"]
+    assert "OPERATIONAL" in greeting_text
+    assert "Security_Agent_Tool" in greeting_text
+    assert "GitOps_Correlator_Tool" in greeting_text
+    assert "Do NOT remove" in greeting_text
+    assert expected_live_cli in greeting_text
+    assert "Click 'I Accept' to mint a 15-minute JIT token and execute this GitOps synchronization." in greeting_text
+
+    # Phase 4: Strict Zero Autonomous Execution before human approval
+    assert live_inc["status"] == "AWAITING_HITL_APPROVAL"
+    assert live_inc["jit_token"] is None
+    assert live_inc["execution_result"] is None
+
+    # 14c. Stage 2 HITL Approval in `sandbox` mode (preserves live armed GCP demo state!)
+    ds_appr_res = client.post(
+        f"/api/incidents/{live_inc_id}/approve",
+        json={"approved_by": "Hari", "execution_mode": "sandbox"},
+    )
+    assert ds_appr_res.status_code == 200, ds_appr_res.text
+    ds_appr_inc = ds_appr_res.json()["incident"]
+    assert ds_appr_inc["status"] == "RESOLVED"
+    assert ds_appr_inc["jit_token"] is not None
+    assert ds_appr_inc["execution_result"]["iam_execution_result"]["status"] == "SANDBOX_VALIDATED"
+    assert ds_appr_inc["execution_result"]["reconciliation_pr"] is not None
+    assert ds_appr_inc["verification_result"]["status"] == "VERIFIED_HEALTHY"
+
+    # 14d. External HSBC reference ticket with 12-minute-prior Terraform drift deployment
+    twelve_min_ago = (_dt.datetime.now(_dt.timezone.utc) - _dt.timedelta(minutes=12)).isoformat()
+    hsbc_res = client.post(
+        "/api/tickets/ingest",
+        json={
+            "customer_name": "HSBC Global Services (UK) Limited",
+            "project_id": "projects/hsbc-10534429-fdreu-dev",
+            "region": "europe-west2",
+            "business_impact": "Non-Production System impaired",
+            "service_agent_email": "service-ORG@gcp-sa-datastream.iam.gserviceaccount.com",
+            "mock_deployments": [
+                {
+                    "event_type": "terraform_pipeline",
+                    "commit_sha": "tf-drift-90210",
+                    "revision": "tf-apply-441",
+                    "author": "hsbc-gitops-runner",
+                    "deployed_at": twelve_min_ago,
+                    "summary": "Terraform state drift removed Datastream service account roles/compute.networkAdmin binding",
+                    "changed_files": ["terraform/shared-vpc/iam.tf"],
+                    "service": "datastream/private-connectivity-ew2",
+                }
+            ],
+        },
+    )
+    assert hsbc_res.status_code == 200, hsbc_res.text
+    hsbc_inc = hsbc_res.json()["incident"]
+    expected_hsbc_cli = (
+        'gcloud projects add-iam-policy-binding hsbc-10534429-fdreu-dev '
+        '--member="serviceAccount:service-ORG@gcp-sa-datastream.iam.gserviceaccount.com" '
+        '--role="roles/compute.networkAdmin"'
+    )
+    assert hsbc_inc["impact_analysis"]["recommended_kubectl"] == expected_hsbc_cli
+    assert hsbc_inc["gitops_correlation"]["status"] == "CORRELATED_RECENT_DEPLOYMENT"
+    assert hsbc_inc["gitops_correlation"]["highest_confidence_match"]["short_sha"] == "tf-drift"
+    assert hsbc_inc["status"] == "AWAITING_HITL_APPROVAL"
+    assert hsbc_inc["jit_token"] is None
+
+    # 14e. Direct Atlas Chat with pasted Datastream FAILED_PRECONDITION ticket -> 4-phase reply, zero writes
+    ds_chat_res = client.post(
+        "/api/atlas/chat",
+        json={
+            "message": (
+                "Customer: HSBC Global Services (UK) Limited. Project ID: projects/agent-triad. Region: europe-west2. "
+                "Error: generic::FAILED_PRECONDITION: Missing permissions to validate that the provided IP range is available. "
+                "Please check that Datastream SA has the required permissions. We cannot create private connectivity to CloudSQL."
+            ),
+            "target_cloud": "gcp",
+        },
+    )
+    assert ds_chat_res.status_code == 200, ds_chat_res.text
+    ds_chat_body = ds_chat_res.json()
+    assert ds_chat_body["specialist_worker"]["id"] == "security-agent"
+    assert expected_live_cli in ds_chat_body["reply"]
+    assert "Click 'I Accept' to mint a 15-minute JIT token and execute this GitOps synchronization." in ds_chat_body["reply"]
+    assert ds_chat_body["terraform_bundle"] is not None
+    assert "prevent_destroy = true" in ds_chat_body["terraform_bundle"]["hcl_code"]
+    print(
+        "[PASS] Scenario 1 Live Datastream IAM Drift Role-Play verified: real GCP audit log normalizer, "
+        "live getIamPolicy + SetIamPolicy correlation, Phase 1-4 Blameless RCA, exact live CLI, "
+        "HSBC reference ticket, Direct Atlas Chat, and strict Stage 2 HITL zero-autonomy!"
     )
 
 

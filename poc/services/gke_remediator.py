@@ -22,6 +22,10 @@ from typing import Any, Dict, List, Optional
 
 from services.agent_harness import OWNED_SERVICES, agent_harness
 from services.gitops_correlator import gitops_correlator
+from services.security_iam_service import (
+    parse_gcloud_iam_binding_command,
+    security_iam_service,
+)
 
 try:
     from google.auth.transport.requests import AuthorizedSession
@@ -235,54 +239,67 @@ class GKERemediator:
         live_stdout = ""
         live_stderr = ""
         command_executed = kubectl_command
+        iam_execution_result: Optional[Dict[str, Any]] = None
+        parsed_iam_cmd = parse_gcloud_iam_binding_command(kubectl_command)
 
-        gcp_api_step = self._inspect_or_remediate_gcp_api(
-            cluster=cluster,
-            workload=workload,
-            kubectl_command=kubectl_command,
-            specialist_name=spec_name,
-        )
-        if gcp_api_step:
-            steps.append(gcp_api_step)
-
-        if execution_mode == "live":
-            try:
-                args = shlex.split(kubectl_command)
-                if "testdbconnect" in workload or "testdbconnect" in kubectl_command:
-                    steps.append(
-                        f"[{spec_name} Guardrail] Protected colleague service `testdbconnect` (us-west1); "
-                        f"validated `{kubectl_command}` in non-destructive mode."
-                    )
-                elif args and args[0] in ("kubectl", "gcloud"):
-                    proc = subprocess.run(
-                        args,
-                        capture_output=True,
-                        text=True,
-                        timeout=12,
-                        check=False,
-                    )
-                    live_stdout = proc.stdout.strip()
-                    live_stderr = proc.stderr.strip()
-                    if proc.returncode == 0:
-                        steps.append(
-                            f"[{spec_name} • GCP Live] Executed `{kubectl_command}` -> {live_stdout[:160] or 'APPLIED'}"
-                        )
-                    else:
-                        steps.append(
-                            f"[{spec_name} • Agent Harness] Validated and applied `{kubectl_command}` "
-                            f"for `{workload}` via Google Cloud Control Plane."
-                        )
-                else:
-                    steps.append("[OPA/Rego] Blocked unauthorized binary in live mode.")
-            except Exception:
-                steps.append(
-                    f"[{spec_name} • Agent Harness] Applied validated remediation `{kubectl_command}` "
-                    f"for `{workload}` via Google Cloud Control Plane."
-                )
-        else:
-            steps.append(
-                f"[{spec_name} • Sandbox Validation] Validated `{kubectl_command}` -> configuration passed OPA & schema checks"
+        if parsed_iam_cmd:
+            iam_execution_result = security_iam_service.apply_iam_policy_binding_live(
+                project_id=parsed_iam_cmd["project_id"],
+                member=parsed_iam_cmd["member"],
+                role=parsed_iam_cmd["role"],
+                jit_token_id=jit_token_id,
+                execute_live=(execution_mode == "live"),
             )
+            steps.append(iam_execution_result["summary"])
+            live_stdout = iam_execution_result["summary"]
+        else:
+            gcp_api_step = self._inspect_or_remediate_gcp_api(
+                cluster=cluster,
+                workload=workload,
+                kubectl_command=kubectl_command,
+                specialist_name=spec_name,
+            )
+            if gcp_api_step:
+                steps.append(gcp_api_step)
+
+            if execution_mode == "live":
+                try:
+                    args = shlex.split(kubectl_command)
+                    if "testdbconnect" in workload or "testdbconnect" in kubectl_command:
+                        steps.append(
+                            f"[{spec_name} Guardrail] Protected colleague service `testdbconnect` (us-west1); "
+                            f"validated `{kubectl_command}` in non-destructive mode."
+                        )
+                    elif args and args[0] in ("kubectl", "gcloud"):
+                        proc = subprocess.run(
+                            args,
+                            capture_output=True,
+                            text=True,
+                            timeout=12,
+                            check=False,
+                        )
+                        live_stdout = proc.stdout.strip()
+                        live_stderr = proc.stderr.strip()
+                        if proc.returncode == 0:
+                            steps.append(
+                                f"[{spec_name} • GCP Live] Executed `{kubectl_command}` -> {live_stdout[:160] or 'APPLIED'}"
+                            )
+                        else:
+                            steps.append(
+                                f"[{spec_name} • Agent Harness] Validated and applied `{kubectl_command}` "
+                                f"for `{workload}` via Google Cloud Control Plane."
+                            )
+                    else:
+                        steps.append("[OPA/Rego] Blocked unauthorized binary in live mode.")
+                except Exception:
+                    steps.append(
+                        f"[{spec_name} • Agent Harness] Applied validated remediation `{kubectl_command}` "
+                        f"for `{workload}` via Google Cloud Control Plane."
+                    )
+            else:
+                steps.append(
+                    f"[{spec_name} • Sandbox Validation] Validated `{kubectl_command}` -> configuration passed OPA & schema checks"
+                )
 
         # 5. Record mutation in Blast-Radius Governor, verify Watchdog spec, build Bidirectional GitOps PR, and release `.tflock`
         self.harness.record_completed_execution(workload=workload, incident_id=incident_id, specialist_name=spec_name)
@@ -339,6 +356,7 @@ class GKERemediator:
             "terraform_lock": lock_id,
             "reconciliation_pr": pr_id,
             "gitops_pr_payload": resolved_pr_payload,
+            "iam_execution_result": iam_execution_result,
             "steps": steps,
             "harness_report": {
                 "lock_release": release_info,

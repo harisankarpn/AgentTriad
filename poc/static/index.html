@@ -490,6 +490,11 @@
             </button>
           </div>
 
+          <button id="btnOpenTicketIntake" type="button" onclick="openTicketIntakeModal()" title="Ingest Customer Support Ticket into Agent-Triad 4-Phase Triage" class="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-full bg-slate-900 hover:bg-slate-800 text-slate-200 border border-slate-700 text-xs font-medium transition cursor-pointer">
+            <i class="fa-solid fa-ticket text-[#34A853]"></i>
+            <span>Support Ticket</span>
+          </button>
+
           <button id="btnPollLiveLogs" type="button" onclick="pollLiveCloudLogging()" title="Poll Real GCP Cloud Logging via Heartbeat &amp; Telemetry" class="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-full bg-slate-900 hover:bg-slate-800 text-slate-200 border border-slate-700 text-xs font-medium transition cursor-pointer">
             <i class="fa-solid fa-satellite-dish text-[#4285F4]" id="livePollIcon"></i>
             <span id="livePollText">Poll Live Logs</span>
@@ -1295,6 +1300,98 @@
           <span class="g-badge-blue px-2.5 py-0.5 rounded-full text-[10px] font-semibold shrink-0">SRE On-Call</span>
         </button>
       </div>
+    </div>
+  </div>
+
+  <!-- ===================================================================== -->
+  <!-- CUSTOMER SUPPORT TICKET INTAKE MODAL (Live 4-Phase Agent-Triad Triage)-->
+  <!-- ===================================================================== -->
+  <div id="ticketIntakeModal" class="hidden fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/90 backdrop-blur-md">
+    <div class="glass g-card-fourcolor border border-slate-800 rounded-3xl max-w-2xl w-full p-5 sm:p-6 space-y-4 shadow-2xl max-h-[90vh] overflow-y-auto">
+      <div class="flex items-start justify-between gap-3 pb-3 border-b border-slate-800">
+        <div class="space-y-1">
+          <div class="flex flex-wrap items-center gap-1.5">
+            <span class="g-badge-green px-2.5 py-0.5 rounded-full text-[10px] font-semibold">Live 4-Phase Triage</span>
+            <span class="g-badge-blue px-2.5 py-0.5 rounded-full text-[10px] font-semibold">Zero Autonomous Writes</span>
+          </div>
+          <h3 class="text-base sm:text-lg font-bold text-white">Ingest Customer Support Ticket</h3>
+          <p class="text-xs text-slate-400">
+            Runs Phase 1 Pre-Flight Health Check, Phase 2 Parallel Security &amp; Infra Specialists (live GCP IAM + Cloud Audit Logs), Phase 3 Blameless RCA, and pauses at Phase 4 Stage 2 HITL.
+          </p>
+        </div>
+        <button type="button" onclick="closeTicketIntakeModal()" class="w-8 h-8 rounded-full bg-slate-900 hover:bg-slate-800 border border-slate-800 text-slate-400 hover:text-white flex items-center justify-center cursor-pointer shrink-0" aria-label="Close Support Ticket Modal">
+          <i class="fa-solid fa-xmark text-xs"></i>
+        </button>
+      </div>
+
+      <div class="flex flex-wrap items-center gap-2 text-[11px]">
+        <span class="text-slate-400 font-semibold">Target Project:</span>
+        <button type="button" onclick="applyTicketPreset('live-agent-triad')" class="g-badge-green px-3 py-1 rounded-full font-semibold cursor-pointer">
+          Live GCP: agent-triad (1041190629307)
+        </button>
+        <button type="button" onclick="applyTicketPreset('hsbc-reference')" class="px-3 py-1 rounded-full bg-slate-900 hover:bg-slate-800 border border-slate-700 text-slate-200 font-medium cursor-pointer">
+          HSBC Reference (hsbc-10534429-fdreu-dev)
+        </button>
+      </div>
+
+      <form id="ticketIntakeForm" onsubmit="submitCustomerTicketIntake(event)" class="space-y-3">
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <div class="space-y-1">
+            <label for="ticketCustomerName" class="text-[11px] font-semibold text-slate-300">Customer</label>
+            <input id="ticketCustomerName" type="text" value="HSBC Global Services (UK) Limited" required
+              class="w-full bg-slate-950 border border-slate-800 focus:border-[#4285F4] rounded-xl px-3 py-2 text-xs text-white focus:outline-none" />
+          </div>
+          <div class="space-y-1">
+            <label for="ticketProjectId" class="text-[11px] font-semibold text-slate-300">Project ID</label>
+            <input id="ticketProjectId" type="text" value="projects/agent-triad" required
+              class="w-full bg-slate-950 border border-slate-800 focus:border-[#4285F4] rounded-xl px-3 py-2 text-xs mono text-white focus:outline-none" />
+          </div>
+          <div class="space-y-1">
+            <label for="ticketRegion" class="text-[11px] font-semibold text-slate-300">Region</label>
+            <input id="ticketRegion" type="text" value="europe-west2" required
+              class="w-full bg-slate-950 border border-slate-800 focus:border-[#4285F4] rounded-xl px-3 py-2 text-xs mono text-white focus:outline-none" />
+          </div>
+          <div class="space-y-1">
+            <label for="ticketBusinessImpact" class="text-[11px] font-semibold text-slate-300">Business Impact</label>
+            <input id="ticketBusinessImpact" type="text" value="Non-Production System impaired" required
+              class="w-full bg-slate-950 border border-slate-800 focus:border-[#4285F4] rounded-xl px-3 py-2 text-xs text-white focus:outline-none" />
+          </div>
+        </div>
+
+        <div class="space-y-1">
+          <label for="ticketServiceAgent" class="text-[11px] font-semibold text-slate-300">Datastream Service Agent (Host Project)</label>
+          <input id="ticketServiceAgent" type="text" value="service-1041190629307@gcp-sa-datastream.iam.gserviceaccount.com" required
+            class="w-full bg-slate-950 border border-slate-800 focus:border-[#4285F4] rounded-xl px-3 py-2 text-xs mono text-white focus:outline-none" />
+        </div>
+
+        <div class="space-y-1">
+          <label for="ticketErrorMessage" class="text-[11px] font-semibold text-slate-300">Observed Error Message</label>
+          <textarea id="ticketErrorMessage" rows="2" required
+            class="w-full bg-slate-950 border border-slate-800 focus:border-[#4285F4] rounded-xl px-3 py-2 text-[11px] mono text-slate-200 focus:outline-none">com.google.apps.framework.request.StatusException: generic::FAILED_PRECONDITION: Missing permissions to validate that the provided IP range is available. Please check that Datastream SA has the required permissions.</textarea>
+        </div>
+
+        <div class="space-y-1">
+          <label for="ticketDescription" class="text-[11px] font-semibold text-slate-300">Customer Ticket Description</label>
+          <textarea id="ticketDescription" rows="3" required
+            class="w-full bg-slate-950 border border-slate-800 focus:border-[#4285F4] rounded-xl px-3 py-2 text-xs text-slate-200 focus:outline-none">1. We are not able to create private connectivity with the VPC to establish connection with cloudSQL service.
+2. Host service account for datastream does not exist in the Host project.
+3. Now, we would like to create the private connectivity outside shared VPC, but its not allowing. Could you please help us to remove the service account or do we have any other way to create private connectivity without facing this issue.</textarea>
+        </div>
+
+        <div id="ticketIntakeError" class="hidden p-2.5 rounded-xl bg-[#EA4335]/15 border border-[#EA4335]/50 text-xs text-[#EA4335]"></div>
+
+        <div class="flex flex-wrap items-center justify-end gap-2 pt-2 border-t border-slate-800">
+          <button type="button" onclick="closeTicketIntakeModal()"
+            class="px-4 py-2 rounded-full bg-slate-900 hover:bg-slate-800 border border-slate-700 text-xs text-slate-300 cursor-pointer">
+            Cancel
+          </button>
+          <button id="btnSubmitCustomerTicket" type="submit"
+            class="g-btn-blue px-5 py-2 rounded-full text-xs font-semibold cursor-pointer inline-flex items-center gap-2">
+            <i class="fa-solid fa-play text-[10px]"></i>
+            <span>Run 4-Phase Agent-Triad Triage</span>
+          </button>
+        </div>
+      </form>
     </div>
   </div>
 
@@ -4095,6 +4192,9 @@
 
     function detectLikelySpecialist(text) {
       const q = String(text || '').toLowerCase();
+      if (/\b(datastream|gcp-sa-datastream|failed_precondition)\b/.test(q)) {
+        return { id: 'security-agent', name: 'Security Agent', icon: 'fa-shield-halved', liveAdk: true };
+      }
       if (/\b(sql|cloudsql|postgres|postgresql|rds|aurora|database|db|deadlock|slow query|pg_stat|alloydb|spanner|cosmos)\b/.test(q)) {
         return { id: 'database-agent', name: 'Database Agent', icon: 'fa-database', liveAdk: true };
       }
@@ -4637,6 +4737,7 @@
               </div>
               ${renderDispatchReceiptCard(msg)}
               <div>${formatChatText(msg.text)}</div>
+              ${msg.iam_audit ? `<div class="mt-2.5">${renderSecurityIamAuditPanel(null, msg.iam_audit)}</div>` : ''}
               ${msg.terraform_bundle ? renderTerraformBundleWidget(msg.terraform_bundle, idx) : ''}
             </div>
           </div>
@@ -4644,20 +4745,117 @@
       }).join('');
     }
 
+    function renderSecurityIamAuditPanel(inc, iamAudit) {
+      if (!iamAudit) return '';
+      const isMissing = iamAudit.binding_present === false || iamAudit.status === 'MISSING_REQUIRED_IAM_BINDING';
+      const liveVerified = Boolean(iamAudit.live_gcp_verified);
+      const recCli = iamAudit.recommended_cli || ((inc && inc.impact_analysis) ? inc.impact_analysis.recommended_kubectl : '') || '';
+      const encodedCli = encodeURIComponent(recCli);
+      const iamExec = (inc && inc.execution_result && inc.execution_result.iam_execution_result) || null;
+      const awaitingApproval = inc && inc.status === 'AWAITING_HITL_APPROVAL';
+
+      return `
+        <div id="securityIamAuditPanel" class="rounded-2xl bg-slate-950/90 border ${isMissing && !(iamExec && iamExec.live_executed) ? 'border-[#EA4335]/45' : 'border-[#34A853]/45'} px-3.5 py-3 text-left space-y-2">
+          <div class="flex flex-wrap items-center justify-between gap-1.5">
+            <div class="flex flex-wrap items-center gap-1.5">
+              <span class="g-badge-blue px-2.5 py-0.5 rounded-full text-[10px] font-semibold inline-flex items-center gap-1">
+                <i class="fa-solid fa-shield-halved text-[9px]"></i>
+                <span>Security Agent • IAM Posture Audit</span>
+              </span>
+              <span class="${liveVerified ? 'g-badge-green' : 'g-badge-yellow'} px-2 py-0.5 rounded-full text-[10px] font-semibold">
+                ${liveVerified ? 'Live GCP getIamPolicy' : 'IAM Audit Snapshot'}
+              </span>
+              <span class="${isMissing && !(iamExec && iamExec.live_executed) ? 'g-badge-red' : 'g-badge-green'} px-2 py-0.5 rounded-full text-[10px] mono font-semibold">
+                ${iamExec && iamExec.live_executed ? 'APPLIED_LIVE_GCP_IAM' : escapeHtml(iamAudit.status || 'MISSING_REQUIRED_IAM_BINDING')}
+              </span>
+            </div>
+            <span class="text-[10px] mono text-slate-400">Security_Agent_Tool${iamAudit.policy_etag ? ` • etag ${escapeHtml(iamAudit.policy_etag)}` : ''}</span>
+          </div>
+
+          <div class="grid grid-cols-1 sm:grid-cols-3 gap-2 text-[10px]">
+            <div class="p-2 rounded-xl bg-slate-900/90 border border-slate-800">
+              <div class="text-slate-400">Host Project</div>
+              <div class="mono text-white font-semibold truncate" title="${escapeHtml(iamAudit.project_id || '')}">${escapeHtml(iamAudit.project_id || 'agent-triad')}</div>
+            </div>
+            <div class="p-2 rounded-xl bg-slate-900/90 border border-slate-800">
+              <div class="text-slate-400">Datastream Service Agent</div>
+              <div class="mono text-slate-200 truncate" title="${escapeHtml(iamAudit.target_service_agent || '')}">${escapeHtml(iamAudit.target_service_agent || '')}</div>
+            </div>
+            <div class="p-2 rounded-xl bg-slate-900/90 border border-slate-800">
+              <div class="text-slate-400">Required Role</div>
+              <div class="mono text-[#FBBC04] font-semibold truncate">${escapeHtml(iamAudit.required_role || 'roles/compute.networkAdmin')}</div>
+            </div>
+          </div>
+
+          ${recCli ? `
+            <div class="space-y-1.5">
+              <div class="flex items-center justify-between gap-2">
+                <span class="text-[10px] font-semibold text-slate-300">Proposed Live CLI Remediation (Stage 2 HITL):</span>
+                <button type="button" onclick="copyTerraformCode(this, '${encodedCli}')"
+                  class="px-2.5 py-0.5 rounded-full bg-slate-900 hover:bg-slate-800 border border-slate-700 text-[10px] text-slate-200 transition cursor-pointer inline-flex items-center gap-1">
+                  <i class="fa-regular fa-copy"></i> <span>Copy CLI</span>
+                </button>
+              </div>
+              <pre class="mono text-[10px] text-[#81C995] bg-slate-900 border border-slate-800 rounded-xl px-3 py-2 overflow-x-auto whitespace-pre-wrap break-all">${escapeHtml(recCli)}</pre>
+            </div>
+          ` : ''}
+
+          ${awaitingApproval ? `
+            <div class="text-[11px] text-slate-200 flex items-center gap-1.5 pt-0.5">
+              <i class="fa-solid fa-key text-[#FBBC04] text-[10px]"></i>
+              <span>Click <strong>'I Accept'</strong> to mint a 15-minute JIT token and execute this GitOps synchronization.</span>
+            </div>
+          ` : ''}
+
+          ${iamExec ? `
+            <div class="p-2.5 rounded-xl bg-[#34A853]/12 border border-[#34A853]/40 text-[11px] text-slate-200 space-y-1">
+              <div class="font-semibold text-[#34A853] flex items-center gap-1.5">
+                <i class="fa-solid fa-circle-check"></i>
+                <span>${escapeHtml(iamExec.status || 'APPLIED')} — ${escapeHtml(iamExec.jit_impersonation_mode || '15m JIT Token')}</span>
+              </div>
+              <div class="text-[10px] mono text-slate-300">${escapeHtml(iamExec.summary || '')}</div>
+            </div>
+          ` : ''}
+        </div>
+      `;
+    }
+
     function renderPhase4IntelligencePanels(inc) {
       if (!inc) return '';
       const impact = inc.impact_analysis || {};
       const cloudStatus = inc.cloud_provider_status || impact.cloud_provider_status || null;
       const attribution = inc.fault_attribution || impact.fault_attribution || null;
+      const customerTicket = inc.customer_ticket || impact.customer_ticket || null;
+      const iamAudit = inc.iam_audit || impact.iam_audit || null;
       const queryIntro = inc.query_introspection || impact.query_introspection || null;
       const gitopsCorr = inc.gitops_correlation || impact.gitops_correlation || null;
       const gitopsPr = (inc.execution_result && inc.execution_result.gitops_pr_payload) || inc.gitops_pr_payload || impact.gitops_pr_payload || null;
 
-      if (!cloudStatus && !attribution && !queryIntro && !gitopsCorr && !gitopsPr) {
+      if (!cloudStatus && !attribution && !customerTicket && !iamAudit && !queryIntro && !gitopsCorr && !gitopsPr) {
         return '';
       }
 
       const blocks = [];
+
+      // 0. Customer Support Ticket Metadata Banner (when triggered from Enterprise Ticket Intake)
+      if (customerTicket) {
+        blocks.push(`
+          <div class="rounded-2xl bg-slate-950/85 border border-[#4285F4]/40 px-3.5 py-2.5 text-left space-y-1">
+            <div class="flex flex-wrap items-center justify-between gap-1.5">
+              <div class="flex flex-wrap items-center gap-1.5">
+                <span class="g-badge-blue px-2.5 py-0.5 rounded-full text-[10px] font-semibold inline-flex items-center gap-1">
+                  <i class="fa-solid fa-ticket text-[9px]"></i>
+                  <span>${escapeHtml(customerTicket.customer_name || 'Enterprise Ticket')}</span>
+                </span>
+                <span class="px-2 py-0.5 rounded-full bg-slate-900 border border-slate-700 mono text-[10px] text-slate-200">${escapeHtml(customerTicket.project_id || '')}</span>
+                <span class="g-badge-yellow px-2 py-0.5 rounded-full text-[10px] font-semibold">${escapeHtml(customerTicket.business_impact || '')}</span>
+              </div>
+              <span class="text-[10px] mono text-slate-400">${escapeHtml(customerTicket.region || inc.cluster || 'europe-west2')}</span>
+            </div>
+            ${customerTicket.observed_error ? `<div class="mono text-[10px] text-[#EA4335] truncate" title="${escapeHtml(customerTicket.observed_error)}">${escapeHtml(customerTicket.observed_error)}</div>` : ''}
+          </div>
+        `);
+      }
 
       // 1. Fault Attribution & Cloud Provider Regional Health Panel
       if (attribution || cloudStatus) {
@@ -4690,6 +4888,11 @@
             ${attrSummary ? `<div class="text-[11px] text-slate-300 leading-relaxed">${escapeHtml(attrSummary)}</div>` : ''}
           </div>
         `);
+      }
+
+      // 1b. Security Agent Live IAM Posture Audit Panel
+      if (iamAudit) {
+        blocks.push(renderSecurityIamAuditPanel(inc, iamAudit));
       }
 
       // 2. Read-Only DB Query Introspection Panel
@@ -5630,6 +5833,86 @@
         if (btn) {
           btn.disabled = false;
           btn.innerHTML = `<i class="fa-solid fa-arrows-rotate"></i><span>Re-Check Cloud Provider Status</span>`;
+        }
+      }
+    }
+
+    function openTicketIntakeModal() {
+      const modal = document.getElementById('ticketIntakeModal');
+      const errEl = document.getElementById('ticketIntakeError');
+      if (errEl) {
+        errEl.classList.add('hidden');
+        errEl.textContent = '';
+      }
+      if (modal) modal.classList.remove('hidden');
+    }
+
+    function closeTicketIntakeModal() {
+      const modal = document.getElementById('ticketIntakeModal');
+      if (modal) modal.classList.add('hidden');
+    }
+
+    function applyTicketPreset(preset) {
+      const projEl = document.getElementById('ticketProjectId');
+      const saEl = document.getElementById('ticketServiceAgent');
+      const regEl = document.getElementById('ticketRegion');
+      if (preset === 'hsbc-reference') {
+        if (projEl) projEl.value = 'projects/hsbc-10534429-fdreu-dev';
+        if (saEl) saEl.value = 'service-ORG@gcp-sa-datastream.iam.gserviceaccount.com';
+        if (regEl) regEl.value = 'europe-west2';
+      } else {
+        if (projEl) projEl.value = 'projects/agent-triad';
+        if (saEl) saEl.value = 'service-1041190629307@gcp-sa-datastream.iam.gserviceaccount.com';
+        if (regEl) regEl.value = 'europe-west2';
+      }
+    }
+
+    async function submitCustomerTicketIntake(event) {
+      if (event) event.preventDefault();
+      const btn = document.getElementById('btnSubmitCustomerTicket');
+      const errEl = document.getElementById('ticketIntakeError');
+      if (errEl) {
+        errEl.classList.add('hidden');
+        errEl.textContent = '';
+      }
+      const payload = {
+        customer_name: (document.getElementById('ticketCustomerName')?.value || '').trim(),
+        project_id: (document.getElementById('ticketProjectId')?.value || '').trim(),
+        region: (document.getElementById('ticketRegion')?.value || 'europe-west2').trim(),
+        business_impact: (document.getElementById('ticketBusinessImpact')?.value || '').trim(),
+        service_agent_email: (document.getElementById('ticketServiceAgent')?.value || '').trim(),
+        error_message: (document.getElementById('ticketErrorMessage')?.value || '').trim(),
+        ticket_description: (document.getElementById('ticketDescription')?.value || '').trim()
+      };
+      if (btn) {
+        btn.disabled = true;
+        btn.innerHTML = `<i class="fa-solid fa-spinner fa-spin text-[10px]"></i><span>Running 4-Phase Triage...</span>`;
+      }
+      try {
+        const res = await fetch('/api/tickets/ingest', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(data.detail || `HTTP ${res.status}`);
+        closeTicketIntakeModal();
+        directChatMode = false;
+        if (data.incident_id) {
+          selectedIncidentId = data.incident_id;
+        }
+        switchView('command');
+        lastStageSignature = '';
+        await fetchState(true);
+      } catch (err) {
+        if (errEl) {
+          errEl.textContent = `Ticket ingestion failed: ${err.message || err}`;
+          errEl.classList.remove('hidden');
+        }
+      } finally {
+        if (btn) {
+          btn.disabled = false;
+          btn.innerHTML = `<i class="fa-solid fa-play text-[10px]"></i><span>Run 4-Phase Agent-Triad Triage</span>`;
         }
       }
     }
