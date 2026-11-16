@@ -147,7 +147,11 @@ def run_e2e_tests() -> None:
         assert specialist_label in res_ui.text, f"Missing {specialist_label} in Dashboard UI"
     assert "Simulate Issue" not in res_ui.text
     assert "scenarioSelect" not in res_ui.text
-    print("[PASS] Dashboard UI verified: Official Google Visual Identity 4-Color Palette, Google SSO Sign-In Modal, Auto/Dark/Light Theme Switcher, and 7 Specialists present")
+    assert "3 Agents Online" in res_ui.text, "ADK Specialists KPI should reflect 3 live agents (Database, Infra, Security)"
+    assert "2 Agents Online" not in res_ui.text, "Stale '2 Agents Online' KPI label should be replaced with '3 Agents Online'"
+    assert "HSBC_Target Project" in res_ui.text, "Support Ticket modal should show HSBC_Target Project preset"
+    assert "HSBC Reference" not in res_ui.text, "Stale 'HSBC Reference' preset label should be replaced with 'HSBC_Target Project'"
+    print("[PASS] Dashboard UI verified: Official Google Visual Identity 4-Color Palette, Google SSO Sign-In Modal, Auto/Dark/Light Theme Switcher, 3 ADK Specialists KPI, HSBC_Target Preset, and 7 Specialists present")
 
     # 1a. Verify Google SSO Authentication Endpoints (/api/auth/me, /api/auth/google, /api/auth/config)
     auth_me_res = client.get("/api/auth/me")

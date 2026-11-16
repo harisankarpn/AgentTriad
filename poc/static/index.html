@@ -435,16 +435,16 @@
     <!-- MAIN WORKSPACE AREA -->
     <div class="flex-1 flex flex-col min-w-0">
       <!-- Top Workspace Context Bar -->
-      <header class="w-full px-5 sm:px-8 py-3.5 border-b border-slate-800 flex flex-wrap items-center justify-between gap-3 sidebar-glass">
-        <div class="min-w-0 flex items-center gap-3">
-          <div class="hidden sm:flex items-center gap-1">
+      <header class="w-full px-4 sm:px-6 py-3 border-b border-slate-800 flex flex-wrap lg:flex-nowrap items-center justify-between gap-2.5 sidebar-glass">
+        <div class="min-w-0 flex-1 flex items-center gap-2.5">
+          <div class="hidden xl:flex items-center gap-1 shrink-0">
             <span class="w-2.5 h-2.5 rounded-full bg-[#4285F4]"></span>
             <span class="w-2.5 h-2.5 rounded-full bg-[#EA4335]"></span>
             <span class="w-2.5 h-2.5 rounded-full bg-[#FBBC04]"></span>
             <span class="w-2.5 h-2.5 rounded-full bg-[#34A853]"></span>
           </div>
           <div class="min-w-0">
-            <h2 id="workspaceViewTitle" class="text-base sm:text-lg font-bold text-white truncate">
+            <h2 id="workspaceViewTitle" class="text-sm sm:text-base font-bold text-white truncate">
               AaaS Command Center
             </h2>
             <p id="workspaceViewSubtitle" class="text-[11px] text-slate-400 truncate">
@@ -452,31 +452,31 @@
             </p>
           </div>
         </div>
-        <div class="flex flex-wrap items-center gap-2.5 shrink-0">
+        <div class="flex flex-wrap sm:flex-nowrap items-center gap-1.5 xl:gap-2 shrink-0">
           <!-- Auto-Detected Cloud Provider Pill (Active provider highlighted; non-hosted clouds greyed out) -->
-          <div id="targetCloudSwitcher" class="inline-flex items-center gap-0.5 pl-2.5 pr-1 py-0.5 rounded-full bg-slate-900 border border-slate-800 text-[11px] font-semibold" role="group" aria-label="Detected Cloud Provider" title="Cloud provider auto-detected from deployment URL">
-            <span class="text-[10px] font-medium text-slate-400 mr-1 select-none">Provider:</span>
-            <button type="button" id="cloudBtnGcp" onclick="setTargetCloud('gcp')" class="g-btn-blue px-2.5 py-1 rounded-full text-[10px] font-bold transition inline-flex items-center gap-1 cursor-default">
+          <div id="targetCloudSwitcher" class="inline-flex items-center gap-0.5 pl-1 2xl:pl-2.5 pr-1 py-0.5 rounded-full bg-slate-900 border border-slate-800 text-[11px] font-semibold shrink-0" role="group" aria-label="Detected Cloud Provider" title="Cloud provider auto-detected from deployment URL">
+            <span class="hidden 2xl:inline text-[10px] font-medium text-slate-400 mr-1 select-none">Provider:</span>
+            <button type="button" id="cloudBtnGcp" onclick="setTargetCloud('gcp')" class="g-btn-blue px-2 py-1 rounded-full text-[10px] font-bold transition inline-flex items-center gap-1 cursor-default whitespace-nowrap">
               <span class="w-1.5 h-1.5 rounded-full bg-[#81C995]"></span>GCP
             </button>
-            <button type="button" id="cloudBtnAws" onclick="setTargetCloud('aws')" disabled aria-disabled="true" class="px-2.5 py-1 rounded-full text-[10px] text-slate-500 opacity-40 cursor-not-allowed select-none inline-flex items-center gap-1" title="AWS activates automatically when hosted on AWS">
+            <button type="button" id="cloudBtnAws" onclick="setTargetCloud('aws')" disabled aria-disabled="true" class="px-2 py-1 rounded-full text-[10px] text-slate-500 opacity-40 cursor-not-allowed select-none inline-flex items-center gap-1 whitespace-nowrap" title="AWS activates automatically when hosted on AWS">
               <i class="fa-solid fa-lock text-[8px] opacity-70"></i>AWS
             </button>
-            <button type="button" id="cloudBtnAzure" onclick="setTargetCloud('azure')" disabled aria-disabled="true" class="px-2.5 py-1 rounded-full text-[10px] text-slate-500 opacity-40 cursor-not-allowed select-none inline-flex items-center gap-1" title="Azure activates automatically when hosted on Azure">
+            <button type="button" id="cloudBtnAzure" onclick="setTargetCloud('azure')" disabled aria-disabled="true" class="px-2 py-1 rounded-full text-[10px] text-slate-500 opacity-40 cursor-not-allowed select-none inline-flex items-center gap-1 whitespace-nowrap" title="Azure activates automatically when hosted on Azure">
               <i class="fa-solid fa-lock text-[8px] opacity-70"></i>Azure
             </button>
           </div>
 
           <!-- Theme Mode Segmented Control: Simplified Icon-Only Auto (Gear) / Dark (Moon) / Light (Sun) -->
-          <div class="inline-flex items-center p-0.5 rounded-full bg-slate-900 border border-slate-800" role="group" aria-label="Theme Mode">
-            <button type="button" id="themeBtnAuto" onclick="setThemeMode('auto')" title="Auto (System)" aria-label="Auto System Theme" class="w-7 h-7 rounded-full text-slate-400 hover:text-white transition cursor-pointer flex items-center justify-center">
-              <i class="fa-solid fa-gear text-[11px]"></i>
+          <div class="inline-flex items-center p-0.5 rounded-full bg-slate-900 border border-slate-800 shrink-0" role="group" aria-label="Theme Mode">
+            <button type="button" id="themeBtnAuto" onclick="setThemeMode('auto')" title="Auto (System)" aria-label="Auto System Theme" class="w-6 h-6 rounded-full text-slate-400 hover:text-white transition cursor-pointer flex items-center justify-center">
+              <i class="fa-solid fa-gear text-[10px]"></i>
             </button>
-            <button type="button" id="themeBtnDark" onclick="setThemeMode('dark')" title="Dark" aria-label="Dark Mode" class="w-7 h-7 rounded-full text-slate-400 hover:text-white transition cursor-pointer flex items-center justify-center">
-              <i class="fa-solid fa-moon text-[11px]"></i>
+            <button type="button" id="themeBtnDark" onclick="setThemeMode('dark')" title="Dark" aria-label="Dark Mode" class="w-6 h-6 rounded-full text-slate-400 hover:text-white transition cursor-pointer flex items-center justify-center">
+              <i class="fa-solid fa-moon text-[10px]"></i>
             </button>
-            <button type="button" id="themeBtnLight" onclick="setThemeMode('light')" title="Light" aria-label="Light Mode" class="w-7 h-7 rounded-full text-slate-400 hover:text-white transition cursor-pointer flex items-center justify-center">
-              <svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <button type="button" id="themeBtnLight" onclick="setThemeMode('light')" title="Light" aria-label="Light Mode" class="w-6 h-6 rounded-full text-slate-400 hover:text-white transition cursor-pointer flex items-center justify-center">
+              <svg class="w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
                 <circle cx="12" cy="12" r="4"></circle>
                 <line x1="12" y1="2" x2="12" y2="5"></line>
                 <line x1="12" y1="19" x2="12" y2="22"></line>
@@ -490,21 +490,21 @@
             </button>
           </div>
 
-          <button id="btnOpenTicketIntake" type="button" onclick="openTicketIntakeModal()" title="Ingest Customer Support Ticket into Agent-Triad 4-Phase Triage" class="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-full bg-slate-900 hover:bg-slate-800 text-slate-200 border border-slate-700 text-xs font-medium transition cursor-pointer">
+          <button id="btnOpenTicketIntake" type="button" onclick="openTicketIntakeModal()" title="Ingest Customer Support Ticket into Agent-Triad 4-Phase Triage" class="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-full bg-slate-900 hover:bg-slate-800 text-slate-200 border border-slate-700 text-[11px] font-medium transition cursor-pointer whitespace-nowrap shrink-0">
             <i class="fa-solid fa-ticket text-[#34A853]"></i>
             <span>Support Ticket</span>
           </button>
 
-          <button id="btnPollLiveLogs" type="button" onclick="pollLiveCloudLogging()" title="Poll Real GCP Cloud Logging via Heartbeat &amp; Telemetry" class="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-full bg-slate-900 hover:bg-slate-800 text-slate-200 border border-slate-700 text-xs font-medium transition cursor-pointer">
+          <button id="btnPollLiveLogs" type="button" onclick="pollLiveCloudLogging()" title="Poll Real GCP Cloud Logging via Heartbeat &amp; Telemetry" class="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-full bg-slate-900 hover:bg-slate-800 text-slate-200 border border-slate-700 text-[11px] font-medium transition cursor-pointer whitespace-nowrap shrink-0">
             <i class="fa-solid fa-satellite-dish text-[#4285F4]" id="livePollIcon"></i>
             <span id="livePollText">Poll Live Logs</span>
           </button>
 
           <!-- Google SSO User Profile Pill + Switch / Sign Out Action -->
-          <div id="userProfileBadge" class="inline-flex items-center gap-2 pl-2.5 pr-2 py-1 rounded-full bg-slate-900 border border-slate-800 text-xs text-slate-300">
+          <div id="userProfileBadge" class="inline-flex items-center gap-1.5 pl-1.5 pr-1.5 py-0.5 rounded-full bg-slate-900 border border-slate-800 text-[11px] text-slate-300 shrink-0">
             <span id="headerUserAvatar" class="w-5 h-5 rounded-full bg-[#4285F4] text-white font-bold text-[10px] flex items-center justify-center btn-solid shrink-0">H</span>
-            <span class="truncate max-w-[140px]">User: <strong id="headerUserName" class="text-white font-semibold">Hari</strong></span>
-            <button id="btnGoogleSignOut" type="button" onclick="openGoogleSsoModal()" title="Switch Google Account or Sign Out" class="w-6 h-6 rounded-full hover:bg-slate-800 text-slate-400 hover:text-white flex items-center justify-center transition cursor-pointer">
+            <span class="truncate max-w-[110px]"><span class="hidden 2xl:inline">User: </span><strong id="headerUserName" class="text-white font-semibold">Hari</strong></span>
+            <button id="btnGoogleSignOut" type="button" onclick="openGoogleSsoModal()" title="Switch Google Account or Sign Out" class="w-5 h-5 rounded-full hover:bg-slate-800 text-slate-400 hover:text-white flex items-center justify-center transition cursor-pointer">
               <i class="fa-solid fa-right-from-bracket text-[10px]"></i>
             </button>
           </div>
@@ -531,10 +531,11 @@
               </div>
             </div>
 
-            <div id="metricCardRuntime" class="glass border border-slate-800 rounded-2xl px-3.5 py-2.5 flex items-center justify-between gap-2.5" title="Live ADK Specialist microservices &amp; Model-Agnostic LLM Router">
+            <div id="metricCardRuntime" class="glass border border-slate-800 rounded-2xl px-3.5 py-2.5 flex items-center justify-between gap-2.5" title="Live ADK Specialist microservices (Database Agent, Infra Agent &amp; Security Agent) &amp; Model-Agnostic LLM Router">
               <div class="min-w-0">
                 <div id="metricRuntimeLabel" class="text-[10px] font-medium text-slate-400">ADK Specialists</div>
-                <div id="metricRuntimeValue" class="text-sm font-bold text-white truncate">2 Agents Online</div>
+                <div id="metricRuntimeValue" class="text-sm font-bold text-white truncate">3 Agents Online</div>
+                <div id="metricRuntimeSub" class="text-[10px] text-slate-400 truncate">Database • Infra • Security</div>
               </div>
               <div class="w-8 h-8 rounded-xl g-badge-green flex items-center justify-center shrink-0">
                 <i class="fa-solid fa-cubes text-xs"></i>
@@ -1324,13 +1325,21 @@
         </button>
       </div>
 
+      <div class="p-2.5 rounded-2xl bg-slate-950/80 border border-slate-800 flex items-start gap-2.5 text-[11px] text-slate-300">
+        <i class="fa-solid fa-flask-vial text-[#4285F4] mt-0.5 shrink-0"></i>
+        <div>
+          <strong class="text-white">Sandbox-First Verification:</strong>
+          Reproduces &amp; validates the exact scenario in the live sandbox (<span class="mono text-[#34A853]">agent-triad</span>) first, then promotes the verified remediation to the destination project (<span class="mono text-[#4285F4]">HSBC_Target</span>).
+        </div>
+      </div>
+
       <div class="flex flex-wrap items-center gap-2 text-[11px]">
-        <span class="text-slate-400 font-semibold">Target Project:</span>
-        <button type="button" onclick="applyTicketPreset('live-agent-triad')" class="g-badge-green px-3 py-1 rounded-full font-semibold cursor-pointer">
-          Live GCP: agent-triad (1041190629307)
+        <span class="text-slate-400 font-semibold">Environment:</span>
+        <button id="ticketPresetSandbox" type="button" onclick="applyTicketPreset('live-agent-triad')" class="g-badge-green px-3 py-1 rounded-full font-semibold cursor-pointer transition">
+          Sandbox: agent-triad (1041190629307)
         </button>
-        <button type="button" onclick="applyTicketPreset('hsbc-reference')" class="px-3 py-1 rounded-full bg-slate-900 hover:bg-slate-800 border border-slate-700 text-slate-200 font-medium cursor-pointer">
-          HSBC Reference (hsbc-10534429-fdreu-dev)
+        <button id="ticketPresetTarget" type="button" onclick="applyTicketPreset('hsbc-target')" class="px-3 py-1 rounded-full bg-slate-900 hover:bg-slate-800 border border-slate-700 text-slate-200 font-medium cursor-pointer transition">
+          HSBC_Target Project
         </button>
       </div>
 
@@ -1685,7 +1694,7 @@
 
       const rtCard = document.getElementById('metricCardRuntime');
       if (rtCard) {
-        rtCard.title = `LLM Router: ${runtime.llm_provider || 'vertex'} (${runtime.llm_model || 'gemini'}) • Live ADK Specialists: Database Agent & Infra Agent`;
+        rtCard.title = `LLM Router: ${runtime.llm_provider || 'vertex'} (${runtime.llm_model || 'gemini'}) • Live ADK Specialists: Database Agent, Infra Agent & Security Agent`;
       }
 
       updateCloudHealthCard(
@@ -5856,14 +5865,22 @@
       const projEl = document.getElementById('ticketProjectId');
       const saEl = document.getElementById('ticketServiceAgent');
       const regEl = document.getElementById('ticketRegion');
-      if (preset === 'hsbc-reference') {
-        if (projEl) projEl.value = 'projects/hsbc-10534429-fdreu-dev';
+      const sandboxBtn = document.getElementById('ticketPresetSandbox');
+      const targetBtn = document.getElementById('ticketPresetTarget');
+      const activeClasses = 'g-badge-green px-3 py-1 rounded-full font-semibold cursor-pointer transition';
+      const inactiveClasses = 'px-3 py-1 rounded-full bg-slate-900 hover:bg-slate-800 border border-slate-700 text-slate-200 font-medium cursor-pointer transition';
+      if (preset === 'hsbc-target' || preset === 'hsbc-reference') {
+        if (projEl) projEl.value = 'projects/HSBC_Target';
         if (saEl) saEl.value = 'service-ORG@gcp-sa-datastream.iam.gserviceaccount.com';
         if (regEl) regEl.value = 'europe-west2';
+        if (sandboxBtn) sandboxBtn.className = inactiveClasses;
+        if (targetBtn) targetBtn.className = 'g-badge-blue px-3 py-1 rounded-full font-semibold cursor-pointer transition';
       } else {
         if (projEl) projEl.value = 'projects/agent-triad';
         if (saEl) saEl.value = 'service-1041190629307@gcp-sa-datastream.iam.gserviceaccount.com';
         if (regEl) regEl.value = 'europe-west2';
+        if (sandboxBtn) sandboxBtn.className = activeClasses;
+        if (targetBtn) targetBtn.className = inactiveClasses;
       }
     }
 
