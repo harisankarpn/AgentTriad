@@ -472,3 +472,45 @@ Open `http://localhost:8080` to access the AaaS Command Center UI. Set `GOOGLE_O
 ```
 
 ---
+
+## 7. Frequently Asked Questions (Executive, Risk & SRE Trust Model)
+
+*(Also available interactively inside the **Platform & Features** view of the AaaS Command Center UI.)*
+
+1. **How is Agent-Triad different from Gemini Cloud Assist, cloud console copilots (AWS Q / Azure Copilot), or a custom DIY LLM / ADK agent?**
+   - **Console copilots (`Gemini Cloud Assist`, AWS Q, Azure Copilot)** are reactive chat helpers inside a single vendor's portal that inherit the human operator's standing console permissions and stop at copy-paste CLI advice.
+   - **DIY custom LLM / agent scripts** wire a model directly to logs and CLI tools (~15% of the problem), often relying on standing admin service accounts and free-form LLM tool loops during log storms.
+   - **Agent-Triad (AaaS Control Plane)** provides the remaining **85% Zero-Trust SRE Control Plane**: proactive 15s telemetry with edge noise suppression, parallel read-only ADK specialist microservices over OIDC JSON-RPC 2.0 A2A, Cloud Outage Safety Brake, Tier-2 Irreversibility HITL gates, 15-minute single-use JIT impersonation, deterministic post-approval execution (`$0` LLM guesswork during mutations), Bidirectional GitOps Reconciliation PRs, 45s/3m cross-service Watchdog auto-rollback + 7-Day Poison-Pill Quarantine, and multi-cloud/multi-LLM portability (`GCP`, `AWS`, `Azure`, `OpenShift`).
+
+2. **It offers "1-click mitigation" — what real operational risks must a customer still consider?**
+   - **Risk A — Operator Approval Fatigue ("Blind `I Accept`" at 2 AM):** Mitigated by the **Tier-2 Critical Irreversible HITL Gate**, which detects non-reversible commands (DB restarts, IAM revocations, disk/stateful edits), blocks blind `I Accept` with `0` JIT tokens minted, and requires explicit irreversible-impact confirmation.
+   - **Risk B — Collateral / Cascading Downstream Failures ("Fix A breaks Service B"):** Mitigated by **Pre-Execution Stable Snapshots**, a **45s cross-service peer Watchdog** (`timestamp > execution_completed_at`), automatic snapshot revert, **7-Day Poison-Pill Quarantine**, and 1-click **Revert to Stable Snapshot**.
+   - **Risk C — Stateful Database Blast Radius:** Mitigated by the **Bifurcated Rollback Engine** (`STATEFUL_SAFE_MODE_ISOLATION`), which strictly forbids destructive automated rollbacks on stateful stores (`Cloud SQL`, `RDS`, `Azure SQL`, Persistent Disks) and enforces `deletion_protection = true` / `prevent_destroy = true`.
+   - **Risk D — JIT Sandbox Scope & Hostile Log Payloads:** Customers should scope execution service accounts per project/account (Hub-and-Spoke), register shared services in the OPA protected-resource deny-list, and rely on **SAIF log sanitization** + deterministic OPA regex policy gates.
+
+3. **Why can SRE teams and CISOs trust this model, and how does it handle every real-world SRE situation?**
+   - **Separation of Duties:** AI never holds write credentials and never executes free-form mutations. Specialists operate strictly read-only (`roles/*.viewer`, `roles/iam.securityReviewer`); mutations execute deterministically only after named SSO/OIDC approval.
+   - **Every SRE Edge Case Covered:**
+     - *Upstream Cloud Outage:* **Cloud Outage Safety Brake** halts mutations (`BLOCKED_PROVIDER_OUTAGE`, `0` JIT tokens).
+     - *Concurrent Engineers & Restart Loops:* 10-min distributed `.tflock` / Redis lease + 45-min temporal hysteresis cooldown.
+     - *403 / Live Execution Failure:* **Execution Honesty Invariant** marks `REMEDIATION_FAILED` (never `RESOLVED`), revokes the JIT token, releases `.tflock`, and writes `ERROR` to Cloud Logging.
+     - *Log Storms & Chronic Peer Noise:* Edge noise filtering + `Mark Safe to Ignore` signature suppression + pre-existing peer noise exclusion.
+     - *Terraform / IaC Drift:* `GitOps_Correlator_Tool` + **Bidirectional GitOps Reconciliation PRs**.
+     - *Post-Fix Confidence Check:* Blinking **`Live Health Watch`** runs a 4-point **Post-Fix Verification on Service Health** (`getIamPolicy`/config, 45s logs, peer health, 15s heartbeat).
+
+4. **What happens if the LLM API (Vertex AI, Bedrock, Azure OpenAI) has an outage, `429` rate limit, or hallucination?**
+   - Atlas and ADK specialists automatically fall back to **zero-LLM deterministic Cloud Control Plane diagnostics and Golden Playbooks (RAG)**, while OPA policy gates reject destructive verbs (`delete`, `drop`, `destroy`, `force_destroy`) before `I Accept` can run.
+
+5. **Does Agent-Triad require production database passwords (`5432`) or SSH keys into VMs?**
+   - **No.** Out-of-band Cloud Control Plane APIs are used by default with zero DB sockets and zero VM SSH keys; opt-in `pg_stat_activity` inspection enforces `is_strictly_readonly_introspection_sql()` + PostgreSQL `SET TRANSACTION READ ONLY`.
+
+6. **How are AI token costs controlled during production log floods?**
+   - **Bounded AI:** Edge noise filtering and signature deduplication drop chatter *before* invoking LLMs, specialist reasoning runs once per incident (`thinking_budget=0`), and post-approval execution + Watchdog verification use **$0 LLM tokens**.
+
+7. **Are we locked into Google Cloud or Gemini?**
+   - **Zero Lock-In:** Ports & Adapters let you swap clouds (`gcp | aws | azure`), LLMs (`vertex | bedrock | azure_openai | openai | litellm`), telemetry (`Cloud Logging | OTel / Loki / Prometheus`), state/locks (`Firestore | PostgreSQL | Redis`), and identity (`Google SSO + WIF | OIDC + AWS STS / Azure`) via environment variables across Cloud Run, EKS, AKS, GKE, OpenShift, or Docker Compose.
+
+8. **How do SOC2 / ISO27001 / PCI auditors verify human accountability?**
+   - Every incident writes immutable `AAAS_AUDIT_EVENT` / `AAAS_GKE_ANOMALY` records capturing the anomaly, A2A specialist handshakes, pre-execution snapshot, SSO approver (`approved_by` + Tier-2 irreversible acknowledgment), single-use `jit-wif-*` token ID, GitOps PR diff, and post-fix `Live Health Watch` report.
+
+---

@@ -1020,9 +1020,15 @@
                   Agent-Triad pairs an always-on AI operations orchestrator (<strong class="text-white">Atlas</strong>) with specialist cloud agents to detect live outages, pinpoint root cause in seconds, and execute human-approved fixes with full auditability — without single-cloud or single-AI lock-in.
                 </p>
               </div>
-              <button type="button" onclick="switchView('command')" class="g-badge-blue px-3.5 py-1.5 rounded-full text-xs font-semibold cursor-pointer shrink-0 self-start">
-                ← Command Center
-              </button>
+              <div class="flex flex-wrap items-center gap-2 shrink-0 self-start">
+                <button type="button" onclick="scrollToPlatformFaqs()" class="g-badge-green px-3.5 py-1.5 rounded-full text-xs font-semibold cursor-pointer inline-flex items-center gap-1.5" title="Jump to Executive, Risk &amp; SRE Trust FAQs">
+                  <i class="fa-solid fa-circle-question text-[11px]"></i>
+                  <span>Executive &amp; SRE FAQs (8)</span>
+                </button>
+                <button type="button" onclick="switchView('command')" class="g-badge-blue px-3.5 py-1.5 rounded-full text-xs font-semibold cursor-pointer">
+                  ← Command Center
+                </button>
+              </div>
             </div>
 
             <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
@@ -1222,6 +1228,46 @@
                 <p class="text-[11px] text-slate-400 leading-relaxed">Run a complete, self-contained evaluation inside an isolated VPC, private data center, or staging environment.</p>
               </div>
             </div>
+          </div>
+
+          <!-- Executive, Risk & SRE Trust Model FAQs -->
+          <div id="platformFaqSection" class="glass g-card-fourcolor border border-slate-800 rounded-3xl p-5 sm:p-6 space-y-4">
+            <div class="flex flex-col lg:flex-row lg:items-center justify-between gap-3 pb-3 border-b border-slate-800">
+              <div class="space-y-1">
+                <div class="flex flex-wrap items-center gap-2">
+                  <span class="g-badge-blue px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider">Executive, Security &amp; SRE FAQs</span>
+                  <span class="g-badge-green px-2.5 py-0.5 rounded-full text-[10px] font-semibold">CISO &amp; Production Verified</span>
+                </div>
+                <h4 class="text-base sm:text-lg font-bold text-white">Frequently Asked Questions — Differentiation, Real Operational Risks &amp; SRE Trust Model</h4>
+                <p class="text-xs text-slate-400 max-w-3xl leading-relaxed">
+                  Transparent answers on how Agent-Triad differs from Gemini Cloud Assist and DIY LLM agents, what real risks customers must evaluate behind &ldquo;1-click mitigation,&rdquo; and how deterministic guardrails handle every production SRE failure mode.
+                </p>
+              </div>
+              <div class="flex flex-wrap items-center gap-2 shrink-0">
+                <div class="relative">
+                  <i class="fa-solid fa-magnifying-glass text-[10px] text-slate-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none"></i>
+                  <input id="platformFaqSearchInput" type="text" oninput="filterPlatformFaqs(this.value)"
+                    placeholder="Filter FAQs (e.g., Gemini, risk, rollback, JIT)..."
+                    class="bg-slate-950 border border-slate-800 focus:border-[#4285F4] rounded-full pl-8 pr-3.5 py-1.5 text-[11px] text-white placeholder-slate-500 focus:outline-none w-64 max-w-full" />
+                </div>
+                <button id="btnToggleAllPlatformFaqs" type="button" onclick="toggleAllPlatformFaqs()"
+                  class="px-3 py-1.5 rounded-full bg-slate-900 hover:bg-slate-800 border border-slate-800 text-[11px] font-semibold text-slate-200 cursor-pointer transition whitespace-nowrap">
+                  Expand All
+                </button>
+              </div>
+            </div>
+
+            <!-- Category Filter Pills -->
+            <div id="platformFaqCategoryTabs" class="flex flex-wrap items-center gap-1.5">
+              <button type="button" data-faq-cat="all" onclick="selectPlatformFaqCategory('all')" class="g-btn-blue px-3 py-1 rounded-full text-[11px] font-semibold transition cursor-pointer">All Questions (8)</button>
+              <button type="button" data-faq-cat="differentiation" onclick="selectPlatformFaqCategory('differentiation')" class="px-3 py-1 rounded-full bg-slate-900 hover:bg-slate-800 border border-slate-800 text-[11px] text-slate-300 font-semibold transition cursor-pointer">vs. Gemini Cloud Assist &amp; DIY Models</button>
+              <button type="button" data-faq-cat="risks" onclick="selectPlatformFaqCategory('risks')" class="px-3 py-1 rounded-full bg-slate-900 hover:bg-slate-800 border border-slate-800 text-[11px] text-slate-300 font-semibold transition cursor-pointer">Customer Risks &amp; Guardrails</button>
+              <button type="button" data-faq-cat="trust" onclick="selectPlatformFaqCategory('trust')" class="px-3 py-1 rounded-full bg-slate-900 hover:bg-slate-800 border border-slate-800 text-[11px] text-slate-300 font-semibold transition cursor-pointer">Trust &amp; SRE Edge Cases</button>
+              <button type="button" data-faq-cat="governance" onclick="selectPlatformFaqCategory('governance')" class="px-3 py-1 rounded-full bg-slate-900 hover:bg-slate-800 border border-slate-800 text-[11px] text-slate-300 font-semibold transition cursor-pointer">Security, FinOps &amp; Portability</button>
+            </div>
+
+            <!-- Dynamic Accordion List -->
+            <div id="platformFaqList" class="space-y-2.5"></div>
           </div>
         </div>
 
@@ -2716,6 +2762,326 @@
           ${actionHtml}
         `;
       }
+    }
+
+    let selectedFaqCategory = 'all';
+    let platformFaqSearchQuery = '';
+    const openPlatformFaqIds = new Set(['faq-vs-assist']);
+
+    const PLATFORM_FAQS = [
+      {
+        id: 'faq-vs-assist',
+        category: 'differentiation',
+        badge: 'Differentiation • 15% vs. 85%',
+        badgeClass: 'g-badge-blue',
+        icon: 'fa-scale-balanced',
+        question: '1. How is Agent-Triad different from Gemini Cloud Assist, cloud console copilots, or a custom DIY LLM / ADK model?',
+        summary: 'Console copilots are reactive single-cloud chat helpers; DIY LLM scripts cover ~15% of the problem. Agent-Triad provides the remaining 85% — a governed, closed-loop multi-cloud SRE Control Plane.',
+        bodyHtml: `
+          <p class="text-xs text-slate-300 leading-relaxed">
+            Wiring an LLM on Vertex AI, Bedrock, or Azure OpenAI to logs and CLI tools covers roughly <strong class="text-white">15%</strong> of production SRE. Console copilots (<strong class="text-white">Gemini Cloud Assist</strong>, AWS Q, Azure Copilot) excel at interactive single-cloud portal Q&amp;A, while <strong class="text-white">Agent-Triad (AaaS)</strong> engineers the full <strong class="text-white">85% Zero-Trust Operations Control Plane</strong> around <em>any</em> model and <em>any</em> cloud:
+          </p>
+          <div class="overflow-x-auto rounded-2xl border border-slate-800 bg-slate-950/90">
+            <table class="w-full text-left border-collapse text-[11px]">
+              <thead>
+                <tr class="border-b border-slate-800 text-[10px] uppercase tracking-wider text-slate-400">
+                  <th class="p-2.5 font-bold">Capability</th>
+                  <th class="p-2.5 font-bold">Gemini Cloud Assist / Console Copilots</th>
+                  <th class="p-2.5 font-bold">DIY Custom LLM / Agent Script</th>
+                  <th class="p-2.5 font-bold text-[#34A853]">Agent-Triad (AaaS Control Plane)</th>
+                </tr>
+              </thead>
+              <tbody class="divide-y divide-slate-800/80 text-slate-300">
+                <tr>
+                  <td class="p-2.5 font-semibold text-white">Operating Mode</td>
+                  <td class="p-2.5">Reactive chat inside one cloud console; stops at copy-paste CLI advice.</td>
+                  <td class="p-2.5">Free-form LLM tool loop; hard to audit during alert storms.</td>
+                  <td class="p-2.5"><strong class="text-white">Proactive 15s telemetry</strong> + parallel A2A ADK specialists + deterministic execution (<code class="mono text-[#34A853]">$0</code> LLM guesswork during fixes).</td>
+                </tr>
+                <tr>
+                  <td class="p-2.5 font-semibold text-white">IAM &amp; Blast Radius</td>
+                  <td class="p-2.5">Inherits the logged-in human's broad console permissions.</td>
+                  <td class="p-2.5">Usually holds standing admin IAM roles so tools can mutate resources.</td>
+                  <td class="p-2.5"><strong class="text-white">Zero Standing Admin Privilege</strong>: read-only specialists; mints a <strong class="text-white">15-min single-use JIT token</strong> only after SSO sign-off + Tier-2 Irreversibility check.</td>
+                </tr>
+                <tr>
+                  <td class="p-2.5 font-semibold text-white">Cloud Outage Awareness</td>
+                  <td class="p-2.5">Manual advisory lookup.</td>
+                  <td class="p-2.5">Blindly restarts/scales services during upstream provider outages.</td>
+                  <td class="p-2.5"><strong class="text-white">Cloud Outage Safety Brake</strong> checks regional status feeds pre-flight, blocks mutations, and mints <code class="mono">0</code> JIT tokens.</td>
+                </tr>
+                <tr>
+                  <td class="p-2.5 font-semibold text-white">Rollback &amp; Cascading Failures</td>
+                  <td class="p-2.5">Manual verification and manual revert by the operator.</td>
+                  <td class="p-2.5">Fire-and-forget API call with no cross-service watchdog.</td>
+                  <td class="p-2.5"><strong class="text-white">Pre-Execution Stable Snapshot</strong> + <strong class="text-white">45s/3m Cross-Service Watchdog</strong> auto-rollback + <strong class="text-white">7-Day Poison-Pill Quarantine</strong> + blinking <strong class="text-white">Live Health Watch</strong>.</td>
+                </tr>
+                <tr>
+                  <td class="p-2.5 font-semibold text-white">IaC Drift &amp; GitOps</td>
+                  <td class="p-2.5">Imperative console/CLI suggestions can drift from Terraform.</td>
+                  <td class="p-2.5">Imperative mutations overwrite declarative Git state.</td>
+                  <td class="p-2.5"><strong class="text-white">GitOps Commit Correlator</strong> + <strong class="text-white">Bidirectional GitOps Reconciliation PRs</strong> keep Terraform/Git synced.</td>
+                </tr>
+                <tr>
+                  <td class="p-2.5 font-semibold text-white">Cloud &amp; Model Lock-In</td>
+                  <td class="p-2.5">Single cloud vendor &amp; single vendor foundation model.</td>
+                  <td class="p-2.5">Tightly coupled to one SDK, log format, and LLM API.</td>
+                  <td class="p-2.5"><strong class="text-white">Ports &amp; Adapters</strong> across GCP, AWS, Azure, OpenShift &amp; Vertex, Bedrock, Azure OpenAI, LiteLLM + zero-LLM deterministic fallback.</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        `
+      },
+      {
+        id: 'faq-customer-risks',
+        category: 'risks',
+        badge: 'Transparent Risk Assessment',
+        badgeClass: 'g-badge-red',
+        icon: 'fa-triangle-exclamation',
+        question: '2. What real operational risks should a customer consider when using it (since no production change is magically "zero risk")?',
+        summary: '"Zero standing privilege + 1-click mitigation" eliminates rogue autonomous writes, not physics. Customers must evaluate five real operational risks — each paired with an explicit control in Agent-Triad.',
+        bodyHtml: `
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-2.5 text-[11px]">
+            <div class="p-3 rounded-2xl bg-slate-950/90 border border-slate-800 space-y-1">
+              <div class="font-bold text-white flex items-center gap-1.5"><span class="text-[#EA4335]">Risk A:</span> Operator Rubber-Stamping (&ldquo;Blind I Accept&rdquo;)</div>
+              <p class="text-slate-300 leading-relaxed">At 2 AM, an on-call engineer may click <code class="mono">I Accept</code> out of habit on a disruptive action. <strong class="text-[#34A853]">Built-In Control:</strong> Our <strong class="text-white">Tier-2 Critical Irreversible HITL Gate</strong> detects non-reversible commands (DB restarts, IAM revocations, disk/stateful edits), blocks blind <code class="mono">I Accept</code> with <code class="mono">0</code> JIT tokens minted, and requires an explicit irreversible-impact acknowledgment.</p>
+            </div>
+            <div class="p-3 rounded-2xl bg-slate-950/90 border border-slate-800 space-y-1">
+              <div class="font-bold text-white flex items-center gap-1.5"><span class="text-[#EA4335]">Risk B:</span> Collateral / Cascading Downstream Failure</div>
+              <p class="text-slate-300 leading-relaxed">A valid fix on Service A (e.g., VPC route or IAM change) can unexpectedly break Service B. <strong class="text-[#34A853]">Built-In Control:</strong> Agent-Triad records a <strong class="text-white">Pre-Execution Stable Snapshot</strong>, runs a 45s cross-service peer scan (<code class="mono">timestamp &gt; execution_completed_at</code>), auto-reverts to the snapshot on peer regression, escalates Service B, and locks the bad fix in a <strong class="text-white">7-Day Poison-Pill Quarantine</strong>.</p>
+            </div>
+            <div class="p-3 rounded-2xl bg-slate-950/90 border border-slate-800 space-y-1">
+              <div class="font-bold text-white flex items-center gap-1.5"><span class="text-[#FBBC04]">Risk C:</span> Stateful Database Blast Radius</div>
+              <p class="text-slate-300 leading-relaxed">Auto-reverting a stateful database or volume can cause data loss. <strong class="text-[#34A853]">Built-In Control:</strong> The <strong class="text-white">Bifurcated Rollback Engine</strong> forbids destructive automated rollbacks on Cloud SQL, RDS, Azure SQL, and disks (<code class="mono">STATEFUL_SAFE_MODE_ISOLATION</code>) and rejects any Terraform HCL lacking <code class="mono">deletion_protection = true</code> or <code class="mono">prevent_destroy = true</code>.</p>
+            </div>
+            <div class="p-3 rounded-2xl bg-slate-950/90 border border-slate-800 space-y-1">
+              <div class="font-bold text-white flex items-center gap-1.5"><span class="text-[#FBBC04]">Risk D:</span> Execution Sandbox IAM Scope &amp; Hostile Logs</div>
+              <p class="text-slate-300 leading-relaxed">Over-scoping the 15-minute JIT execution SA or ingesting adversarial log text could widen blast radius. <strong class="text-[#34A853]">Customer Best Practice &amp; Control:</strong> Scope execution SAs strictly per project/account (Hub-and-Spoke), register shared services in the OPA protected-resource deny-list, and rely on <strong class="text-white">SAIF log sanitization</strong> + deterministic OPA regex gates.</p>
+            </div>
+          </div>
+        `
+      },
+      {
+        id: 'faq-trust-sre',
+        category: 'trust',
+        badge: 'Trust Architecture & SRE Matrix',
+        badgeClass: 'g-badge-green',
+        icon: 'fa-shield-heart',
+        question: '3. Why can SRE teams and CISOs trust this model, and how does it handle every real-world SRE situation?',
+        summary: 'Core invariant: AI never holds write credentials and never executes free-form mutations. LLMs only reason over read-only telemetry; deterministic code executes under human-minted JIT authority.',
+        bodyHtml: `
+          <p class="text-xs text-slate-300 leading-relaxed">
+            Trust comes from <strong class="text-white">architectural separation of duties</strong>: specialist ADK microservices hold strictly read-only IAM (<code class="mono">roles/*.viewer</code>, <code class="mono">roles/iam.securityReviewer</code>), communicate via authenticated <strong class="text-white">OIDC JSON-RPC 2.0 A2A</strong>, and hand off execution to a deterministic harness (<code class="mono">$0</code> LLM tokens during mutation). Here is how every SRE edge case is handled:
+          </p>
+          <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2.5 text-[11px]">
+            <div class="p-3 rounded-2xl bg-slate-950/90 border border-slate-800 space-y-1">
+              <div class="font-bold text-[#4285F4]">Upstream Cloud Outage</div>
+              <p class="text-slate-300">Pre-flight detects active GCP/AWS/Azure regional degradation, sets <code class="mono">BLOCKED_PROVIDER_OUTAGE</code>, and withholds JIT tokens until the region recovers.</p>
+            </div>
+            <div class="p-3 rounded-2xl bg-slate-950/90 border border-slate-800 space-y-1">
+              <div class="font-bold text-[#34A853]">Concurrent Edits &amp; Flapping</div>
+              <p class="text-slate-300">Acquires a 10-min distributed <code class="mono">.tflock</code> / Redis lease before changes and enforces a 45-min temporal hysteresis cooldown to stop restart loops.</p>
+            </div>
+            <div class="p-3 rounded-2xl bg-slate-950/90 border border-slate-800 space-y-1">
+              <div class="font-bold text-[#EA4335]">403 / Live Execution Failure</div>
+              <p class="text-slate-300"><strong>Execution Honesty Invariant:</strong> never claims <code class="mono">RESOLVED</code> on error — marks <code class="mono">REMEDIATION_FAILED</code>, revokes JIT token, releases lock, and writes <code class="mono">ERROR</code> to Cloud Logging.</p>
+            </div>
+            <div class="p-3 rounded-2xl bg-slate-950/90 border border-slate-800 space-y-1">
+              <div class="font-bold text-[#FBBC04]">Log Floods &amp; Chronic Noise</div>
+              <p class="text-slate-300">Edge filtering + <code class="mono">Mark Safe to Ignore</code> signature suppression drops chatter pre-LLM and excludes chronic pre-existing peer noise from false rollbacks.</p>
+            </div>
+            <div class="p-3 rounded-2xl bg-slate-950/90 border border-slate-800 space-y-1">
+              <div class="font-bold text-[#4285F4]">Monday Terraform Drift</div>
+              <p class="text-slate-300">Correlates recent commits (<code class="mono">GitOps_Correlator_Tool</code>) and emits a Bidirectional GitOps PR so emergency fixes sync cleanly back into version control.</p>
+            </div>
+            <div class="p-3 rounded-2xl bg-slate-950/90 border border-slate-800 space-y-1">
+              <div class="font-bold text-[#34A853]">Post-Fix Confidence Check</div>
+              <p class="text-slate-300"><strong class="text-white">Live Health Watch</strong> blinks when actions finish; clicking runs a 4-point live verification across config/<code class="mono">getIamPolicy</code>, post-fix logs, peer services, and 15s heartbeats.</p>
+            </div>
+          </div>
+        `
+      },
+      {
+        id: 'faq-llm-outage',
+        category: 'trust',
+        badge: 'Zero-SPOF Resilience',
+        badgeClass: 'g-badge-yellow',
+        icon: 'fa-plug-circle-bolt',
+        question: '4. What happens if the AI model API (Vertex AI, Bedrock, Azure OpenAI) has an outage, hits 429 quota limits, or hallucinates?',
+        summary: 'Automatic deterministic fallback keeps P1 operations running with zero LLM dependency, while OPA policy gates block hallucinated destructive commands.',
+        bodyHtml: `
+          <ul class="space-y-2 text-xs text-slate-300 leading-relaxed">
+            <li class="flex items-start gap-2"><span class="text-[#34A853] font-bold">✓</span><span><strong class="text-white">Zero-LLM Deterministic Fallback:</strong> If Vertex AI, Bedrock, or Azure OpenAI returns <code class="mono">429</code>/<code class="mono">503</code> or has no key configured, Atlas and the ADK specialists automatically bypass the LLM and execute their deterministic Cloud Control Plane API diagnostics and vetted <strong class="text-white">Golden Remediation Playbooks (RAG)</strong>.</span></li>
+            <li class="flex items-start gap-2"><span class="text-[#34A853] font-bold">✓</span><span><strong class="text-white">Direct Specialist Endpoints:</strong> Monitoring webhooks or on-call engineers can query each specialist microservice directly (<code class="mono">POST /diagnose</code>) even if the central UI is unreachable.</span></li>
+            <li class="flex items-start gap-2"><span class="text-[#34A853] font-bold">✓</span><span><strong class="text-white">Hallucination Containment:</strong> Every proposed CLI command or Terraform bundle is validated deterministically by the OPA Policy Gate (<code class="mono">agent_harness.py</code>) — destructive patterns (<code class="mono">delete</code>, <code class="mono">drop</code>, <code class="mono">destroy</code>, <code class="mono">force_destroy</code>) and protected neighbor workloads are hard-blocked before <code class="mono">I Accept</code> can execute.</span></li>
+          </ul>
+        `
+      },
+      {
+        id: 'faq-db-zero-socket',
+        category: 'governance',
+        badge: 'Zero-Socket Security',
+        badgeClass: 'g-badge-blue',
+        icon: 'fa-database',
+        question: '5. Does Agent-Triad require production database passwords (port 5432) or SSH access into customer VMs?',
+        summary: 'No. By default, all diagnostics run out-of-band over official Cloud Control Plane APIs with zero DB sockets and zero VM SSH keys.',
+        bodyHtml: `
+          <p class="text-xs text-slate-300 leading-relaxed">
+            ADK Specialist Agents query cloud control-plane APIs (<code class="mono">sqladmin</code>, <code class="mono">compute</code>, <code class="mono">monitoring</code>, <code class="mono">logging</code>, <code class="mono">getIamPolicy</code>, AWS RDS/EC2/CloudWatch, Azure Monitor) using short-lived workload identities — never opening TCP <code class="mono">5432</code> sockets or SSH sessions during standard triage. If a team explicitly opts into live <code class="mono">pg_stat_activity</code> query introspection via <code class="mono">AAAS_DB_READONLY_DSN</code>, queries are enforced read-only at two independent layers: <code class="mono">is_strictly_readonly_introspection_sql()</code> AST/keyword blocking and PostgreSQL <code class="mono">SET SESSION CHARACTERISTICS AS TRANSACTION READ ONLY</code>.
+          </p>
+        `
+      },
+      {
+        id: 'faq-finops-bounded-ai',
+        category: 'governance',
+        badge: 'FinOps & Bounded AI',
+        badgeClass: 'g-badge-yellow',
+        icon: 'fa-coins',
+        question: '6. How are AI token costs controlled during high-volume production log storms?',
+        summary: 'Edge noise suppression, burst signature deduplication, and $0-LLM post-approval execution make AI spend predictable even under severe alert floods.',
+        bodyHtml: `
+          <p class="text-xs text-slate-300 leading-relaxed">
+            Unbounded agent loops burn thousands of tokens per minute re-reading noisy logs. Agent-Triad enforces <strong class="text-white">Bounded AI</strong>: (1) health checks (<code class="mono">kube-probe</code>, <code class="mono">GCEGuestAgent</code>, <code class="mono">ops-agent</code>) and duplicate stack-trace bursts (<code class="mono">signature_key</code>) are dropped at the ingestion edge <em>before</em> any LLM is invoked; (2) specialist ADK calls run once per escalated incident with bounded <code class="mono">thinking_budget=0</code> tool synthesis; and (3) Stage 2 HITL execution, rollback, and 45s Watchdog checks run deterministically with <strong class="text-white">$0 LLM token spend</strong>.
+          </p>
+        `
+      },
+      {
+        id: 'faq-multicloud-portability',
+        category: 'differentiation',
+        badge: 'Multi-Cloud & Multi-LLM',
+        badgeClass: 'g-badge-green',
+        icon: 'fa-globe',
+        question: '7. Are we locked into Google Cloud or Gemini if our enterprise also runs AWS, Azure, or Red Hat OpenShift?',
+        summary: 'Zero lock-in: every telemetry, state, lock, identity, cloud, and LLM integration is decoupled behind Ports & Adapters.',
+        bodyHtml: `
+          <p class="text-xs text-slate-300 leading-relaxed">
+            While <strong class="text-white">Google Cloud Run + Vertex AI Gemini + Cloud Firestore</strong> is the zero-config default, switching environment variables swaps target clouds (<code class="mono">gcp | aws | azure</code>), LLMs (<code class="mono">vertex | bedrock | azure_openai | openai | litellm</code>), telemetry (<code class="mono">Cloud Logging | OTel / Loki / Prometheus</code>), session/lock stores (<code class="mono">Firestore | PostgreSQL | Redis</code>), and federated JIT auth (<code class="mono">GCP WIF | AWS STS | Azure Entra ID</code>). Deploy serverless on Cloud Run, via the 17-template Helm chart on <strong class="text-white">EKS, AKS, GKE, or Red Hat OpenShift</strong> (<code class="mono">restricted-v2</code> SCC), or self-hosted via Docker Compose.
+          </p>
+        `
+      },
+      {
+        id: 'faq-audit-compliance',
+        category: 'governance',
+        badge: 'SOC2 / ISO / PCI Auditability',
+        badgeClass: 'g-badge-blue',
+        icon: 'fa-file-shield',
+        question: '8. How do security auditors and leadership verify human accountability, approvals, and change history?',
+        summary: 'Every detection, A2A specialist handshake, SSO approver, 15m JIT token ID, snapshot, and post-fix health report is immutably logged.',
+        bodyHtml: `
+          <p class="text-xs text-slate-300 leading-relaxed">
+            Every incident lifecycle writes structured compliance records (<code class="mono">AAAS_AUDIT_EVENT</code> and <code class="mono">AAAS_GKE_ANOMALY</code>) to Cloud Logging / OTel and surfaces them in the <strong class="text-white">Audit &amp; Events</strong> tab: original error payload, read-only specialist A2A diagnostics, pre-execution snapshot ID, verified Google Workspace / enterprise OIDC approver (<code class="mono">approved_by</code> + <code class="mono">[Irreversible Impact Confirmed]</code> when Tier-2 gated), single-use <code class="mono">jit-wif-*</code> token ID, Bidirectional GitOps PR payload, and the 4-point <strong class="text-white">Live Health Watch</strong> verification timestamp.
+          </p>
+        `
+      }
+    ];
+
+    function getFilteredPlatformFaqs() {
+      const q = (platformFaqSearchQuery || '').trim().toLowerCase();
+      return PLATFORM_FAQS.filter(item => {
+        if (selectedFaqCategory !== 'all' && item.category !== selectedFaqCategory) return false;
+        if (!q) return true;
+        const hay = `${item.question} ${item.summary} ${item.badge} ${item.bodyHtml}`.toLowerCase();
+        return hay.includes(q);
+      });
+    }
+
+    function renderPlatformFaqs() {
+      const listEl = document.getElementById('platformFaqList');
+      const toggleBtn = document.getElementById('btnToggleAllPlatformFaqs');
+      if (!listEl) return;
+      const filtered = getFilteredPlatformFaqs();
+      if (filtered.length === 0) {
+        listEl.innerHTML = `
+          <div class="p-4 rounded-2xl bg-slate-950/90 border border-slate-800 text-center text-xs text-slate-400">
+            No FAQs matched your filter. Try clearing the search box or switching categories.
+          </div>
+        `;
+        return;
+      }
+      const allOpen = filtered.every(f => openPlatformFaqIds.has(f.id));
+      if (toggleBtn) {
+        toggleBtn.textContent = allOpen ? 'Collapse All' : 'Expand All';
+      }
+      listEl.innerHTML = filtered.map(item => {
+        const isOpen = openPlatformFaqIds.has(item.id);
+        return `
+          <div class="rounded-2xl bg-slate-950/90 border ${isOpen ? 'border-[#4285F4]/50' : 'border-slate-800'} transition">
+            <button type="button" onclick="togglePlatformFaq('${item.id}')"
+              aria-expanded="${isOpen ? 'true' : 'false'}"
+              class="w-full p-4 flex items-start justify-between gap-3 text-left cursor-pointer">
+              <div class="space-y-1 min-w-0">
+                <div class="flex flex-wrap items-center gap-2">
+                  <span class="${item.badgeClass} px-2 py-0.5 rounded-full text-[10px] font-semibold inline-flex items-center gap-1">
+                    <i class="fa-solid ${item.icon} text-[9px]"></i>
+                    <span>${escapeHtml(item.badge)}</span>
+                  </span>
+                </div>
+                <div class="text-xs sm:text-sm font-bold text-white leading-snug">${escapeHtml(item.question)}</div>
+                <div class="text-[11px] text-slate-400 leading-relaxed">${escapeHtml(item.summary)}</div>
+              </div>
+              <span class="w-7 h-7 rounded-full bg-slate-900 border border-slate-800 flex items-center justify-center text-slate-300 shrink-0 mt-0.5">
+                <i class="fa-solid ${isOpen ? 'fa-chevron-up text-[#4285F4]' : 'fa-chevron-down'} text-[10px]"></i>
+              </span>
+            </button>
+            ${isOpen ? `
+              <div class="px-4 pb-4 pt-2 border-t border-slate-800/80 space-y-3">
+                ${item.bodyHtml}
+              </div>
+            ` : ''}
+          </div>
+        `;
+      }).join('');
+    }
+
+    function togglePlatformFaq(faqId) {
+      if (openPlatformFaqIds.has(faqId)) {
+        openPlatformFaqIds.delete(faqId);
+      } else {
+        openPlatformFaqIds.add(faqId);
+      }
+      renderPlatformFaqs();
+    }
+
+    function toggleAllPlatformFaqs() {
+      const filtered = getFilteredPlatformFaqs();
+      const allOpen = filtered.length > 0 && filtered.every(f => openPlatformFaqIds.has(f.id));
+      filtered.forEach(f => {
+        if (allOpen) openPlatformFaqIds.delete(f.id);
+        else openPlatformFaqIds.add(f.id);
+      });
+      renderPlatformFaqs();
+    }
+
+    function selectPlatformFaqCategory(cat) {
+      selectedFaqCategory = cat || 'all';
+      document.querySelectorAll('#platformFaqCategoryTabs [data-faq-cat]').forEach(btn => {
+        const key = btn.getAttribute('data-faq-cat');
+        if (key === selectedFaqCategory) {
+          btn.className = 'g-btn-blue px-3 py-1 rounded-full text-[11px] font-semibold transition cursor-pointer';
+        } else {
+          btn.className = 'px-3 py-1 rounded-full bg-slate-900 hover:bg-slate-800 border border-slate-800 text-[11px] text-slate-300 font-semibold transition cursor-pointer';
+        }
+      });
+      renderPlatformFaqs();
+    }
+
+    function filterPlatformFaqs(query) {
+      platformFaqSearchQuery = String(query || '');
+      if (platformFaqSearchQuery.trim()) {
+        getFilteredPlatformFaqs().forEach(f => openPlatformFaqIds.add(f.id));
+      }
+      renderPlatformFaqs();
+    }
+
+    function scrollToPlatformFaqs() {
+      switchView('features');
+      setTimeout(() => {
+        const el = document.getElementById('platformFaqSection');
+        if (el && typeof el.scrollIntoView === 'function') {
+          el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }
+      }, 60);
     }
 
     function launchWorkflowMode(modeNum) {
@@ -6781,6 +7147,7 @@
 
     updateTargetCloudSwitcherUI();
     renderPlatformCloudMatrix(selectedPlatformCloud);
+    renderPlatformFaqs();
     renderSidePanelDispatchView({});
     initGoogleSsoSession();
     fetchState();

@@ -1705,8 +1705,14 @@ def run_e2e_tests() -> None:
         "health-blink-green",
         "health-blink-yellow",
         "Post-Fix Verification on Service Health",
+        "platformFaqSection",
+        "PLATFORM_FAQS",
+        "togglePlatformFaq",
+        "Gemini Cloud Assist",
+        "7-Day Poison-Pill Quarantine",
+        "Execution Honesty Invariant",
     ):
-        assert marker in ui_html, f"Missing Phase 2/3/HealthWatch UI marker `{marker}` in index.html"
+        assert marker in ui_html, f"Missing Phase 2/3/HealthWatch/FAQ UI marker `{marker}` in index.html"
 
     print(
         "[PASS] Colleague Feedback Safeguards & Live Health Watch verified: Support Ticket ERROR Cloud Logging persistence, "
