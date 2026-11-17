@@ -309,6 +309,13 @@
     .health-blink-yellow {
       animation: healthWarnBlink 1.7s ease-in-out infinite;
     }
+    @keyframes healthReadyBlink {
+      0%, 100% { box-shadow: 0 0 0 0 rgba(52, 168, 83, 0.58); border-color: rgba(52, 168, 83, 0.88); }
+      50% { box-shadow: 0 0 0 7px rgba(52, 168, 83, 0); border-color: rgba(52, 168, 83, 0.32); }
+    }
+    .health-blink-green {
+      animation: healthReadyBlink 1.4s ease-in-out infinite;
+    }
   </style>
 </head>
 <body class="min-h-screen flex flex-col overflow-x-hidden">
@@ -495,10 +502,6 @@
             <span>Support Ticket</span>
           </button>
 
-          <button id="btnQuickRecreateScenario1" type="button" onclick="recreateScenario1Fault(this, { openTicketModal: true })" title="Re-Create Scenario 1 Fault (Strip Datastream SA IAM role in agent-triad sandbox for repeatable Support Ticket demo)" aria-label="Re-Create Scenario 1 Fault" class="w-7 h-7 rounded-full bg-slate-900 hover:bg-slate-800 text-[#FBBC04] hover:text-white border border-slate-700 transition cursor-pointer inline-flex items-center justify-center shrink-0">
-            <i id="quickRecreateS1Icon" class="fa-solid fa-flask-vial text-[11px]"></i>
-          </button>
-
           <button id="btnPollLiveLogs" type="button" onclick="pollLiveCloudLogging()" title="Poll Real GCP Cloud Logging via Heartbeat &amp; Telemetry" class="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-full bg-slate-900 hover:bg-slate-800 text-slate-200 border border-slate-700 text-[11px] font-medium transition cursor-pointer whitespace-nowrap shrink-0">
             <i class="fa-solid fa-satellite-dish text-[#4285F4]" id="livePollIcon"></i>
             <span id="livePollText">Poll Live Logs</span>
@@ -563,14 +566,20 @@
               </div>
             </div>
 
-            <div id="metricCardSafety" onclick="switchView('features')" role="button" tabindex="0" class="glass border border-slate-800 rounded-2xl px-3.5 py-2.5 flex items-center justify-between gap-2.5 cursor-pointer transition hover:border-slate-700" title="After any approved fix, Atlas watches live logs for 45s and service metrics for 3m. Stateless services auto-revert if errors return; databases use Safe-Mode Isolation (prevent_destroy=true).">
+            <div id="metricCardSafety" onclick="openLiveHealthWatchModal()" role="button" tabindex="0" class="glass border border-slate-800 rounded-2xl px-3.5 py-2.5 flex items-center justify-between gap-2.5 cursor-pointer transition hover:border-slate-700" title="Post-Fix Verification on Service Health — blinks once remediation actions complete so you can click and verify live service health.">
               <div class="min-w-0">
                 <div id="metricSafetyLabel" class="text-[10px] font-medium text-slate-400">Post-Fix Auto-Rollback</div>
-                <div id="metricSafetyValue" class="text-sm font-bold text-white truncate">Live Health Watch</div>
-                <div id="metricSafetySub" class="text-[10px] text-slate-400 truncate">45s logs + 3m metrics • Auto-reverts on error</div>
+                <div class="flex items-center gap-1.5 min-w-0">
+                  <span class="relative flex h-2 w-2 shrink-0">
+                    <span id="metricSafetyPing" class="hidden animate-ping absolute inline-flex h-full w-full rounded-full bg-[#34A853] opacity-80"></span>
+                    <span id="metricSafetyDot" class="relative inline-flex rounded-full h-2 w-2 bg-[#FBBC04]"></span>
+                  </span>
+                  <div id="metricSafetyValue" class="text-sm font-bold text-white truncate">Live Health Watch</div>
+                </div>
+                <div id="metricSafetySub" class="text-[10px] text-slate-400 truncate">45s logs + 3m metrics • Click to verify health</div>
               </div>
-              <div class="w-8 h-8 rounded-xl g-badge-yellow flex items-center justify-center shrink-0">
-                <i class="fa-solid fa-shield-halved text-xs"></i>
+              <div id="metricSafetyBadge" class="w-8 h-8 rounded-xl g-badge-yellow flex items-center justify-center shrink-0">
+                <i id="metricSafetyIcon" class="fa-solid fa-shield-halved text-xs"></i>
               </div>
             </div>
           </section>
@@ -1417,6 +1426,50 @@
     </div>
   </div>
 
+  <!-- ===================================================================== -->
+  <!-- POST-FIX VERIFICATION ON SERVICE HEALTH MODAL (Live Health Watch)     -->
+  <!-- ===================================================================== -->
+  <div id="liveHealthWatchModal" class="hidden fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/90 backdrop-blur-md">
+    <div class="glass g-card-fourcolor border border-slate-800 rounded-3xl max-w-2xl w-full p-5 sm:p-6 space-y-4 shadow-2xl max-h-[90vh] overflow-y-auto">
+      <div class="flex items-start justify-between gap-3 pb-3 border-b border-slate-800">
+        <div class="space-y-1">
+          <div class="flex flex-wrap items-center gap-1.5">
+            <span id="healthWatchStatusPill" class="g-badge-green px-2.5 py-0.5 rounded-full text-[10px] font-semibold">Live Health Watch</span>
+            <span class="g-badge-blue px-2.5 py-0.5 rounded-full text-[10px] font-semibold">45s Logs • 3m Metrics • Cross-Service Peer Guard</span>
+          </div>
+          <h3 class="text-base sm:text-lg font-bold text-white">Post-Fix Verification on Service Health</h3>
+          <p class="text-xs text-slate-400">
+            Verifies live target service posture, post-fix Cloud Logging error streams (<code class="text-slate-300">timestamp &gt; execution_completed_at</code>), cross-service peer stability, and 15s Dead-Man's Switch heartbeats.
+          </p>
+        </div>
+        <button type="button" onclick="closeLiveHealthWatchModal()" class="w-8 h-8 rounded-full bg-slate-900 hover:bg-slate-800 border border-slate-800 text-slate-400 hover:text-white flex items-center justify-center cursor-pointer shrink-0" aria-label="Close Live Health Watch Modal">
+          <i class="fa-solid fa-xmark text-xs"></i>
+        </button>
+      </div>
+
+      <div id="liveHealthWatchBody" class="space-y-3 text-xs text-slate-300"></div>
+
+      <div class="flex flex-wrap items-center justify-between gap-2 pt-3 border-t border-slate-800">
+        <button type="button" onclick="closeLiveHealthWatchModal(); switchView('logs');"
+          class="px-3.5 py-2 rounded-full bg-slate-900 hover:bg-slate-800 border border-slate-700 text-xs text-slate-200 cursor-pointer inline-flex items-center gap-1.5">
+          <i class="fa-solid fa-wave-square text-[#4285F4] text-[10px]"></i>
+          <span>Open Live Cloud Logs</span>
+        </button>
+        <div class="flex flex-wrap items-center gap-2">
+          <button id="btnRunPostFixHealthCheck" type="button" onclick="runPostFixHealthVerification(this)"
+            class="g-btn-green px-4 py-2 rounded-full text-xs font-semibold cursor-pointer inline-flex items-center gap-1.5">
+            <i class="fa-solid fa-heart-pulse text-[11px]"></i>
+            <span>Verify Service Health Now</span>
+          </button>
+          <button type="button" onclick="closeLiveHealthWatchModal()"
+            class="px-4 py-2 rounded-full bg-slate-900 hover:bg-slate-800 border border-slate-700 text-xs text-slate-300 cursor-pointer">
+            Done
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <script>
     let latestState = null;
     let activeTargetCloud = 'gcp';
@@ -1659,6 +1712,258 @@
           featBadge.className = 'g-badge-green px-2.5 py-1 rounded-full text-[10px] font-semibold mono';
         }
       }
+    }
+
+    const acknowledgedHealthWatchKeys = (() => {
+      try {
+        const raw = sessionStorage.getItem('aaas_ack_health_watch');
+        return new Set(raw ? JSON.parse(raw) : []);
+      } catch (e) {
+        return new Set();
+      }
+    })();
+    let activeHealthWatchIncidentId = null;
+
+    function getHealthWatchCompletionKey(inc) {
+      if (!inc || !inc.incident_id) return '';
+      const stamp = inc.rolled_back_at || inc.resolved_at || inc.updated_at || inc.status || '';
+      return `${inc.incident_id}:${inc.status}:${stamp}`;
+    }
+
+    function acknowledgeHealthWatchIncident(inc) {
+      const key = getHealthWatchCompletionKey(inc);
+      if (!key) return;
+      acknowledgedHealthWatchKeys.add(key);
+      try {
+        sessionStorage.setItem('aaas_ack_health_watch', JSON.stringify(Array.from(acknowledgedHealthWatchKeys).slice(-60)));
+      } catch (e) {}
+    }
+
+    function getTargetCompletedIncidentForHealthWatch(incidents) {
+      const list = Array.isArray(incidents) ? incidents : [];
+      const isCompleted = i => i && (i.status === 'RESOLVED' || i.status === 'ROLLED_BACK');
+      const isUnacked = i => isCompleted(i) && !acknowledgedHealthWatchKeys.has(getHealthWatchCompletionKey(i));
+      if (selectedIncidentId) {
+        const selUnacked = list.find(i => i.incident_id === selectedIncidentId && isUnacked(i));
+        if (selUnacked) return selUnacked;
+      }
+      const unacked = list.find(isUnacked);
+      if (unacked) return unacked;
+      if (selectedIncidentId) {
+        const sel = list.find(i => i.incident_id === selectedIncidentId && isCompleted(i));
+        if (sel) return sel;
+      }
+      return list.find(isCompleted) || null;
+    }
+
+    function updateLiveHealthWatchCard(incidents) {
+      const cardEl = document.getElementById('metricCardSafety');
+      const labelEl = document.getElementById('metricSafetyLabel');
+      const subEl = document.getElementById('metricSafetySub');
+      const pingEl = document.getElementById('metricSafetyPing');
+      const dotEl = document.getElementById('metricSafetyDot');
+      const badgeEl = document.getElementById('metricSafetyBadge');
+      const iconEl = document.getElementById('metricSafetyIcon');
+      if (!cardEl) return;
+
+      cardEl.classList.remove('health-blink-green', 'health-blink-yellow');
+      const targetInc = getTargetCompletedIncidentForHealthWatch(incidents);
+
+      if (targetInc) {
+        const key = getHealthWatchCompletionKey(targetInc);
+        const isUnchecked = !acknowledgedHealthWatchKeys.has(key);
+        const isRolledBack = targetInc.status === 'ROLLED_BACK';
+        const svcName = targetInc.workload || targetInc.service_label || 'service';
+
+        if (isUnchecked) {
+          cardEl.classList.add(isRolledBack ? 'health-blink-yellow' : 'health-blink-green');
+          if (labelEl) {
+            labelEl.textContent = 'Post-Fix Verification Ready';
+            labelEl.className = `text-[10px] font-bold ${isRolledBack ? 'text-[#FBBC04]' : 'text-[#34A853]'}`;
+          }
+          if (subEl) subEl.textContent = `Actions complete (${svcName}) • Click to check`;
+          if (pingEl) {
+            pingEl.className = `animate-ping absolute inline-flex h-full w-full rounded-full ${isRolledBack ? 'bg-[#FBBC04]' : 'bg-[#34A853]'} opacity-85`;
+          }
+          if (dotEl) {
+            dotEl.className = `relative inline-flex rounded-full h-2 w-2 ${isRolledBack ? 'bg-[#FBBC04]' : 'bg-[#34A853]'}`;
+          }
+          if (badgeEl) {
+            badgeEl.className = `w-8 h-8 rounded-xl ${isRolledBack ? 'g-badge-yellow' : 'g-badge-green'} flex items-center justify-center shrink-0`;
+          }
+          if (iconEl) iconEl.className = 'fa-solid fa-heart-circle-check text-xs';
+          cardEl.title = `All remediation actions completed for ${svcName}. Click to run Post-Fix Verification on Service Health.`;
+          return;
+        }
+
+        if (labelEl) {
+          labelEl.textContent = 'Post-Fix Health Verified';
+          labelEl.className = 'text-[10px] font-medium text-[#34A853]';
+        }
+        if (subEl) subEl.textContent = `${svcName} • Click to re-verify health`;
+        if (pingEl) pingEl.className = 'hidden animate-ping absolute inline-flex h-full w-full rounded-full bg-[#34A853] opacity-75';
+        if (dotEl) dotEl.className = `relative inline-flex rounded-full h-2 w-2 ${isRolledBack ? 'bg-[#FBBC04]' : 'bg-[#34A853]'}`;
+        if (badgeEl) badgeEl.className = `w-8 h-8 rounded-xl ${isRolledBack ? 'g-badge-yellow' : 'g-badge-green'} flex items-center justify-center shrink-0`;
+        if (iconEl) iconEl.className = 'fa-solid fa-shield-halved text-xs';
+        return;
+      }
+
+      if (labelEl) {
+        labelEl.textContent = 'Post-Fix Auto-Rollback';
+        labelEl.className = 'text-[10px] font-medium text-slate-400';
+      }
+      if (subEl) subEl.textContent = '45s logs + 3m metrics • Click to verify health';
+      if (pingEl) pingEl.className = 'hidden animate-ping absolute inline-flex h-full w-full rounded-full bg-[#34A853] opacity-75';
+      if (dotEl) dotEl.className = 'relative inline-flex rounded-full h-2 w-2 bg-[#FBBC04]';
+      if (badgeEl) badgeEl.className = 'w-8 h-8 rounded-xl g-badge-yellow flex items-center justify-center shrink-0';
+      if (iconEl) iconEl.className = 'fa-solid fa-shield-halved text-xs';
+    }
+
+    function renderLiveHealthWatchReport(report, targetInc) {
+      const bodyEl = document.getElementById('liveHealthWatchBody');
+      const pillEl = document.getElementById('healthWatchStatusPill');
+      if (!bodyEl) return;
+
+      if (!report) {
+        bodyEl.innerHTML = `
+          <div class="p-5 rounded-2xl bg-slate-950/90 border border-slate-800 text-center space-y-2">
+            <i class="fa-solid fa-spinner fa-spin text-[#4285F4] text-lg"></i>
+            <div class="text-xs font-semibold text-white">Running live post-fix service health verification...</div>
+            <div class="text-[11px] text-slate-400">Checking Cloud Logging error streams, cross-service peer telemetry, and 15s heartbeats.</div>
+          </div>
+        `;
+        return;
+      }
+
+      const overall = report.overall_health || 'VERIFIED_HEALTHY';
+      const isHealthy = overall === 'VERIFIED_HEALTHY';
+      const isRolledBack = overall === 'ROLLED_BACK_STABLE';
+      const bannerTone = isHealthy
+        ? 'bg-[#34A853]/12 border-[#34A853]/45 text-[#81C995]'
+        : (isRolledBack ? 'bg-[#FBBC04]/12 border-[#FBBC04]/45 text-[#FBBC04]' : 'bg-[#4285F4]/12 border-[#4285F4]/45 text-slate-200');
+
+      if (pillEl) {
+        pillEl.textContent = overall.replace(/_/g, ' ');
+        pillEl.className = `${isHealthy ? 'g-badge-green' : (isRolledBack ? 'g-badge-yellow' : 'g-badge-blue')} px-2.5 py-0.5 rounded-full text-[10px] font-semibold`;
+      }
+
+      const checksHtml = (report.checks || []).map(chk => {
+        const st = String(chk.status || 'PASS').toUpperCase();
+        const badgeCls = st === 'PASS' ? 'g-badge-green' : (st === 'WARN' ? 'g-badge-yellow' : 'g-badge-red');
+        const iconCls = st === 'PASS' ? 'fa-circle-check text-[#34A853]' : (st === 'WARN' ? 'fa-triangle-exclamation text-[#FBBC04]' : 'fa-circle-xmark text-[#EA4335]');
+        return `
+          <div class="p-3 rounded-2xl bg-slate-950/90 border border-slate-800 space-y-1">
+            <div class="flex items-center justify-between gap-2">
+              <span class="text-xs font-bold text-white flex items-center gap-1.5">
+                <i class="fa-solid ${iconCls} text-[11px]"></i>
+                <span>${escapeHtml(chk.label || '')}</span>
+              </span>
+              <span class="${badgeCls} px-2 py-0.5 rounded-full text-[10px] font-bold mono">${escapeHtml(st)}</span>
+            </div>
+            <p class="text-[11px] text-slate-300 leading-relaxed">${escapeHtml(chk.detail || '')}</p>
+          </div>
+        `;
+      }).join('');
+
+      const snap = report.rollback_snapshot || (targetInc && targetInc.rollback_snapshot) || null;
+      const canRevert = targetInc && targetInc.status === 'RESOLVED' && snap && snap.revert_command;
+
+      bodyEl.innerHTML = `
+        <div class="p-3.5 rounded-2xl border ${bannerTone} flex flex-wrap items-center justify-between gap-2">
+          <div class="space-y-0.5">
+            <div class="text-xs font-bold text-white flex items-center gap-1.5">
+              <i class="fa-solid ${isHealthy ? 'fa-shield-heart text-[#34A853]' : (isRolledBack ? 'fa-rotate-left text-[#FBBC04]' : 'fa-satellite-dish text-[#4285F4]')}"></i>
+              <span>${escapeHtml(report.service_label || report.workload || 'Cloud Services')}</span>
+            </div>
+            <div class="text-[11px] text-slate-300">
+              Region: <code class="text-white">${escapeHtml(report.region || 'us-central1')}</code> •
+              Last checked: <code class="text-white">${escapeHtml(formatAuditTime(report.verified_at))}</code>
+            </div>
+          </div>
+          <span class="mono text-[10px] px-2.5 py-1 rounded-full bg-slate-950/80 border border-slate-800 text-slate-200">
+            ${escapeHtml(overall)}
+          </span>
+        </div>
+
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+          ${checksHtml}
+        </div>
+
+        ${canRevert ? `
+          <div class="p-3 rounded-2xl bg-slate-950/90 border border-slate-800 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
+            <div class="min-w-0 space-y-0.5">
+              <div class="text-[10px] font-bold uppercase tracking-wider text-[#FBBC04]">Pre-Execution Stable Snapshot Armed</div>
+              <div class="text-[11px] text-slate-300 truncate" title="${escapeHtml(snap.revert_command)}">
+                ${escapeHtml(snap.baseline_label || snap.snapshot_id || 'Stable Baseline')}
+              </div>
+            </div>
+            <button type="button" onclick="closeLiveHealthWatchModal(); rollbackIncident('${escapeHtml(targetInc.incident_id)}', null);"
+              class="px-3.5 py-1.5 rounded-full bg-slate-900 hover:bg-slate-800 border border-[#FBBC04]/60 text-[#FBBC04] text-[11px] font-semibold cursor-pointer inline-flex items-center gap-1.5 shrink-0">
+              <i class="fa-solid fa-rotate-left text-[10px]"></i>
+              <span>Revert to Stable Snapshot</span>
+            </button>
+          </div>
+        ` : ''}
+      `;
+    }
+
+    async function runPostFixHealthVerification(btnEl) {
+      const incidents = (latestState && latestState.incidents) || [];
+      const targetInc = activeHealthWatchIncidentId
+        ? incidents.find(i => i.incident_id === activeHealthWatchIncidentId)
+        : getTargetCompletedIncidentForHealthWatch(incidents);
+      const prevHtml = btnEl ? btnEl.innerHTML : '';
+      if (btnEl) {
+        btnEl.disabled = true;
+        btnEl.innerHTML = `<i class="fa-solid fa-spinner fa-spin text-[10px]"></i><span>Verifying...</span>`;
+      }
+      renderLiveHealthWatchReport(null, targetInc);
+      try {
+        const endpoint = targetInc && targetInc.incident_id
+          ? `/api/incidents/${encodeURIComponent(targetInc.incident_id)}/verify-health`
+          : '/api/platform/verify-health';
+        const res = await fetch(endpoint, { method: 'POST' });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(data.detail || `HTTP ${res.status}`);
+        if (targetInc) {
+          acknowledgeHealthWatchIncident(data.incident || targetInc);
+        }
+        renderLiveHealthWatchReport(data.report, data.incident || targetInc);
+        await fetchState(true);
+      } catch (err) {
+        const bodyEl = document.getElementById('liveHealthWatchBody');
+        if (bodyEl) {
+          bodyEl.innerHTML = `
+            <div class="p-3.5 rounded-2xl bg-[#EA4335]/15 border border-[#EA4335]/50 text-xs text-[#EA4335]">
+              <strong>Health verification check failed:</strong> ${escapeHtml(err.message || String(err))}
+            </div>
+          `;
+        }
+      } finally {
+        if (btnEl) {
+          btnEl.disabled = false;
+          btnEl.innerHTML = prevHtml;
+        }
+      }
+    }
+
+    function openLiveHealthWatchModal() {
+      const incidents = (latestState && latestState.incidents) || [];
+      const targetInc = getTargetCompletedIncidentForHealthWatch(incidents);
+      activeHealthWatchIncidentId = targetInc ? targetInc.incident_id : null;
+      if (targetInc) {
+        acknowledgeHealthWatchIncident(targetInc);
+        updateLiveHealthWatchCard(incidents);
+      }
+      const modal = document.getElementById('liveHealthWatchModal');
+      if (modal) modal.classList.remove('hidden');
+      const runBtn = document.getElementById('btnRunPostFixHealthCheck');
+      runPostFixHealthVerification(runBtn);
+    }
+
+    function closeLiveHealthWatchModal() {
+      const modal = document.getElementById('liveHealthWatchModal');
+      if (modal) modal.classList.add('hidden');
     }
 
     function focusActiveCloudIssue() {
@@ -2649,6 +2954,7 @@
         updatePlatformRuntimeUI(data.platform_runtime);
       }
       updateCloudHealthCard((data && data.platform_runtime) || {}, incidents, logs);
+      updateLiveHealthWatchCard(incidents);
       updateHeaderUserBadge();
 
       const chosenIncident = selectedIncidentId
@@ -6299,12 +6605,9 @@
     async function recreateScenario1Fault(btnEl, opts = {}) {
       const openModal = opts && opts.openTicketModal !== false;
       const prevHtml = btnEl ? btnEl.innerHTML : '';
-      const isIconOnly = btnEl && btnEl.id === 'btnQuickRecreateScenario1';
       if (btnEl) {
         btnEl.disabled = true;
-        btnEl.innerHTML = isIconOnly
-          ? `<i class="fa-solid fa-spinner fa-spin text-[11px]"></i>`
-          : `<i class="fa-solid fa-spinner fa-spin text-[10px]"></i><span>Re-Creating Fault...</span>`;
+        btnEl.innerHTML = `<i class="fa-solid fa-spinner fa-spin text-[10px]"></i><span>Re-Creating Fault...</span>`;
       }
       try {
         const res = await fetch('/api/scenarios/datastream-iam-drift/recreate', {

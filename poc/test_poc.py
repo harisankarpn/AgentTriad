@@ -77,11 +77,12 @@ def run_e2e_tests() -> None:
         "btnBulkQueueSeparate",
         "multiAlertOptionsRow",
         "btnOpenTicketIntake",
-        "btnQuickRecreateScenario1",
         "btnRecreateScenario1Modal",
         "ticketIntakeModal",
+        "liveHealthWatchModal",
     ):
         assert nav_id in res_ui.text, f"Missing sidebar/view/theme/SSO/session/cloud element {nav_id} in Dashboard UI"
+    assert "btnQuickRecreateScenario1" not in res_ui.text, "Duplicate header Recreate Fault icon should be removed"
     for p4_ui_token in (
         "renderOutageBlockedCard",
         "renderFailedRemediationCard",
@@ -1618,7 +1619,7 @@ def run_e2e_tests() -> None:
         scenario_id="cloud_run_5xx",
         title="Cloud Run checkout-billing-api: 503 Upstream Peer Connection Reset",
         source="gcp:run.googleapis.com",
-        project_id="agent-triad",
+        project_id="HSBC_Target",
         cluster="europe-west2",
         namespace="payments",
         workload="service/checkout-billing-api",
@@ -1661,22 +1662,58 @@ def run_e2e_tests() -> None:
         if auto_q_sig:
             _harness_singleton.clear_poison_pill(auto_q_sig)
 
-    # 15e. Dashboard HTML markers for Irreversibility Gate & Snapshot Rollback UI
+    # 15e. Post-Fix Verification on Service Health ('Live Health Watch' Blink & Click Check)
+    plat_health_res = client.post("/api/platform/verify-health")
+    assert plat_health_res.status_code == 200, plat_health_res.text
+    plat_health = plat_health_res.json()
+    assert plat_health["report"]["incident_status"] == "PLATFORM_WATCH"
+    assert len(plat_health["report"]["checks"]) == 4
+
+    resolved_health_res = client.post(f"/api/incidents/{crit_inc_id}/verify-health")
+    assert resolved_health_res.status_code == 200, resolved_health_res.text
+    resolved_health = resolved_health_res.json()
+    assert resolved_health["status"] == "VERIFIED_HEALTHY", resolved_health
+    assert resolved_health["report"]["overall_health"] == "VERIFIED_HEALTHY", resolved_health
+    assert resolved_health["report"]["healthy"] is True
+    assert len(resolved_health["report"]["checks"]) == 4
+    assert resolved_health["incident"]["post_fix_health_report"]["overall_health"] == "VERIFIED_HEALTHY"
+
+    rolled_health_res = client.post(f"/api/incidents/{rev_inc_id}/verify-health")
+    assert rolled_health_res.status_code == 200, rolled_health_res.text
+    rolled_health = rolled_health_res.json()
+    assert rolled_health["status"] == "ROLLED_BACK_STABLE", rolled_health
+    assert rolled_health["report"]["overall_health"] == "ROLLED_BACK_STABLE", rolled_health
+    assert rolled_health["report"]["healthy"] is True
+    assert len(rolled_health["report"]["checks"]) == 4
+
+    missing_health_res = client.post("/api/incidents/nonexistent-inc-999/verify-health")
+    assert missing_health_res.status_code == 404
+
+    # 15f. Dashboard HTML markers for Irreversibility Gate, Snapshot Rollback & Live Health Watch UI
     ui_html = client.get("/").text
+    assert "btnQuickRecreateScenario1" not in ui_html, "Duplicate header Recreate Fault icon should be removed"
     for marker in (
         "criticalGatePanel-",
         "evaluateClientChangeRisk",
         "renderRolledBackCard",
         "btnRollbackSnapshotCard",
         "rollbackIncident(",
+        "liveHealthWatchModal",
+        "openLiveHealthWatchModal",
+        "updateLiveHealthWatchCard",
+        "runPostFixHealthVerification",
+        "health-blink-green",
+        "health-blink-yellow",
+        "Post-Fix Verification on Service Health",
     ):
-        assert marker in ui_html, f"Missing Phase 2/3 UI marker `{marker}` in index.html"
+        assert marker in ui_html, f"Missing Phase 2/3/HealthWatch UI marker `{marker}` in index.html"
 
     print(
-        "[PASS] Colleague Feedback Safeguards verified: Support Ticket ERROR Cloud Logging persistence, "
+        "[PASS] Colleague Feedback Safeguards & Live Health Watch verified: Support Ticket ERROR Cloud Logging persistence, "
         "Tier-2 Critical Irreversible HITL confirmation gate (0 JIT tokens on blind accept), "
-        "pre-execution stable snapshot + 1-click 'Revert to Stable Snapshot', and 45s Watchdog "
-        "cross-service cascading failure auto-rollback + 7-Day Poison-Pill Quarantine!"
+        "pre-execution stable snapshot + 1-click 'Revert to Stable Snapshot', 45s Watchdog "
+        "cross-service cascading failure auto-rollback + 7-Day Poison-Pill Quarantine, "
+        "single Recreate Fault button inside Support Ticket modal, and blinking Live Health Watch post-fix verification!"
     )
 
 

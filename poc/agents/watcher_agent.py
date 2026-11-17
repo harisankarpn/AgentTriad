@@ -165,8 +165,30 @@ class CloudLoggingWatcherAgent:
             target_regressions = []
             collateral_anomalies = []
 
+            def _norm_project_id(val: Any) -> str:
+                raw = str(val or "").strip()
+                if raw.startswith("projects/"):
+                    return raw.split("projects/", 1)[1].split("/")[0].strip()
+                return raw
+
+            incident_proj = _norm_project_id(data.get("project_id"))
+            mitigated_ids = {str(x) for x in (data.get("mitigated_log_ids") or []) if x}
+
             if exec_completed_dt is not None:
-                for entry in list(getattr(self.logging_service, "_local_logs", []) or []):
+                all_local_logs = list(getattr(self.logging_service, "_local_logs", []) or [])
+                pre_existing_peer_signatures = set()
+                for prev_entry in all_local_logs:
+                    if not isinstance(prev_entry, dict) or not prev_entry.get("is_anomaly"):
+                        continue
+                    prev_w = str(prev_entry.get("workload") or "").strip()
+                    if prev_w == str(workload or "").strip():
+                        continue
+                    prev_dt = _parse_iso_utc(prev_entry.get("timestamp"))
+                    prev_sig = str(prev_entry.get("signature_key") or "").strip()
+                    if prev_dt is not None and prev_dt <= exec_completed_dt and prev_sig:
+                        pre_existing_peer_signatures.add(prev_sig)
+
+                for entry in all_local_logs:
                     if not isinstance(entry, dict) or not entry.get("is_anomaly"):
                         continue
                     if entry.get("ignored"):
@@ -175,7 +197,10 @@ class CloudLoggingWatcherAgent:
                     if sev not in ("ERROR", "CRITICAL", "ALERT", "EMERGENCY"):
                         continue
                     lid = str(entry.get("log_id") or "")
-                    if lid in (str(incident_id), original_log_id):
+                    if lid in (str(incident_id), original_log_id) or lid in mitigated_ids:
+                        continue
+                    entry_proj = _norm_project_id(entry.get("project_id"))
+                    if incident_proj and entry_proj and entry_proj != incident_proj:
                         continue
                     entry_cloud = str(entry.get("cloud_provider") or "gcp").strip().lower()
                     if entry_cloud and target_cloud and entry_cloud != target_cloud:
@@ -188,6 +213,9 @@ class CloudLoggingWatcherAgent:
                     if str(sanitized.get("workload") or "").strip() == str(workload or "").strip():
                         target_regressions.append(sanitized)
                     else:
+                        entry_sig = str(entry.get("signature_key") or sanitized.get("signature_key") or "").strip()
+                        if entry_sig and entry_sig in pre_existing_peer_signatures:
+                            continue
                         collateral_anomalies.append(sanitized)
 
             if collateral_anomalies or target_regressions:
