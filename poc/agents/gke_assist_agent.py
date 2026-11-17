@@ -64,6 +64,16 @@ class GKEAssistAgent:
                         "jit",
                     ],
                 ),
+                AgentSkill(
+                    id="rollback_gke_remediation",
+                    name="Revert Remediation to Stable Pre-Execution Snapshot",
+                    description=(
+                        "Reverts a previously applied remediation back to its pre-execution stable snapshot "
+                        "(prior Cloud Run revision, IAM binding state, or rollout baseline) under a scoped "
+                        "15-minute JIT token and quarantines the offending signature for 7 days."
+                    ),
+                    tags=["rollback", "snapshot", "poison-pill", "jit", "watchdog"],
+                ),
             ],
         )
         self.a2a_hub.register_agent(self.card, self.handle_a2a_task)
@@ -176,6 +186,61 @@ class GKEAssistAgent:
                     "coordinated_specialists": coordinated_specialists,
                     "incident_id": incident_id,
                     "execution": exec_result,
+                },
+            )
+
+        if skill_id == "rollback_gke_remediation":
+            incident_id = data.get("incident_id", "")
+            jit_token_id = data.get("jit_token_id", "")
+            execution_mode = data.get("execution_mode", "live")
+            cluster = data.get("cluster", "us-central1")
+            namespace = data.get("namespace", "default")
+            workload = data.get("workload", "deployment/app")
+            rollback_snapshot = data.get("rollback_snapshot") or {}
+            original_command = data.get("original_command", "")
+            reason = data.get("reason", "Revert to pre-execution stable snapshot")
+            quarantine_signature = bool(data.get("quarantine_signature", True))
+            specialist = data.get("specialist_worker") or {
+                "id": "serverless-agent",
+                "name": "Serverless Agent",
+                "domain": "Cloud Run & Cloud Functions",
+            }
+            specialist_name = specialist.get("name", "Specialist Agent")
+
+            if not self.a2a_hub.jit_broker.validate_token(jit_token_id, incident_id):
+                return A2ATaskResponse(
+                    id=request.id,
+                    result={
+                        "status": "REJECTED_INVALID_JIT_TOKEN",
+                        "incident_id": incident_id,
+                        "error": f"{specialist_name} refused rollback: missing or expired single-use Rollback JIT token from Atlas.",
+                    },
+                )
+
+            rb_result = self.remediator.execute_rollback(
+                incident_id=incident_id,
+                cluster=cluster,
+                namespace=namespace,
+                workload=workload,
+                rollback_snapshot=rollback_snapshot,
+                original_command=original_command,
+                execution_mode=execution_mode,
+                jit_token_id=jit_token_id,
+                reason=reason,
+                quarantine_signature=quarantine_signature,
+                specialist_worker=specialist,
+            )
+            self.a2a_hub.jit_broker.revoke_token(jit_token_id)
+
+            rb_failed = rb_result.get("status") == "ROLLBACK_FAILED"
+            return A2ATaskResponse(
+                id=request.id,
+                result={
+                    "status": "ROLLBACK_FAILED" if rb_failed else "REMEDIATION_ROLLED_BACK",
+                    "agent": self.AGENT_ID,
+                    "specialist_worker": specialist,
+                    "incident_id": incident_id,
+                    "rollback": rb_result,
                 },
             )
 

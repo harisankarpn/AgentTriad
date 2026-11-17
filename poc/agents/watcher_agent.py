@@ -25,6 +25,19 @@ from services.cloud_logging_service import CloudLoggingService
 from services.cloud_status_service import cloud_status_service
 
 
+def _parse_iso_utc(ts_raw: Any) -> datetime.datetime | None:
+    if not ts_raw or not isinstance(ts_raw, str):
+        return None
+    try:
+        cleaned = ts_raw.strip().replace("Z", "+00:00")
+        dt = datetime.datetime.fromisoformat(cleaned)
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=datetime.timezone.utc)
+        return dt.astimezone(datetime.timezone.utc)
+    except Exception:
+        return None
+
+
 class CloudLoggingWatcherAgent:
     """Deterministic Frontline Heartbeat & Telemetry Sensor ($0 LLM token overhead)."""
 
@@ -142,11 +155,104 @@ class CloudLoggingWatcherAgent:
             workload = data.get("workload", "deployment/unknown")
             namespace = data.get("namespace", "default")
             cluster = data.get("cluster", "us-central1")
+            exec_completed_raw = data.get("execution_completed_at")
+            original_log_id = str(data.get("original_log_id") or "")
+            target_cloud = str(data.get("target_cloud") or "gcp").strip().lower()
+            auto_rollback_safe = bool(data.get("auto_rollback_safe", True))
             watchdog_spec = agent_harness.get_rollback_and_watchdog_spec(workload=workload)
+
+            exec_completed_dt = _parse_iso_utc(exec_completed_raw)
+            target_regressions = []
+            collateral_anomalies = []
+
+            if exec_completed_dt is not None:
+                for entry in list(getattr(self.logging_service, "_local_logs", []) or []):
+                    if not isinstance(entry, dict) or not entry.get("is_anomaly"):
+                        continue
+                    if entry.get("ignored"):
+                        continue
+                    sev = str(entry.get("severity") or "").upper()
+                    if sev not in ("ERROR", "CRITICAL", "ALERT", "EMERGENCY"):
+                        continue
+                    lid = str(entry.get("log_id") or "")
+                    if lid in (str(incident_id), original_log_id):
+                        continue
+                    entry_cloud = str(entry.get("cloud_provider") or "gcp").strip().lower()
+                    if entry_cloud and target_cloud and entry_cloud != target_cloud:
+                        continue
+                    entry_dt = _parse_iso_utc(entry.get("timestamp"))
+                    if entry_dt is None or entry_dt <= exec_completed_dt:
+                        continue
+
+                    sanitized = agent_harness.sanitize_telemetry_saif(entry)
+                    if str(sanitized.get("workload") or "").strip() == str(workload or "").strip():
+                        target_regressions.append(sanitized)
+                    else:
+                        collateral_anomalies.append(sanitized)
+
+            if collateral_anomalies or target_regressions:
+                all_post_errors = collateral_anomalies + target_regressions
+                if collateral_anomalies:
+                    ver_status = "CASCADING_FAILURE_DETECTED"
+                    affected_services = sorted(
+                        {str(a.get("workload") or "unknown-service") for a in collateral_anomalies}
+                    )
+                    failure_msg = (
+                        f"Watchdog ALERT for {namespace}/{workload} (incident {incident_id}): detected "
+                        f"{len(collateral_anomalies)} post-fix cascading ERROR(s) on downstream/peer service(s) "
+                        f"`{', '.join(affected_services)}` (timestamp > {exec_completed_raw}). "
+                        + (
+                            "Triggering automatic revert to pre-execution stable snapshot + 7-Day Poison-Pill Quarantine."
+                            if auto_rollback_safe
+                            else "Tier-2 irreversible change cannot be auto-undone; isolating and holding for operator triage."
+                        )
+                    )
+                else:
+                    ver_status = "POST_FIX_REGRESSION_DETECTED"
+                    affected_services = [str(workload)]
+                    failure_msg = (
+                        f"Watchdog ALERT for {namespace}/{workload} (incident {incident_id}): detected "
+                        f"{len(target_regressions)} post-fix regression ERROR(s) on `{workload}` "
+                        f"(timestamp > {exec_completed_raw}). "
+                        + (
+                            "Triggering automatic revert to pre-execution stable snapshot + 7-Day Poison-Pill Quarantine."
+                            if auto_rollback_safe
+                            else "Holding for operator triage."
+                        )
+                    )
+
+                self.logging_service.record_system_log(
+                    severity="WARNING",
+                    workload=workload,
+                    namespace=namespace,
+                    cluster=cluster,
+                    message=failure_msg,
+                )
+                return A2ATaskResponse(
+                    id=request.id,
+                    result={
+                        "status": ver_status,
+                        "healthy": False,
+                        "incident_id": incident_id,
+                        "watchdog_window_seconds": 45,
+                        "rollback_mode_armed": watchdog_spec["rollback_mode"],
+                        "auto_rollback_recommended": auto_rollback_safe,
+                        "affected_collateral_services": affected_services,
+                        "collateral_anomalies": collateral_anomalies,
+                        "target_regressions": target_regressions,
+                        "post_metrics": {
+                            "error_rate_pct": round(min(100.0, 15.0 * len(all_post_errors)), 1),
+                            "p99_latency_ms": 1840,
+                            "pods_ready": "DEGRADED",
+                            "heartbeat_tick": "ALERT (Post-fix error spike detected)",
+                        },
+                        "summary": failure_msg,
+                    },
+                )
 
             verification_msg = (
                 f"Watchdog verified recovery for {namespace}/{workload} (incident {incident_id}): "
-                f"0 error logs in 45s window, P99 latency 142ms (nominal), "
+                f"0 error logs across project services in 45s window, P99 latency 142ms (nominal), "
                 f"heartbeat tick PASS ({watchdog_spec['current_heartbeat_latency_seconds']}s < 45s Dead-Man's Switch)."
             )
             self.logging_service.record_system_log(
@@ -160,9 +266,13 @@ class CloudLoggingWatcherAgent:
                 id=request.id,
                 result={
                     "status": "VERIFIED_HEALTHY",
+                    "healthy": True,
                     "incident_id": incident_id,
                     "watchdog_window_seconds": 45,
                     "rollback_mode_armed": watchdog_spec["rollback_mode"],
+                    "affected_collateral_services": [],
+                    "collateral_anomalies": [],
+                    "target_regressions": [],
                     "post_metrics": {
                         "error_rate_pct": 0.0,
                         "p99_latency_ms": 142,

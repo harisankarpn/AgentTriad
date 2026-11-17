@@ -88,6 +88,51 @@ FORBIDDEN_COMMAND_PATTERNS = [
     r"\brm\s+-rf\b",
 ]
 
+# Tier-2 Critical Changes that are allowed ONLY with explicit human irreversibility acknowledgment
+# (prevents HITL "I accept" rubber-stamping on changes that cannot be automatically undone)
+CRITICAL_IRREVERSIBLE_PATTERNS = [
+    (
+        r"\b(pg_terminate_backend|pg_cancel_backend)\b",
+        "Terminates active PostgreSQL backend sessions; uncommitted in-flight transactions are permanently aborted.",
+    ),
+    (
+        r"\b(truncate\s+table|drop\s+index|drop\s+table|delete\s+from|alter\s+table|vacuum\s+full)\b",
+        "Mutates or purges database records/schema state that cannot be automatically replayed.",
+    ),
+    (
+        r"\bgcloud\s+sql\s+instances\s+(restart|failover|promote-replica|restore-backup)\b",
+        "Forces a database restart/failover/restore, severing active client connections and in-flight transactions.",
+    ),
+    (
+        r"\bkubectl\s+(delete\s+pod|drain|cordon|replace\s+--force)\b",
+        "Terminates running pods or drains nodes; ephemeral container memory and active in-flight requests are lost.",
+    ),
+    (
+        r"\bgcloud\s+compute\s+instances\s+(reset|stop)\b",
+        "Hard-resets or stops the VM instance; unsaved memory state and active TCP sessions are lost.",
+    ),
+    (
+        r"(--allow-unauthenticated|\ballUsers\b|\ballAuthenticatedUsers\b)",
+        "Exposes the resource publicly to unauthenticated internet traffic; external data access cannot be recalled.",
+    ),
+    (
+        r"--role=['\"]?roles/(owner|editor|iam\.securityAdmin|resourcemanager\.projectIamAdmin)['\"]?",
+        "Grants broad administrative IAM privileges across the project boundary.",
+    ),
+    (
+        r"\bremove-iam-policy-binding\b",
+        "Revokes an active IAM policy binding, which can immediately sever permissions for live dependent workloads.",
+    ),
+    (
+        r"\b(secrets\s+versions\s+(destroy|disable)|iam\s+service-accounts\s+keys\s+delete|kms\s+keys)\b",
+        "Revokes or destroys active cryptographic keys/secret versions; callers using cached credentials will fail.",
+    ),
+    (
+        r"(--clear-vpc-connector|\bforce_new\b|-replace=)",
+        "Forces infrastructure resource replacement or drops active VPC private connectivity.",
+    ),
+]
+
 PROMPT_INJECTION_PATTERNS = [
     r"ignore\s+(all\s+)?(previous|prior)\s+instructions",
     r"system\s*prompt\s*:",
@@ -218,10 +263,17 @@ class AgentHarnessEngine:
             if re.search(pattern, combined_text, flags=re.IGNORECASE):
                 violations.append(f"Blocked forbidden destructive operation matching `{pattern}`")
 
-        # Check Poison-Pill Quarantine Registry
-        sig_hash = hashlib.sha1(f"{workload}:{command}".encode()).hexdigest()[:12]
+        # Check Poison-Pill Quarantine Registry (pruning expired 7-day entries)
+        self.poison_pill_quarantine = {
+            k: v for k, v in self.poison_pill_quarantine.items() if float(v.get("expires_ts", now + 1)) > now
+        }
+        sig_hash = self.compute_remediation_signature(workload=workload, command=command)
         if sig_hash in self.poison_pill_quarantine:
-            violations.append(f"Remediation signature `{sig_hash}` is in 7-Day Poison-Pill Quarantine")
+            q_entry = self.poison_pill_quarantine[sig_hash]
+            violations.append(
+                f"Remediation signature `{sig_hash}` is in 7-Day Poison-Pill Quarantine "
+                f"(reason: {q_entry.get('reason', 'caused post-fix regression')})"
+            )
 
         # Check External Colleague Resource Protection (`testdbconnect`, etc.)
         workload_clean = workload.split("/")[-1].strip()
@@ -237,6 +289,11 @@ class AgentHarnessEngine:
             stage_override = "STAGE_2_HITL_VERIFIED"
 
         passed = len(violations) == 0
+        change_risk = self.classify_change_risk(
+            workload=workload,
+            command=command,
+            terraform_code=terraform_code,
+        )
         return {
             "policy_status": "PASS" if passed else "BLOCKED",
             "opa_verdict": "PASS" if passed else "DENY",
@@ -244,6 +301,7 @@ class AgentHarnessEngine:
             "passed": passed,
             "violations": violations,
             "rules_checked": rules_checked,
+            "change_risk": change_risk,
             "external_resource_guardrail": (
                 f"ACTIVE — Non-destructive inspection enforced for external resource `{workload_clean}`"
                 if is_protected_external
@@ -255,6 +313,61 @@ class AgentHarnessEngine:
             "autonomy_gate": stage_override,
             "coordinated_specialists": specialist_ids or ["serverless-agent"],
             "evaluated_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+        }
+
+    def classify_change_risk(
+        self,
+        workload: str = "",
+        command: str = "",
+        terraform_code: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """
+        Classifies a proposed remediation into 3 HITL risk tiers to prevent operator approval fatigue:
+          - TIER_1_REVERSIBLE: Standard reversible config/additive fix (1-click 'I accept' + snapshot rollback)
+          - TIER_2_CRITICAL_IRREVERSIBLE: Has side effects that cannot be automatically undone; requires
+            explicit secondary irreversibility acknowledgment before Atlas will mint a JIT token.
+          - TIER_3_FORBIDDEN_DESTRUCTIVE: Outright blocked by OPA policy gate.
+        """
+        combined = f"{command or ''}\n{terraform_code or ''}"
+        for pattern in FORBIDDEN_COMMAND_PATTERNS:
+            if re.search(pattern, combined, flags=re.IGNORECASE):
+                return {
+                    "risk_tier": "TIER_3_FORBIDDEN_DESTRUCTIVE",
+                    "reversible": False,
+                    "requires_critical_confirmation": True,
+                    "blocked_by_opa": True,
+                    "confirmation_phrase": "BLOCKED_BY_OPA",
+                    "irreversible_reasons": [f"Forbidden destructive command matching `{pattern}`."],
+                    "summary": "Blocked by OPA destructive-operation policy gate.",
+                }
+
+        reasons: List[str] = []
+        for pattern, reason in CRITICAL_IRREVERSIBLE_PATTERNS:
+            if re.search(pattern, combined, flags=re.IGNORECASE) and reason not in reasons:
+                reasons.append(reason)
+
+        if reasons:
+            return {
+                "risk_tier": "TIER_2_CRITICAL_IRREVERSIBLE",
+                "reversible": False,
+                "requires_critical_confirmation": True,
+                "blocked_by_opa": False,
+                "confirmation_phrase": "CONFIRM IRREVERSIBLE",
+                "irreversible_reasons": reasons,
+                "summary": (
+                    "Critical change with irreversible impact — standard 'I accept' is locked until the operator "
+                    "explicitly confirms irreversible side effects."
+                ),
+            }
+
+        return {
+            "risk_tier": "TIER_1_REVERSIBLE",
+            "reversible": True,
+            "requires_critical_confirmation": False,
+            "blocked_by_opa": False,
+            "confirmation_phrase": None,
+            "irreversible_reasons": [],
+            "summary": "Reversible change protected by pre-execution stable snapshot and Watchdog rollback.",
         }
 
     # ------------------------------------------------------------------
@@ -389,6 +502,44 @@ class AgentHarnessEngine:
         freeze_until = self.lock_adapter.set_hysteresis_freeze(workload_clean, duration_seconds=45 * 60)
         self.temporal_hysteresis_freezes[workload_clean] = freeze_until
 
+    def compute_remediation_signature(self, workload: str, command: str) -> str:
+        """Computes a deterministic 12-char SHA-1 signature for `(workload, command)`."""
+        return hashlib.sha1(f"{workload}:{command}".encode()).hexdigest()[:12]
+
+    def quarantine_poison_pill(
+        self,
+        workload: str,
+        command: str,
+        reason: str,
+        incident_id: str = "",
+        ttl_days: int = 7,
+    ) -> Dict[str, Any]:
+        """
+        Places a `(workload, command)` remediation signature into the 7-Day Poison-Pill
+        Quarantine Registry after a post-fix Watchdog regression, cascading failure, or rollback
+        so OPA prevents re-applying a fix that broke another service.
+        """
+        now = time.time()
+        sig_hash = self.compute_remediation_signature(workload=workload, command=command)
+        expires_ts = now + max(1, int(ttl_days)) * 86400
+        record = {
+            "signature_hash": sig_hash,
+            "workload": workload,
+            "command": command,
+            "reason": reason,
+            "incident_id": incident_id,
+            "ttl_days": int(ttl_days),
+            "quarantined_at": datetime.datetime.fromtimestamp(now, tz=datetime.timezone.utc).isoformat(),
+            "expires_at": datetime.datetime.fromtimestamp(expires_ts, tz=datetime.timezone.utc).isoformat(),
+            "expires_ts": expires_ts,
+        }
+        self.poison_pill_quarantine[sig_hash] = record
+        return record
+
+    def clear_poison_pill(self, sig_hash: str) -> bool:
+        """Removes a signature from the Poison-Pill Quarantine Registry (e.g., after operator review)."""
+        return self.poison_pill_quarantine.pop(sig_hash, None) is not None
+
     def is_workload_in_hysteresis_freeze(self, workload: str) -> Optional[float]:
         """Returns the active freeze expiration epoch for `workload`, or None if unfrozen."""
         workload_clean = (workload or "").split("/")[-1].strip()
@@ -422,12 +573,18 @@ class AgentHarnessEngine:
         )
         tf_dry_run = self.validate_terraform_dry_run(terraform_code)
         watchdog_info = self.get_rollback_and_watchdog_spec(workload, rollback_mode_hint)
+        change_risk = policy_info.get("change_risk") or self.classify_change_risk(
+            workload=workload,
+            command=command,
+            terraform_code=terraform_code,
+        )
 
         return {
             "lock": lock_info,
             "state_lock": lock_info,
             "opa_policy": policy_info,
             "policy_gate": policy_info,
+            "change_risk": change_risk,
             "terraform_dry_run": tf_dry_run,
             "watchdog": watchdog_info,
             "watchdog_spec": watchdog_info,

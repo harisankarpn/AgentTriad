@@ -381,6 +381,13 @@ class OTelLokiLogAdapter(TelemetryIngestionAdapter):
         self._local_logs.insert(0, entry)
         return entry
 
+    def record_anomaly_log(self, entry: Dict[str, Any]) -> Dict[str, Any]:
+        """Records an ingested anomaly/ticket entry in the OTel ring buffer."""
+        entry["persisted_to_gcp"] = False
+        if not any(item.get("log_id") == entry.get("log_id") for item in self._local_logs):
+            self._local_logs.insert(0, entry)
+        return entry
+
     def get_status(self) -> Dict[str, Any]:
         return {
             "provider": self.provider_name,

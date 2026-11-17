@@ -597,6 +597,22 @@ class GCPCloudLoggingAdapter(TelemetryIngestionAdapter):
         self._local_logs.insert(0, entry)
         return entry
 
+    def record_anomaly_log(self, entry: Dict[str, Any]) -> Dict[str, Any]:
+        """Persists an ingested support ticket or anomaly record at its native severity (e.g. ERROR) to GCP Cloud Logging."""
+        sev_upper = str(entry.get("severity") or "ERROR").upper()
+        payload = dict(entry)
+        payload["event"] = "AAAS_GKE_ANOMALY"
+        payload.setdefault("incident_id", entry.get("log_id"))
+        entry["persisted_to_gcp"] = False
+        if self._logger is not None:
+            try:
+                payload["persisted_to_gcp"] = True
+                self._logger.log_struct(payload, severity=sev_upper)
+                entry["persisted_to_gcp"] = True
+            except Exception as exc:
+                entry["gcp_write_warning"] = str(exc)
+        return entry
+
     def fetch_recent_logs(
         self,
         limit: int = 25,

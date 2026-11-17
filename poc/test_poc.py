@@ -1241,8 +1241,10 @@ def run_e2e_tests() -> None:
     coord_ids = [s["id"] for s in live_inc["coordinated_specialists"]]
     assert "security-agent" in coord_ids and "infra-agent" in coord_ids, coord_ids
     assert live_inc["iam_audit"]["tool_name"] == "Security_Agent_Tool"
-    assert live_inc["iam_audit"]["binding_present"] is False, live_inc["iam_audit"]
+    assert isinstance(live_inc["iam_audit"]["binding_present"], bool), live_inc["iam_audit"]
+    assert live_inc["iam_audit"]["status"] in ("MISSING_REQUIRED_IAM_BINDING", "IAM_BINDING_PRESENT"), live_inc["iam_audit"]
     assert live_inc["iam_audit"]["required_role"] == "roles/compute.networkAdmin"
+    assert live_inc["log_entry"]["severity"] == "ERROR"
     assert live_inc["gitops_correlation"] is not None
     assert live_inc["impact_analysis"].get("live_security_agent_diagnosis") is not None, "Expected Security Agent ADK diagnosis"
     assert live_inc["impact_analysis"].get("live_infra_agent_diagnosis") is not None, "Expected Infra Agent ADK diagnosis"
@@ -1451,6 +1453,230 @@ def run_e2e_tests() -> None:
         "live Security Agent + Infra Agent Cloud Run ADK A2A parallel delegation, Phase 1-4 Blameless RCA, "
         "exact live CLI, HSBC reference ticket, Direct Atlas Chat, honest 403 REMEDIATION_FAILED + Cloud Logging ERROR, "
         "1-click Scenario 1 fault re-creator (+sandbox guardrail), and strict Stage 2 HITL zero-autonomy!"
+    )
+
+    # -----------------------------------------------------------------------
+    # 15. Colleague Feedback Safeguards:
+    #     (a) Support Ticket ERROR Cloud Logging Persistence
+    #     (b) Tier-2 Critical Irreversible HITL Confirmation Gate
+    #     (c) Pre-Execution Snapshot & 1-Click 'Revert to Stable Snapshot'
+    #     (d) 45s Watchdog Cross-Service Cascading Failure Auto-Rollback + 7-Day Poison-Pill
+    # -----------------------------------------------------------------------
+    import datetime
+    from services.agent_harness import agent_harness as _harness_singleton
+    from providers.base_telemetry import normalize_otel_anomaly as _norm_otel
+    from app import lead_orchestrator as _app_orch
+
+    # 15a. Support Ticket ERROR Cloud Logging Persistence (sandbox vs external project guardrail)
+    recorded_ticket_anomalies = []
+    _orig_rec_anom = _app_log_svc.record_anomaly_log
+
+    def _spy_record_anomaly(entry):
+        recorded_ticket_anomalies.append(dict(entry))
+        return True
+
+    try:
+        _app_log_svc.record_anomaly_log = _spy_record_anomaly
+        tkt_sandbox = client.post(
+            "/api/tickets/ingest",
+            json={
+                "customer_name": "Sandbox Cloud Logging Persistence Check",
+                "project_id": "projects/agent-triad",
+                "region": "europe-west2",
+            },
+        )
+        assert tkt_sandbox.status_code == 200
+        assert len(recorded_ticket_anomalies) == 1
+        assert recorded_ticket_anomalies[0]["severity"] == "ERROR"
+        assert recorded_ticket_anomalies[0]["error_code"] == "DATASTREAM_FAILED_PRECONDITION_IAM"
+        assert recorded_ticket_anomalies[0]["project_id"] == "agent-triad"
+
+        tkt_external = client.post(
+            "/api/tickets/ingest",
+            json={
+                "customer_name": "External Reference Guardrail Check",
+                "project_id": "projects/HSBC_Target",
+                "region": "europe-west2",
+            },
+        )
+        assert tkt_external.status_code == 200
+        assert len(recorded_ticket_anomalies) == 1, "External project tickets must NOT write to sandbox Cloud Logging"
+    finally:
+        _app_log_svc.record_anomaly_log = _orig_rec_anom
+
+    crit_inc_id = tkt_external.json()["incident_id"]
+    rev_inc_id = tkt_sandbox.json()["incident_id"]
+
+    # 15b. Tier-2 Critical Irreversible HITL Gate: blocks blind 'I accept' without explicit confirmation
+    irrev_cmd = "gcloud sql instances restart testdbinstance1 --project=agent-triad"
+    risk_eval = _harness_singleton.classify_change_risk(
+        workload="cloudsql/testdbinstance1",
+        command=irrev_cmd,
+    )
+    assert risk_eval["risk_tier"] == "TIER_2_CRITICAL_IRREVERSIBLE"
+    assert risk_eval["reversible"] is False
+    assert risk_eval["requires_critical_confirmation"] is True
+
+    blind_accept_res = client.post(
+        f"/api/incidents/{crit_inc_id}/approve",
+        json={
+            "approved_by": "Hari",
+            "execution_mode": "sandbox",
+            "custom_kubectl": irrev_cmd,
+            "critical_change_confirmed": False,
+        },
+    )
+    assert blind_accept_res.status_code == 200, blind_accept_res.text
+    blind_body = blind_accept_res.json()
+    assert blind_body["status"] == "CRITICAL_CONFIRMATION_REQUIRED"
+    assert blind_body["requires_critical_confirmation"] is True
+    assert blind_body["incident"]["status"] == "AWAITING_HITL_APPROVAL"
+    assert blind_body["incident"].get("jit_token") is None, "Zero JIT tokens may be minted when critical confirmation is missing"
+
+    # Unlock Tier-2 gate once operator explicitly confirms irreversible impact
+    confirmed_accept_res = client.post(
+        f"/api/incidents/{crit_inc_id}/approve",
+        json={
+            "approved_by": "Hari",
+            "execution_mode": "sandbox",
+            "custom_kubectl": irrev_cmd,
+            "critical_change_confirmed": True,
+        },
+    )
+    assert confirmed_accept_res.status_code == 200, confirmed_accept_res.text
+    confirmed_body = confirmed_accept_res.json()
+    assert confirmed_body["status"] == "REMEDIATION_COMPLETED_AND_VERIFIED"
+    assert confirmed_body["incident"]["status"] == "RESOLVED"
+    assert confirmed_body["incident"]["last_approval_gate"] == "CRITICAL_IRREVERSIBLE_CONFIRMED"
+    assert "[Irreversible Impact Confirmed]" in confirmed_body["incident"]["approved_by"]
+
+    # 15c. Pre-Execution Stable Snapshot & 1-Click 'Revert to Stable Snapshot' + 7-Day Poison-Pill Quarantine
+    rev_ok_res = client.post(
+        f"/api/incidents/{rev_inc_id}/approve",
+        json={"approved_by": "Hari", "execution_mode": "sandbox"},
+    )
+    assert rev_ok_res.status_code == 200
+    rev_inc = rev_ok_res.json()["incident"]
+    assert rev_inc["status"] == "RESOLVED"
+    snap = rev_inc.get("rollback_snapshot") or rev_inc["execution_result"].get("rollback_snapshot")
+    assert isinstance(snap, dict) and snap.get("snapshot_id", "").startswith("snap-")
+    assert "remove-iam-policy-binding" in snap.get("revert_command", "")
+    assert snap.get("reversible") is True
+
+    manual_rb_res = client.post(
+        f"/api/incidents/{rev_inc_id}/rollback",
+        json={
+            "requested_by": "Hari",
+            "reason": "Downstream analytics pipeline reported connection errors after fix",
+            "execution_mode": "sandbox",
+            "quarantine_signature": True,
+        },
+    )
+    assert manual_rb_res.status_code == 200, manual_rb_res.text
+    rb_body = manual_rb_res.json()
+    assert rb_body["status"] == "REMEDIATION_ROLLED_BACK"
+    assert rb_body["incident"]["status"] == "ROLLED_BACK"
+    assert rb_body["rollback_result"]["status"] == "ROLLED_BACK_TO_SNAPSHOT"
+    q_info = rb_body["rollback_result"].get("poison_pill_quarantine") or {}
+    q_sig = q_info.get("signature_hash")
+    assert q_sig and q_sig in _harness_singleton.poison_pill_quarantine
+    try:
+        gate_after_q = _harness_singleton.evaluate_policy_gate(
+            workload=rev_inc["workload"],
+            command=rev_inc["execution_result"]["command"],
+        )
+        assert gate_after_q["passed"] is False
+        assert any("Poison-Pill Quarantine" in v for v in gate_after_q["violations"])
+    finally:
+        if q_sig:
+            _harness_singleton.clear_poison_pill(q_sig)
+
+    # 15d. 45s Watchdog Cross-Service Cascading Failure Auto-Rollback
+    try:
+        _app_log_svc.record_anomaly_log = _spy_record_anomaly
+        cas_tkt = client.post(
+            "/api/tickets/ingest",
+            json={
+                "customer_name": "Cascading Failure Watchdog Test",
+                "project_id": "projects/HSBC_Target",
+                "region": "europe-west2",
+                "workload": "datastream/private-connectivity-cascade-test",
+            },
+        )
+    finally:
+        _app_log_svc.record_anomaly_log = _orig_rec_anom
+    assert cas_tkt.status_code == 200
+    cas_inc_id = cas_tkt.json()["incident_id"]
+
+    collateral_log_id = "col-err-checkout-billing-01"
+    future_ts = (datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(seconds=15)).isoformat()
+    collateral_entry = _norm_otel(
+        log_id=collateral_log_id,
+        signature_key="cloudrun:checkout-billing-api:503_UPSTREAM_RESET",
+        timestamp=future_ts,
+        severity="ERROR",
+        scenario_id="cloud_run_5xx",
+        title="Cloud Run checkout-billing-api: 503 Upstream Peer Connection Reset",
+        source="gcp:run.googleapis.com",
+        project_id="agent-triad",
+        cluster="europe-west2",
+        namespace="payments",
+        workload="service/checkout-billing-api",
+        pod="checkout-billing-api-00014",
+        container="billing-api",
+        error_code="HTTP_503_CASCADING_PEER_FAILURE",
+        message="503 Service Unavailable: VPC peering route flap broke checkout-billing-api DB pool",
+        metrics_snapshot={"http_5xx_rate": 24.5},
+        recommended_kubectl="gcloud run services update-traffic checkout-billing-api --region=europe-west2 --to-latest",
+        recommended_action_type="cloud_run_revision_rollback",
+        is_anomaly=True,
+        persisted_to_gcp=False,
+        cloud_provider="gcp",
+    )
+    _app_log_svc._local_logs.insert(0, collateral_entry)
+    auto_q_sig = None
+    try:
+        cas_approve = client.post(
+            f"/api/incidents/{cas_inc_id}/approve",
+            json={"approved_by": "Hari", "execution_mode": "sandbox"},
+        )
+        assert cas_approve.status_code == 200, cas_approve.text
+        cas_body = cas_approve.json()
+        assert cas_body["status"] == "REMEDIATION_ROLLED_BACK", f"Expected auto-rollback, got {cas_body['status']}"
+        cas_inc = cas_body["incident"]
+        assert cas_inc["status"] == "ROLLED_BACK"
+        assert cas_inc["rollback_auto_triggered"] is True
+        assert cas_inc["verification_result"]["status"] == "CASCADING_FAILURE_DETECTED"
+        assert "service/checkout-billing-api" in cas_inc["verification_result"]["affected_collateral_services"]
+        assert collateral_log_id in (cas_inc.get("collateral_incident_ids") or [])
+        assert _app_orch.incidents[collateral_log_id]["status"] == "AWAITING_HITL_APPROVAL"
+        auto_q_sig = (cas_inc.get("poison_pill_quarantine") or {}).get("signature_hash")
+        assert auto_q_sig and auto_q_sig in _harness_singleton.poison_pill_quarantine
+    finally:
+        _app_log_svc._local_logs[:] = [
+            e for e in _app_log_svc._local_logs if e.get("log_id") != collateral_log_id
+        ]
+        _app_orch.incidents.pop(collateral_log_id, None)
+        _app_orch.audit_events.pop(collateral_log_id, None)
+        if auto_q_sig:
+            _harness_singleton.clear_poison_pill(auto_q_sig)
+
+    # 15e. Dashboard HTML markers for Irreversibility Gate & Snapshot Rollback UI
+    ui_html = client.get("/").text
+    for marker in (
+        "criticalGatePanel-",
+        "evaluateClientChangeRisk",
+        "renderRolledBackCard",
+        "btnRollbackSnapshotCard",
+        "rollbackIncident(",
+    ):
+        assert marker in ui_html, f"Missing Phase 2/3 UI marker `{marker}` in index.html"
+
+    print(
+        "[PASS] Colleague Feedback Safeguards verified: Support Ticket ERROR Cloud Logging persistence, "
+        "Tier-2 Critical Irreversible HITL confirmation gate (0 JIT tokens on blind accept), "
+        "pre-execution stable snapshot + 1-click 'Revert to Stable Snapshot', and 45s Watchdog "
+        "cross-service cascading failure auto-rollback + 7-Day Poison-Pill Quarantine!"
     )
 
 

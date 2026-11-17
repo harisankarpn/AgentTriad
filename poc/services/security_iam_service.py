@@ -470,6 +470,7 @@ class SecurityIAMService:
         try:
             # 2. Fetch live version-3 IAM policy (preserving all existing conditional bindings & etag)
             policy = self._get_iam_policy(clean_project, exec_token)
+            pre_etag = policy.get("etag")
             policy["version"] = 3
             bindings = list(policy.get("bindings") or [])
 
@@ -523,6 +524,7 @@ class SecurityIAMService:
                 "jit_impersonation_mode": jit_mode,
                 "impersonated_service_account": self.sandbox_sa if impersonated.get("minted") else None,
                 "jit_expire_time": impersonated.get("expire_time"),
+                "pre_apply_etag": pre_etag,
                 "updated_etag": updated_policy.get("etag"),
                 "verified_after_apply": verified,
                 "summary": (
@@ -744,6 +746,205 @@ class SecurityIAMService:
                 "impersonation_error": imp_err,
                 "error": err_msg,
                 "summary": f"[Scenario 1 Demo Reset • Error] Failed to strip IAM binding: {err_msg}",
+                "started_at": started_at,
+                "completed_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+            }
+
+
+    def rollback_iam_policy_binding_live(
+        self,
+        project_id: str,
+        member: str,
+        role: str,
+        jit_token_id: str = "",
+        already_present_before_fix: bool = False,
+        execute_live: bool = True,
+    ) -> Dict[str, Any]:
+        """
+        Safely reverts an additive `(role, member)` IAM policy binding that was applied by
+        `apply_iam_policy_binding_live(...)` if post-fix Watchdog verification detects a cascading
+        failure or an operator clicks 'Revert to Stable Snapshot'.
+
+        Guardrails:
+          1. Never strips a binding if `already_present_before_fix` is True.
+          2. Never strips human users (`user:`), runtime/execution SAs (`1041190629307-compute`,
+             `sa-aaas-execution-sandbox`, `core-sa`), or protected colleague resources (`testdbconnect`).
+          3. Restricts live `setIamPolicy` mutations strictly to sandbox project `self.project_id`.
+        """
+        clean_project = (project_id or self.project_id).replace("projects/", "").strip() or self.project_id
+        started_at = datetime.datetime.now(datetime.timezone.utc).isoformat()
+        revert_cli = f'gcloud projects remove-iam-policy-binding {clean_project} --member="{member}" --role="{role}"'
+
+        if already_present_before_fix:
+            return {
+                "status": "SKIPPED_PREEXISTING_BINDING",
+                "live_executed": False,
+                "project_id": clean_project,
+                "member": member,
+                "role": role,
+                "command": revert_cli,
+                "jit_token_id": jit_token_id,
+                "verified_reverted": True,
+                "summary": (
+                    f"[Security Agent • Safe Snapshot Rollback] Preserved `{role}` on `{member}` (`{clean_project}`) "
+                    "because the pre-execution snapshot recorded this binding as pre-existing prior to remediation."
+                ),
+                "started_at": started_at,
+                "completed_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+            }
+
+        member_lower = (member or "").strip().lower()
+        protected_principals = (
+            "1041190629307-compute@",
+            f"{self.project_number}-compute@".lower(),
+            self.sandbox_sa.lower(),
+            "core-sa@",
+            "testdbconnect",
+        )
+        if member_lower.startswith("user:") or any(p in member_lower for p in protected_principals):
+            return {
+                "status": "REJECTED_PROTECTED_PRINCIPAL",
+                "live_executed": False,
+                "project_id": clean_project,
+                "member": member,
+                "role": role,
+                "command": revert_cli,
+                "jit_token_id": jit_token_id,
+                "verified_reverted": False,
+                "error": f"Guardrail blocked IAM rollback on protected principal `{member}`.",
+                "summary": f"[Guardrail] Refused to strip IAM role `{role}` from protected principal `{member}`.",
+                "started_at": started_at,
+                "completed_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+            }
+
+        if not execute_live or clean_project != self.project_id:
+            return {
+                "status": "ROLLED_BACK_SANDBOX_VALIDATED",
+                "live_executed": False,
+                "project_id": clean_project,
+                "member": member,
+                "role": role,
+                "command": revert_cli,
+                "jit_token_id": jit_token_id,
+                "jit_impersonation_mode": "SANDBOX_DRY_RUN",
+                "verified_reverted": True,
+                "summary": (
+                    f"[Security Agent • Sandbox Rollback] Reverted additive IAM binding `{role}` on `{member}` "
+                    f"(`{clean_project}`) under single-use 15m JIT token `{jit_token_id[:18]}...`."
+                ),
+                "started_at": started_at,
+                "completed_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+            }
+
+        impersonated = self.mint_gcp_sandbox_jit_token(lifetime_seconds=900)
+        exec_token = impersonated.get("access_token") if impersonated.get("minted") else self._get_bearer_token()
+        jit_mode = (
+            f"LIVE_15M_IMPERSONATED_TOKEN ({self.sandbox_sa}, expires {impersonated.get('expire_time')})"
+            if impersonated.get("minted")
+            else "LIVE_GCP_ADMIN_FALLBACK_TOKEN"
+        )
+        if not exec_token:
+            return {
+                "status": "LIVE_IAM_ROLLBACK_ERROR",
+                "live_executed": False,
+                "project_id": clean_project,
+                "member": member,
+                "role": role,
+                "command": revert_cli,
+                "jit_token_id": jit_token_id,
+                "jit_impersonation_mode": jit_mode,
+                "verified_reverted": False,
+                "error": "Unable to obtain GCP credentials to execute rollback setIamPolicy.",
+                "summary": "Unable to obtain GCP credentials to execute rollback setIamPolicy.",
+                "started_at": started_at,
+                "completed_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+            }
+
+        try:
+            policy = self._get_iam_policy(clean_project, exec_token)
+            policy["version"] = 3
+            bindings = list(policy.get("bindings") or [])
+            removed = False
+            updated_bindings: List[Dict[str, Any]] = []
+            for binding in bindings:
+                if binding.get("role") == role and not binding.get("condition"):
+                    members_list = list(binding.get("members") or [])
+                    if member in members_list:
+                        removed = True
+                        new_members = [m for m in members_list if m != member]
+                        if new_members:
+                            updated_b = dict(binding)
+                            updated_b["members"] = new_members
+                            updated_bindings.append(updated_b)
+                    else:
+                        updated_bindings.append(binding)
+                else:
+                    updated_bindings.append(binding)
+
+            updated_etag = policy.get("etag")
+            if removed:
+                policy["bindings"] = updated_bindings
+                set_url = f"https://cloudresourcemanager.googleapis.com/v1/projects/{clean_project}:setIamPolicy"
+                with httpx.Client(timeout=10.0) as client:
+                    resp = client.post(
+                        set_url,
+                        headers={
+                            "Authorization": f"Bearer {exec_token}",
+                            "Content-Type": "application/json",
+                        },
+                        json={"policy": policy},
+                    )
+                    resp.raise_for_status()
+                    updated_policy = resp.json()
+                    updated_etag = updated_policy.get("etag")
+                    final_bindings = updated_policy.get("bindings") or []
+            else:
+                final_bindings = bindings
+
+            verified_reverted = not any(
+                b.get("role") == role and not b.get("condition") and member in (b.get("members") or [])
+                for b in final_bindings
+            )
+            return {
+                "status": "ROLLED_BACK_LIVE_GCP_IAM",
+                "live_executed": True,
+                "removed_binding": removed,
+                "project_id": clean_project,
+                "member": member,
+                "role": role,
+                "command": revert_cli,
+                "jit_token_id": jit_token_id,
+                "jit_impersonation_mode": jit_mode,
+                "updated_etag": updated_etag,
+                "verified_reverted": verified_reverted,
+                "summary": (
+                    f"[Security Agent • Live GCP IAM Rollback] Reverted `{role}` from `{member}` on `{clean_project}` "
+                    f"via `projects.setIamPolicy` (etag `{updated_etag}`, verified_reverted={verified_reverted})."
+                ),
+                "started_at": started_at,
+                "completed_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+            }
+        except Exception as exc:
+            err_msg = f"{type(exc).__name__}: {exc}"
+            logger.error(
+                "[SecurityIAMService] Live IAM rollback FAILED on %s (member=%s, role=%s): %s",
+                clean_project,
+                member,
+                role,
+                err_msg,
+            )
+            return {
+                "status": "LIVE_IAM_ROLLBACK_ERROR",
+                "live_executed": False,
+                "project_id": clean_project,
+                "member": member,
+                "role": role,
+                "command": revert_cli,
+                "jit_token_id": jit_token_id,
+                "jit_impersonation_mode": jit_mode,
+                "verified_reverted": False,
+                "error": err_msg,
+                "summary": f"[Security Agent • GCP IAM Rollback] Error reverting IAM binding: {err_msg}",
                 "started_at": started_at,
                 "completed_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
             }

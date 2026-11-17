@@ -132,6 +132,9 @@ class CloudLoggingService:
             cluster=cluster,
         )
 
+    def record_anomaly_log(self, entry: Dict[str, Any]) -> Dict[str, Any]:
+        return self.adapter.record_anomaly_log(entry)
+
     def fetch_recent_logs(
         self, limit: int = 25, poll_gcp: bool = True, force: bool = False
     ) -> List[Dict[str, Any]]:

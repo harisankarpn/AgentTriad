@@ -72,6 +72,14 @@ class ApproveRemedyRequest(BaseModel):
     approved_by: Optional[str] = None
     execution_mode: str = "live"
     custom_kubectl: Optional[str] = None
+    critical_change_confirmed: bool = False
+
+
+class RollbackIncidentRequest(BaseModel):
+    requested_by: Optional[str] = None
+    reason: Optional[str] = None
+    execution_mode: str = "live"
+    quarantine_signature: bool = True
 
 
 class IncidentChatRequest(BaseModel):
@@ -332,6 +340,8 @@ def _annotate_logs_with_triage(logs: List[Dict[str, Any]]) -> List[Dict[str, Any
             inc_status = str(linked_inc.get("status") or "")
             if inc_status == "RESOLVED":
                 item["triage_status"] = "RESOLVED"
+            elif inc_status == "ROLLED_BACK":
+                item["triage_status"] = "ROLLED_BACK"
             elif inc_status == "SKIPPED_MANUAL":
                 item["triage_status"] = "SKIPPED_MANUAL"
             else:
@@ -679,7 +689,7 @@ async def ingest_customer_support_ticket(req: CustomerTicketIngestRequest) -> Di
         recommended_kubectl=rec_cli,
         recommended_action_type="datastream_iam_policy_remediation",
         is_anomaly=True,
-        persisted_to_gcp=(clean_project == logging_service.project_id),
+        persisted_to_gcp=False,
         cloud_provider="gcp",
         extra_attributes={
             "gcp.service": "datastream.googleapis.com",
@@ -692,6 +702,12 @@ async def ingest_customer_support_ticket(req: CustomerTicketIngestRequest) -> Di
     ticket_entry["customer_ticket"] = customer_ticket_meta
     if req.mock_deployments:
         ticket_entry["mock_deployments"] = req.mock_deployments
+
+    if clean_project == logging_service.project_id:
+        try:
+            await asyncio.to_thread(logging_service.record_anomaly_log, ticket_entry)
+        except Exception:
+            pass
 
     logging_service._local_logs.insert(0, ticket_entry)
     _seen_anomaly_ids.add(ticket_id)
@@ -995,17 +1011,58 @@ async def approve_incident_remedy(incident_id: str, req: ApproveRemedyRequest) -
         approved_by=approver,
         execution_mode=req.execution_mode,
         custom_kubectl=req.custom_kubectl,
+        critical_change_confirmed=req.critical_change_confirmed,
     )
     inc_status = updated_incident.get("status")
     if inc_status == "BLOCKED_PROVIDER_OUTAGE":
         resp_status = "BLOCKED_PROVIDER_OUTAGE"
+    elif updated_incident.get("last_approval_gate") == "CRITICAL_CONFIRMATION_REQUIRED" and inc_status == "AWAITING_HITL_APPROVAL":
+        resp_status = "CRITICAL_CONFIRMATION_REQUIRED"
     elif inc_status == "REMEDIATION_FAILED":
         resp_status = "REMEDIATION_FAILED"
+    elif inc_status == "ROLLED_BACK":
+        resp_status = "REMEDIATION_ROLLED_BACK"
     else:
         resp_status = "REMEDIATION_COMPLETED_AND_VERIFIED"
     return {
         "status": resp_status,
+        "requires_critical_confirmation": bool(
+            (updated_incident.get("change_risk") or {}).get("requires_critical_confirmation")
+        ),
+        "change_risk": updated_incident.get("change_risk"),
         "incident": updated_incident,
+    }
+
+
+@app.post("/api/incidents/{incident_id}/rollback")
+async def rollback_incident_remedy(
+    incident_id: str,
+    req: Optional[RollbackIncidentRequest] = None,
+) -> Dict[str, Any]:
+    """
+    Reverts a previously applied incident remediation back to its pre-execution stable snapshot
+    (`rollback_snapshot`) under a scoped 15-minute Rollback JIT token and optionally places
+    the remediation signature in the 7-Day Poison-Pill Quarantine Registry.
+    """
+    if incident_id not in lead_orchestrator.incidents:
+        raise HTTPException(status_code=404, detail=f"Incident {incident_id} not found")
+
+    payload = req or RollbackIncidentRequest()
+    requester = (
+        (payload.requested_by or "").strip()
+        or f"{lead_orchestrator.active_user.get('name', 'Hari')} ({lead_orchestrator.active_user.get('email', 'operator@google.com')})"
+    )
+    updated = await lead_orchestrator.rollback_incident_remediation(
+        incident_id=incident_id,
+        requested_by=requester,
+        reason=payload.reason or f"Manual 1-click revert to stable snapshot requested by {requester}",
+        execution_mode=payload.execution_mode,
+        quarantine_signature=bool(payload.quarantine_signature),
+    )
+    return {
+        "status": "REMEDIATION_ROLLED_BACK",
+        "incident": updated,
+        "rollback_result": updated.get("rollback_result"),
     }
 
 

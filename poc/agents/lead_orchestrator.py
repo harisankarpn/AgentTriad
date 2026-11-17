@@ -1477,6 +1477,8 @@ resource "google_project_iam_member" "datastream_sa_network_admin" {{
                 "specialist_worker": specialist,
                 "coordinated_specialists": coordinated_specialists,
                 "agent_harness": harness_bundle,
+                "change_risk": harness_bundle.get("change_risk"),
+                "last_approval_gate": None,
                 "severity": log_entry.get("severity", "CRITICAL"),
                 "title": log_entry.get("title", "Cloud Service Anomaly"),
                 "cluster": cluster,
@@ -1659,20 +1661,48 @@ resource "google_project_iam_member" "datastream_sa_network_admin" {{
             "do it",
             "run the fix",
             "execute the fix",
+            "confirm irreversible",
         )
         if incident["status"] == "AWAITING_HITL_APPROVAL" and any(p in lower_msg for p in approve_phrases) and "?" not in lower_msg:
+            explicit_crit_ok = any(
+                k in lower_msg
+                for k in (
+                    "confirm irreversible",
+                    "confirm critical",
+                    "acknowledge irreversible",
+                    "cannot be undone",
+                )
+            )
             updated = await self.approve_and_delegate_to_gke_assist(
                 incident_id=incident_id,
                 approved_by=f"{uname} (via Chat)",
                 execution_mode="live",
+                critical_change_confirmed=explicit_crit_ok,
             )
-            action = (
-                "BLOCKED_PROVIDER_OUTAGE"
-                if updated.get("status") == "BLOCKED_PROVIDER_OUTAGE"
-                else "APPROVED_AND_EXECUTED"
-            )
+            if updated.get("status") == "BLOCKED_PROVIDER_OUTAGE":
+                action = "BLOCKED_PROVIDER_OUTAGE"
+            elif updated.get("last_approval_gate") == "CRITICAL_CONFIRMATION_REQUIRED":
+                action = "CRITICAL_CONFIRMATION_REQUIRED"
+            else:
+                action = "APPROVED_AND_EXECUTED"
             return {
                 "action_taken": action,
+                "reply": updated["chat_messages"][-1]["text"],
+                "incident": updated,
+            }
+
+        # Check if user wants to revert a resolved fix back to the pre-execution stable snapshot
+        rollback_phrases = ("revert to stable", "revert snapshot", "rollback", "roll back", "undo the fix")
+        if incident["status"] == "RESOLVED" and any(p in lower_msg for p in rollback_phrases) and "?" not in lower_msg:
+            updated = await self.rollback_incident_remediation(
+                incident_id=incident_id,
+                requested_by=f"{uname} (via Chat)",
+                reason=f"Operator requested rollback via chat: {clean_msg}",
+                execution_mode="live",
+                quarantine_signature=True,
+            )
+            return {
+                "action_taken": "ROLLED_BACK_TO_SNAPSHOT",
                 "reply": updated["chat_messages"][-1]["text"],
                 "incident": updated,
             }
@@ -1769,6 +1799,7 @@ resource "google_project_iam_member" "datastream_sa_network_admin" {{
         execution_mode: str = "live",
         custom_kubectl: Optional[str] = None,
         force_override_outage: bool = False,
+        critical_change_confirmed: bool = False,
     ) -> Dict[str, Any]:
         """
         Called when Hari approves the fix (via button or chat):
@@ -1882,6 +1913,59 @@ resource "google_project_iam_member" "datastream_sa_network_admin" {{
         coordinated_specialists = incident.get("coordinated_specialists") or [specialist]
         coord_names = ", ".join(s.get("name", "Specialist Agent") for s in coordinated_specialists)
 
+        # 0b. Tier-2 Critical Irreversible Change HITL Gate (prevents blind "I accept" rubber-stamping)
+        change_risk = agent_harness.classify_change_risk(
+            workload=incident.get("workload", ""),
+            command=kubectl_cmd,
+            terraform_code=terraform_code,
+        )
+        incident["change_risk"] = change_risk
+        if isinstance(incident.get("agent_harness"), dict):
+            incident["agent_harness"]["change_risk"] = change_risk
+        if change_risk.get("requires_critical_confirmation") and not change_risk.get("blocked_by_opa") and not critical_change_confirmed:
+            held_at = datetime.datetime.now(datetime.timezone.utc).isoformat()
+            reasons_list = change_risk.get("irreversible_reasons") or [change_risk.get("summary", "Irreversible side effects detected.")]
+            reasons_bullets = "\n".join(f"• {r}" for r in reasons_list)
+            incident["status"] = "AWAITING_HITL_APPROVAL"
+            incident["last_approval_gate"] = "CRITICAL_CONFIRMATION_REQUIRED"
+            incident["updated_at"] = held_at
+            incident["timeline"].append(
+                {
+                    "timestamp": held_at,
+                    "agent": "Atlas • Tier-2 Irreversibility Gate",
+                    "event": (
+                        f"Held standard 'I accept' from {approved_by} for `{kubectl_cmd}`: critical irreversible impact "
+                        f"requires explicit operator confirmation (`CONFIRM IRREVERSIBLE`). Zero JIT tokens minted."
+                    ),
+                }
+            )
+            uname = self.active_user.get("name") or "Hari"
+            incident.setdefault("chat_messages", []).append(
+                {
+                    "role": "assistant",
+                    "sender": "Atlas • AaaS Lead",
+                    "text": (
+                        f"🛑 **Explicit Critical-Change Confirmation Required**, {uname} — standard `'I accept'` is held because "
+                        f"this action involves **irreversible side effects that cannot be automatically undone**:\n"
+                        f"{reasons_bullets}\n"
+                        f"• **Command**: `{kubectl_cmd}`\n"
+                        f"• **Safety**: Zero JIT tokens were minted.\n"
+                        f"• **To Proceed**: Check the **Irreversible Impact Acknowledgment** box on the card and click confirm, "
+                        f"or reply **`I accept — CONFIRM IRREVERSIBLE`** in chat."
+                    ),
+                    "timestamp": held_at,
+                }
+            )
+            self._upsert_audit_event(incident, event_type="CRITICAL_CONFIRMATION_REQUIRED")
+            return incident
+
+        if change_risk.get("requires_critical_confirmation") and critical_change_confirmed:
+            incident["last_approval_gate"] = "CRITICAL_IRREVERSIBLE_CONFIRMED"
+            if "Irreversible Confirmed" not in approved_by:
+                approved_by = f"{approved_by} [Irreversible Impact Confirmed]"
+        else:
+            incident["last_approval_gate"] = "STANDARD_APPROVED"
+
         # 1. Mint 15-minute JIT token (Only Atlas has authority to mint JIT tokens)
         approved_at = datetime.datetime.now(datetime.timezone.utc).isoformat()
         jit_token = self.a2a_hub.jit_broker.mint_token(
@@ -1936,6 +2020,8 @@ resource "google_project_iam_member" "datastream_sa_network_admin" {{
 
         incident["execution_result"] = gke_resp.result.get("execution", gke_resp.result)
         exec_res = incident["execution_result"] or {}
+        if exec_res.get("rollback_snapshot"):
+            incident["rollback_snapshot"] = exec_res["rollback_snapshot"]
         iam_exec = exec_res.get("iam_execution_result")
         exec_failed = (
             exec_res.get("status") in ("FAILED", "BLOCKED_BY_OPA_POLICY")
@@ -2031,6 +2117,8 @@ resource "google_project_iam_member" "datastream_sa_network_admin" {{
             return incident
 
         # 3. Trigger Closed-Loop 45s Post-Verification with Heartbeat & Telemetry via A2A
+        snap_info = incident.get("rollback_snapshot") or exec_res.get("rollback_snapshot") or {}
+        auto_rb_safe = bool(snap_info.get("auto_rollback_safe", True))
         verify_resp = await self.a2a_hub.send_a2a_task(
             sender_id=self.AGENT_ID,
             recipient_id="log-watcher-agent",
@@ -2040,11 +2128,95 @@ resource "google_project_iam_member" "datastream_sa_network_admin" {{
                 "cluster": incident["cluster"],
                 "namespace": incident["namespace"],
                 "workload": incident["workload"],
+                "target_cloud": target_cloud,
+                "original_log_id": str((incident.get("log_entry") or {}).get("log_id") or ""),
+                "execution_completed_at": exec_res.get("completed_at") or exec_time,
+                "auto_rollback_safe": auto_rb_safe,
             },
             summary=f"Request 45s Watchdog telemetry verification for {incident['namespace']}/{incident['workload']}",
         )
 
         incident["verification_result"] = verify_resp.result
+        verify_status = str(verify_resp.result.get("status") or "VERIFIED_HEALTHY")
+        if verify_status in ("CASCADING_FAILURE_DETECTED", "POST_FIX_REGRESSION_DETECTED"):
+            watchdog_ts = datetime.datetime.now(datetime.timezone.utc).isoformat()
+            collateral_list = list(verify_resp.result.get("collateral_anomalies") or [])
+            incident["timeline"].append(
+                {
+                    "timestamp": watchdog_ts,
+                    "agent": "Heartbeat & Telemetry • 45s Watchdog",
+                    "event": verify_resp.result.get(
+                        "summary",
+                        f"Post-fix regression / cascading failure detected ({verify_status}).",
+                    ),
+                }
+            )
+            # Escalate any newly broken collateral service logs into dedicated AaaS incident cards
+            escalated_collateral_ids: List[str] = []
+            for col_entry in collateral_list:
+                col_id = str(col_entry.get("log_id") or "")
+                if col_id and col_id not in self.incidents:
+                    await self.a2a_hub.send_a2a_task(
+                        sender_id="log-watcher-agent",
+                        recipient_id=self.AGENT_ID,
+                        skill_id="ingest_anomaly_alert",
+                        payload={
+                            "alert_id": col_id,
+                            "detected_at": watchdog_ts,
+                            "detector_agent": "log-watcher-agent",
+                            "saif_sanitized": True,
+                            "cloud_provider_status": preflight_status,
+                            "log_entry": col_entry,
+                        },
+                        summary=f"Cascading failure alert escalated on {col_entry.get('workload')} after incident {incident_id}",
+                    )
+                    escalated_collateral_ids.append(col_id)
+            incident["collateral_incident_ids"] = escalated_collateral_ids
+
+            if verify_resp.result.get("auto_rollback_recommended", True):
+                return await self.rollback_incident_remediation(
+                    incident_id=incident_id,
+                    requested_by="Atlas • 45s Watchdog Auto-Rollback",
+                    reason=verify_resp.result.get("summary") or f"Watchdog detected {verify_status}",
+                    execution_mode=execution_mode,
+                    quarantine_signature=True,
+                    auto_triggered=True,
+                    collateral_anomalies=collateral_list,
+                )
+
+            # Tier-2 irreversible action caused collateral degradation: cannot auto-undo, never claim RESOLVED
+            incident["status"] = "REMEDIATION_FAILED"
+            incident["cascading_failure_hold"] = True
+            incident["resolved_at"] = None
+            incident["updated_at"] = watchdog_ts
+            if incident.get("agent_harness") and incident["agent_harness"].get("lock"):
+                incident["agent_harness"]["lock"]["status"] = "RELEASED"
+            affected_svcs = ", ".join(verify_resp.result.get("affected_collateral_services") or [incident["workload"]])
+            q_rec = agent_harness.quarantine_poison_pill(
+                workload=incident.get("workload", ""),
+                command=kubectl_cmd,
+                reason=f"Irreversible change triggered {verify_status} on {affected_svcs}",
+                incident_id=incident_id,
+            )
+            incident["poison_pill_quarantine"] = q_rec
+            incident.setdefault("chat_messages", []).append(
+                {
+                    "role": "assistant",
+                    "sender": "Atlas • AaaS Lead",
+                    "text": (
+                        f"🚨 **Cascading Failure Detected After Irreversible Change**, {uname}:\n"
+                        f"• **Impacted Service(s)**: `{affected_svcs}`\n"
+                        f"• **Why Auto-Rollback Held**: `{kubectl_cmd}` was classified as `TIER_2_CRITICAL_IRREVERSIBLE`, "
+                        f"so destructive automated rollback is blocked.\n"
+                        f"• **Safety Actions Taken**: Quarantined signature `{q_rec['signature_hash']}` for 7 days, "
+                        f"released `.tflock`, and escalated `{len(escalated_collateral_ids)}` collateral incident card(s) for immediate triage."
+                    ),
+                    "timestamp": watchdog_ts,
+                }
+            )
+            self._upsert_audit_event(incident, event_type="CASCADING_FAILURE_IRREVERSIBLE_HOLD")
+            return incident
+
         incident["status"] = "RESOLVED"
         incident["resolved_at"] = datetime.datetime.now(datetime.timezone.utc).isoformat()
         incident["updated_at"] = incident["resolved_at"]
@@ -2112,6 +2284,177 @@ resource "google_project_iam_member" "datastream_sa_network_admin" {{
                 "approved_by": approved_by,
                 "command": kubectl_cmd,
                 "timestamp": incident["updated_at"],
+            }
+        )
+        return incident
+
+    async def rollback_incident_remediation(
+        self,
+        incident_id: str,
+        requested_by: str = "Hari",
+        reason: str = "",
+        execution_mode: str = "live",
+        quarantine_signature: bool = True,
+        auto_triggered: bool = False,
+        collateral_anomalies: Optional[List[Dict[str, Any]]] = None,
+    ) -> Dict[str, Any]:
+        """
+        Reverts a previously applied remediation back to its pre-execution stable snapshot
+        (either automatically when the 45s Watchdog detects a cross-service cascading failure,
+        or on-demand via 1-click 'Revert to Stable Snapshot' / chat command).
+        """
+        incident = self.incidents.get(incident_id)
+        if not incident:
+            raise ValueError(f"Incident {incident_id} not found")
+
+        exec_res = incident.get("execution_result") or {}
+        original_cmd = str(
+            exec_res.get("command")
+            or (incident.get("impact_analysis") or {}).get("recommended_kubectl")
+            or ""
+        )
+        snapshot = (
+            incident.get("rollback_snapshot")
+            or exec_res.get("rollback_snapshot")
+            or {
+                "snapshot_id": f"snap-fallback-{incident_id[-6:]}",
+                "snapshot_type": "WORKLOAD_REVISION_SNAPSHOT",
+                "rollback_strategy": "STATELESS_ROLLOUT_UNDO",
+                "baseline_label": f"Pre-Execution Stable Baseline (`{incident.get('workload')}`)",
+                "revert_command": "git revert HEAD --no-edit",
+            }
+        )
+        incident["rollback_snapshot"] = snapshot
+
+        raw_cloud = str(
+            (incident.get("log_entry") or {}).get("cloud_provider")
+            or incident.get("target_cloud")
+            or self.active_target_cloud
+            or "gcp"
+        ).strip().lower()
+        target_cloud = raw_cloud if raw_cloud in ("gcp", "aws", "azure") else "gcp"
+        specialist = incident.get("specialist_worker") or self._select_specialist_worker(incident.get("log_entry", {}))
+        effective_reason = (
+            reason.strip()
+            if reason and reason.strip()
+            else f"Manual revert to stable snapshot requested by {requested_by}"
+        )
+
+        rb_jit = self.a2a_hub.jit_broker.mint_token(
+            incident_id=incident_id,
+            approved_by=requested_by,
+            scope=f"rollback:{target_cloud}:{incident['cluster']}:{incident['namespace']}:{incident['workload']}",
+            ttl_seconds=900,
+        )
+        rb_resp = await self.a2a_hub.send_a2a_task(
+            sender_id=self.AGENT_ID,
+            recipient_id="gke-assist-agent",
+            skill_id="rollback_gke_remediation",
+            payload={
+                "incident_id": incident_id,
+                "jit_token_id": rb_jit["token_id"],
+                "execution_mode": execution_mode,
+                "cluster": incident["cluster"],
+                "namespace": incident["namespace"],
+                "workload": incident["workload"],
+                "rollback_snapshot": snapshot,
+                "original_command": original_cmd,
+                "reason": effective_reason,
+                "quarantine_signature": quarantine_signature,
+                "specialist_worker": specialist,
+            },
+            summary=(
+                f"{'Watchdog Auto-Rollback' if auto_triggered else 'Operator Snapshot Revert'} for "
+                f"{incident['namespace']}/{incident['workload']} -> `{snapshot.get('revert_command')}`"
+            ),
+        )
+
+        rb_res = rb_resp.result.get("rollback", rb_resp.result)
+        rb_time = datetime.datetime.now(datetime.timezone.utc).isoformat()
+        incident["status"] = "ROLLED_BACK"
+        incident["resolved_at"] = None
+        incident["rolled_back_at"] = rb_time
+        incident["rolled_back_by"] = requested_by
+        incident["rollback_reason"] = effective_reason
+        incident["rollback_auto_triggered"] = auto_triggered
+        incident["rollback_result"] = rb_res
+        incident["poison_pill_quarantine"] = rb_res.get("poison_pill_quarantine")
+        incident["updated_at"] = rb_time
+        if incident.get("agent_harness") and incident["agent_harness"].get("lock"):
+            incident["agent_harness"]["lock"]["status"] = "RELEASED"
+
+        iam_rb = rb_res.get("iam_rollback_result")
+        if isinstance(incident.get("iam_audit"), dict) and isinstance(iam_rb, dict):
+            if iam_rb.get("status") in ("ROLLED_BACK_LIVE_GCP_IAM", "ROLLED_BACK_SANDBOX_VALIDATED"):
+                incident["iam_audit"]["binding_present"] = False
+                incident["iam_audit"]["status"] = "MISSING_REQUIRED_IAM_BINDING"
+
+        incident["timeline"].append(
+            {
+                "timestamp": rb_time,
+                "agent": f"{specialist.get('name', 'Specialist Agent')} • Snapshot Rollback",
+                "event": (
+                    f"{'Auto-reverted' if auto_triggered else 'Reverted'} `{incident['workload']}` to stable snapshot "
+                    f"`{snapshot.get('snapshot_id')}` (`{rb_res.get('revert_command')}`). Reason: {effective_reason}"
+                ),
+            }
+        )
+
+        uname = self.active_user.get("name") or "Hari"
+        q_rec = rb_res.get("poison_pill_quarantine") or {}
+        col_list = collateral_anomalies or []
+        col_line = ""
+        if col_list:
+            col_svcs = ", ".join(sorted({str(c.get("workload") or "peer-service") for c in col_list}))
+            col_line = (
+                f"• **Collateral Failure Detected**: Downstream/peer service(s) `{col_svcs}` emitted new `ERROR` telemetry "
+                f"after the fix (`timestamp > execution_completed_at`), and were escalated as tracked incident card(s).\n"
+            )
+        q_line = (
+            f"• **7-Day Poison-Pill Quarantine**: Signature `{q_rec.get('signature_hash')}` quarantined until "
+            f"`{q_rec.get('expires_at')}` so OPA blocks re-applying the offending command.\n"
+            if q_rec.get("signature_hash")
+            else ""
+        )
+
+        incident.setdefault("chat_messages", []).append(
+            {
+                "role": "assistant",
+                "sender": "Atlas • AaaS Lead",
+                "text": (
+                    f"⏪ **{'Automatic Watchdog Rollback Completed' if auto_triggered else 'Reverted to Stable Snapshot'}**, {uname}!\n"
+                    f"{col_line}"
+                    f"• **Restored Baseline**: `{snapshot.get('baseline_label', snapshot.get('snapshot_id'))}` (`{snapshot.get('snapshot_id')}`)\n"
+                    f"• **Rollback Command Executed**: `{rb_res.get('revert_command')}`\n"
+                    f"• **Triggered By**: `{requested_by}`\n"
+                    f"{q_line}"
+                    f"• **Safety**: Single-use Rollback JIT token revoked and `.tflock` released."
+                ),
+                "timestamp": rb_time,
+            }
+        )
+        audit_type = "AUTO_ROLLED_BACK_CASCADING_FAILURE" if auto_triggered else "REMEDIATION_ROLLED_BACK"
+        self._upsert_audit_event(incident, event_type=audit_type)
+        self.record_dispatch_event(
+            {
+                "dispatch_id": f"disp-{incident_id}-rb",
+                "incident_id": incident_id,
+                "mode": "WATCHDOG_AUTO_ROLLBACK" if auto_triggered else "OPERATOR_MANUAL_ROLLBACK",
+                "status": "ROLLED_BACK",
+                "title": (incident.get("impact_analysis") or {}).get("customer_headline") or incident.get("title", "Snapshot Rollback"),
+                "workload": incident.get("workload", ""),
+                "target_cloud": target_cloud,
+                "region": incident.get("cluster") or "us-central1",
+                "primary_specialist": specialist.get("name", "Specialist Agent"),
+                "coordinated_specialists": [specialist.get("name", "Specialist Agent")],
+                "jit_token_id": rb_jit["token_id"],
+                "reconciliation_pr": exec_res.get("reconciliation_pr"),
+                "watchdog_status": (incident.get("verification_result") or {}).get("status", "ROLLED_BACK"),
+                "mutations_allowed": True,
+                "approved_by": requested_by,
+                "command": rb_res.get("revert_command"),
+                "reason": effective_reason,
+                "timestamp": rb_time,
             }
         )
         return incident

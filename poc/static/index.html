@@ -695,6 +695,7 @@
                   <option value="ALL">All Statuses</option>
                   <option value="AWAITING_HITL_APPROVAL">Awaiting Approval</option>
                   <option value="RESOLVED">Resolved</option>
+                  <option value="ROLLED_BACK">Rolled Back to Snapshot</option>
                   <option value="REMEDIATION_FAILED">Remediation Failed</option>
                   <option value="SKIPPED_MANUAL">Skipped (Manual)</option>
                 </select>
@@ -2600,7 +2601,7 @@
               const isCurrent = !directChatMode && inc.incident_id === activeId;
               const statusDot = inc.status === 'RESOLVED'
                 ? 'bg-[#34A853]'
-                : (inc.status === 'SKIPPED_MANUAL' ? 'bg-[#FBBC04]' : 'bg-[#EA4335]');
+                : ((inc.status === 'SKIPPED_MANUAL' || inc.status === 'ROLLED_BACK') ? 'bg-[#FBBC04]' : 'bg-[#EA4335]');
               const label = inc.service_label || inc.workload || `Incident #${idx + 1}`;
               return `
                 <button type="button" onclick="selectIncidentById('${escapeHtml(inc.incident_id)}')"
@@ -2748,6 +2749,19 @@
           navBadgeCommand.textContent = 'Failed';
           navBadgeCommand.className = 'g-badge-red px-2 py-0.5 text-[10px] font-semibold rounded-full shrink-0';
         }
+      } else if (activeInc && activeInc.status === 'ROLLED_BACK') {
+        if (orchBadge) {
+          orchBadge.textContent = 'Rolled Back';
+          orchBadge.className = 'g-badge-yellow text-[10px] font-semibold px-2.5 py-0.5 rounded-full';
+        }
+        if (workerBadgeEl) {
+          workerBadgeEl.textContent = 'Snapshot Restored';
+          workerBadgeEl.className = 'g-badge-blue text-[10px] font-semibold px-2.5 py-0.5 rounded-full';
+        }
+        if (navBadgeCommand) {
+          navBadgeCommand.textContent = 'Reverted';
+          navBadgeCommand.className = 'g-badge-yellow px-2 py-0.5 text-[10px] font-semibold rounded-full shrink-0';
+        }
       } else if (activeInc && activeInc.status === 'SKIPPED_MANUAL') {
         if (orchBadge) {
           orchBadge.textContent = 'Manual Mode';
@@ -2810,6 +2824,8 @@
             stageEl.innerHTML = renderCustomerApprovalCard(activeInc);
           } else if (activeInc && activeInc.status === 'REMEDIATION_FAILED') {
             stageEl.innerHTML = renderFailedRemediationCard(activeInc);
+          } else if (activeInc && activeInc.status === 'ROLLED_BACK') {
+            stageEl.innerHTML = renderRolledBackCard(activeInc);
           } else if (activeInc && activeInc.status === 'SKIPPED_MANUAL') {
             stageEl.innerHTML = renderSkippedCard(activeInc);
           } else if (activeInc && activeInc.status === 'RESOLVED') {
@@ -3472,6 +3488,8 @@
               triageBadgeHtml = `<div class="mt-1"><span title="Reason: ${reasonTip}" class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-slate-800 border border-slate-700 text-[9px] font-semibold text-slate-300"><i class="fa-solid fa-eye-slash text-[#34A853]"></i>Safe to Ignore</span></div>`;
             } else if (isResolved) {
               triageBadgeHtml = `<div class="mt-1"><span class="g-badge-green inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[9px] font-semibold"><i class="fa-solid fa-check"></i>Resolved</span></div>`;
+            } else if (log.triage_status === 'ROLLED_BACK') {
+              triageBadgeHtml = `<div class="mt-1"><span class="g-badge-yellow inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[9px] font-semibold"><i class="fa-solid fa-rotate-left"></i>Rolled Back</span></div>`;
             } else if (linkedIncId && log.triage_status === 'IN_CHAT') {
               triageBadgeHtml = `<div class="mt-1"><span class="g-badge-blue inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[9px] font-semibold"><i class="fa-solid fa-comments"></i>In AaaS Chat</span></div>`;
             }
@@ -3733,6 +3751,8 @@
         let statusBadge = '';
         if (status === 'RESOLVED') {
           statusBadge = `<span class="g-badge-green inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-semibold"><i class="fa-solid fa-check"></i> Resolved</span>`;
+        } else if (status === 'ROLLED_BACK') {
+          statusBadge = `<span class="g-badge-yellow inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-semibold"><i class="fa-solid fa-rotate-left"></i> Rolled Back</span>`;
         } else if (status === 'REMEDIATION_FAILED') {
           statusBadge = `<span class="g-badge-red inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-semibold"><i class="fa-solid fa-circle-xmark"></i> Failed</span>`;
         } else if (status === 'SKIPPED_MANUAL') {
@@ -3790,6 +3810,101 @@
       `;
     }
 
+    const criticalConfirmAckByIncident = {};
+    const CLIENT_CRITICAL_IRREVERSIBLE_RULES = [
+      { re: /\b(pg_terminate_backend|pg_cancel_backend)\b/i, reason: "Terminates active PostgreSQL backend sessions; uncommitted in-flight transactions are permanently aborted." },
+      { re: /\b(truncate\s+table|drop\s+index|drop\s+table|delete\s+from|alter\s+table|vacuum\s+full)\b/i, reason: "Mutates or purges database records/schema state that cannot be automatically replayed." },
+      { re: /\bgcloud\s+sql\s+instances\s+(restart|failover|promote-replica|restore-backup)\b/i, reason: "Forces a database restart/failover/restore, severing active client connections and in-flight transactions." },
+      { re: /\bkubectl\s+(delete\s+pod|drain|cordon|replace\s+--force)\b/i, reason: "Terminates running pods or drains nodes; ephemeral container memory and active in-flight requests are lost." },
+      { re: /\bgcloud\s+compute\s+instances\s+(reset|stop)\b/i, reason: "Hard-resets or stops the VM instance; unsaved memory state and active TCP sessions are lost." },
+      { re: /(--allow-unauthenticated|\ballUsers\b|\ballAuthenticatedUsers\b)/i, reason: "Exposes the resource publicly to unauthenticated internet traffic; external data access cannot be recalled." },
+      { re: /--role=['"]?roles\/(owner|editor|iam\.securityAdmin|resourcemanager\.projectIamAdmin)['"]?/i, reason: "Grants broad administrative IAM privileges across the project boundary." },
+      { re: /\bremove-iam-policy-binding\b/i, reason: "Revokes an active IAM policy binding, which can immediately sever permissions for live dependent workloads." },
+      { re: /\b(secrets\s+versions\s+(destroy|disable)|iam\s+service-accounts\s+keys\s+delete|kms\s+keys)\b/i, reason: "Revokes or destroys active cryptographic keys/secret versions; callers using cached credentials will fail." },
+      { re: /(--clear-vpc-connector|\bforce_new\b|-replace=)/i, reason: "Forces infrastructure resource replacement or drops active VPC private connectivity." }
+    ];
+
+    function evaluateClientChangeRisk(inc, cmdOverride) {
+      const impact = (inc && inc.impact_analysis) || {};
+      const harness = (inc && inc.agent_harness) || impact.agent_harness || {};
+      const serverRisk = (inc && inc.change_risk) || harness.change_risk || (harness.policy_gate && harness.policy_gate.change_risk) || null;
+      const cmdText = typeof cmdOverride === 'string' ? cmdOverride : (impact.recommended_kubectl || '');
+      const tfText = impact.terraform_code || (impact.terraform_bundle && impact.terraform_bundle.hcl_code) || '';
+      const combined = `${cmdText}\n${tfText}`;
+
+      const matchedReasons = [];
+      CLIENT_CRITICAL_IRREVERSIBLE_RULES.forEach(r => {
+        if (r.re.test(combined) && !matchedReasons.includes(r.reason)) {
+          matchedReasons.push(r.reason);
+        }
+      });
+
+      if (typeof cmdOverride !== 'string' && serverRisk && serverRisk.requires_critical_confirmation) {
+        (serverRisk.irreversible_reasons || []).forEach(r => {
+          if (r && !matchedReasons.includes(r)) matchedReasons.push(r);
+        });
+      }
+
+      if (matchedReasons.length > 0) {
+        return {
+          risk_tier: 'TIER_2_CRITICAL_IRREVERSIBLE',
+          reversible: false,
+          requires_critical_confirmation: true,
+          irreversible_reasons: matchedReasons
+        };
+      }
+      return {
+        risk_tier: 'TIER_1_REVERSIBLE',
+        reversible: true,
+        requires_critical_confirmation: false,
+        irreversible_reasons: []
+      };
+    }
+
+    function syncCriticalApproveButton(incidentId) {
+      const incObj = ((latestState && latestState.incidents) || []).find(i => i.incident_id === incidentId);
+      const kubectlInput = document.getElementById(`kubectl-${incidentId}`);
+      const cmdVal = kubectlInput ? kubectlInput.value : undefined;
+      const risk = evaluateClientChangeRisk(incObj, cmdVal);
+      const panelEl = document.getElementById(`criticalGatePanel-${incidentId}`);
+      const reasonsEl = document.getElementById(`criticalGateReasons-${incidentId}`);
+      const chkEl = document.getElementById(`chkCriticalConfirm-${incidentId}`);
+      const btnEl = document.getElementById('btnApproveMain');
+      const checked = Boolean(chkEl && chkEl.checked);
+      criticalConfirmAckByIncident[incidentId] = checked;
+
+      if (panelEl) {
+        if (risk.requires_critical_confirmation) {
+          panelEl.classList.remove('hidden');
+          if (reasonsEl) {
+            reasonsEl.innerHTML = risk.irreversible_reasons
+              .map(r => `<li class="flex items-start gap-1.5"><span class="text-[#EA4335] mt-0.5">•</span><span>${escapeHtml(r)}</span></li>`)
+              .join('');
+          }
+        } else {
+          panelEl.classList.add('hidden');
+        }
+      }
+
+      if (btnEl) {
+        const baseLabel = btnEl.getAttribute('data-base-label') || 'I accept — Dispatch Specialist';
+        const critLabel = btnEl.getAttribute('data-crit-label') || 'I Confirm Irreversible Impact — Dispatch Specialist';
+        if (risk.requires_critical_confirmation && !checked) {
+          btnEl.disabled = true;
+          btnEl.className = 'bg-slate-800 text-slate-400 border border-[#EA4335]/50 flex-1 py-3 px-5 rounded-full font-bold text-xs sm:text-sm transition cursor-not-allowed flex items-center justify-center gap-2 opacity-75';
+          btnEl.innerHTML = `<i class="fa-solid fa-lock text-[#EA4335] text-sm"></i><span>Acknowledge Irreversible Impact Above to Unlock</span>`;
+        } else if (risk.requires_critical_confirmation && checked) {
+          btnEl.disabled = false;
+          btnEl.className = 'g-btn-green flex-1 py-3 px-5 rounded-full font-bold text-xs sm:text-sm transition cursor-pointer flex items-center justify-center gap-2';
+          btnEl.innerHTML = `<i class="fa-solid fa-shield-halved text-sm"></i><span>${escapeHtml(critLabel)}</span>`;
+        } else {
+          btnEl.disabled = false;
+          btnEl.className = 'g-btn-green flex-1 py-3 px-5 rounded-full font-bold text-xs sm:text-sm transition cursor-pointer flex items-center justify-center gap-2';
+          btnEl.innerHTML = `<i class="fa-solid fa-check-circle text-sm"></i><span>${escapeHtml(baseLabel)}</span>`;
+        }
+      }
+    }
+
     function renderHarnessStatusStrip(inc) {
       const impact = (inc && inc.impact_analysis) || {};
       const harness = (inc && inc.agent_harness) || impact.agent_harness || {};
@@ -3797,6 +3912,7 @@
       const policyGate = harness.policy_gate || {};
       const watchdog = harness.watchdog_spec || {};
       const tfBundle = impact.terraform_bundle || harness.terraform_bundle || null;
+      const risk = evaluateClientChangeRisk(inc);
 
       const lockId = stateLock.lock_id || '.tflock Ready';
       const opaVerdict = policyGate.opa_verdict || 'PASS';
@@ -3814,6 +3930,15 @@
             <span class="g-badge-green inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full font-semibold" title="Pre-flight check (${escapeHtml(opaVerdict)}): blocks delete/drop actions">
               <i class="fa-solid fa-check text-[9px]"></i> Verified Safe
             </span>
+            ${risk.requires_critical_confirmation ? `
+              <span class="g-badge-red inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full font-semibold" title="Irreversible impact detected — explicit operator confirmation required">
+                <i class="fa-solid fa-triangle-exclamation text-[9px]"></i> Tier-2 Irreversible Gate
+              </span>
+            ` : `
+              <span class="g-badge-blue inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full font-semibold" title="Pre-execution stable snapshot armed for instant revert">
+                <i class="fa-solid fa-rotate-left text-[9px]"></i> Reversible • Snapshot Armed
+              </span>
+            `}
             ${dryRunStatus ? `
               <span class="g-badge-blue inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full font-semibold">
                 <i class="fa-solid fa-code-branch text-[9px]"></i> TF Dry-Run: ${escapeHtml(dryRunStatus)}
@@ -5136,6 +5261,12 @@
       const dispatchLabel = coordSpecs.length > 1
         ? `I accept — Dispatch ${coordSpecs.length} Specialists (${coordSpecs.map(s => s.name).join(' + ')})`
         : `I accept — Dispatch ${spec.name}`;
+      const criticalDispatchLabel = coordSpecs.length > 1
+        ? `I Confirm Irreversible Impact — Dispatch ${coordSpecs.length} Specialists`
+        : `I Confirm Irreversible Impact — Dispatch ${spec.name}`;
+      const risk = evaluateClientChangeRisk(inc);
+      const isCritAcked = Boolean(criticalConfirmAckByIncident[inc.incident_id]);
+      const approveLocked = risk.requires_critical_confirmation && !isCritAcked;
 
       return `
         <div class="glass g-card-fourcolor border border-slate-800 rounded-3xl p-5 sm:p-6 space-y-4">
@@ -5216,12 +5347,41 @@
             </button>
           </form>
 
+          <!-- Tier-2 Critical Irreversible HITL Gate (Prevents Rubber-Stamp Approval Fatigue) -->
+          <div id="criticalGatePanel-${escapeHtml(inc.incident_id)}" class="${risk.requires_critical_confirmation ? '' : 'hidden'} p-3.5 rounded-2xl bg-[#EA4335]/10 border border-[#EA4335]/50 space-y-2.5 text-left">
+            <div class="flex flex-wrap items-center justify-between gap-1.5">
+              <div class="text-xs font-bold text-[#EA4335] flex items-center gap-1.5">
+                <i class="fa-solid fa-triangle-exclamation"></i>
+                <span>Critical Change Gate — Action Cannot Be Automatically Undone</span>
+              </div>
+              <span class="g-badge-red px-2 py-0.5 rounded-full text-[10px] font-bold uppercase">Explicit Confirmation Required</span>
+            </div>
+            <ul id="criticalGateReasons-${escapeHtml(inc.incident_id)}" class="text-[11px] text-slate-200 space-y-1">
+              ${(risk.irreversible_reasons || []).map(r => `<li class="flex items-start gap-1.5"><span class="text-[#EA4335] mt-0.5">•</span><span>${escapeHtml(r)}</span></li>`).join('')}
+            </ul>
+            <label class="flex items-start gap-2.5 pt-1.5 border-t border-[#EA4335]/25 cursor-pointer select-none">
+              <input id="chkCriticalConfirm-${escapeHtml(inc.incident_id)}" type="checkbox"
+                ${isCritAcked ? 'checked' : ''}
+                onchange="syncCriticalApproveButton('${escapeHtml(inc.incident_id)}')"
+                class="mt-0.5 w-4 h-4 rounded accent-[#EA4335] cursor-pointer shrink-0" />
+              <span class="text-[11px] text-white font-medium leading-snug">
+                I understand this critical change involves <strong>irreversible side effects</strong> that cannot be undone automatically, and I explicitly authorize a single-use 15-minute JIT token.
+              </span>
+            </label>
+          </div>
+
           <!-- Action Buttons: I accept OR Later / Ignore (Manual) -->
           <div class="flex flex-col sm:flex-row items-stretch gap-2.5 pt-2 border-t border-slate-800">
-            <button id="btnApproveMain" onclick="approveIncident('${escapeHtml(inc.incident_id)}')"
-              class="g-btn-green flex-1 py-3 px-5 rounded-full font-bold text-xs sm:text-sm transition cursor-pointer flex items-center justify-center gap-2">
-              <i class="fa-solid fa-check-circle text-sm"></i>
-              <span>${escapeHtml(dispatchLabel)}</span>
+            <button id="btnApproveMain"
+              ${approveLocked ? 'disabled' : ''}
+              data-base-label="${escapeHtml(dispatchLabel)}"
+              data-crit-label="${escapeHtml(criticalDispatchLabel)}"
+              onclick="approveIncident('${escapeHtml(inc.incident_id)}')"
+              class="${approveLocked
+                ? 'bg-slate-800 text-slate-400 border border-[#EA4335]/50 flex-1 py-3 px-5 rounded-full font-bold text-xs sm:text-sm transition cursor-not-allowed flex items-center justify-center gap-2 opacity-75'
+                : 'g-btn-green flex-1 py-3 px-5 rounded-full font-bold text-xs sm:text-sm transition cursor-pointer flex items-center justify-center gap-2'}">
+              <i class="fa-solid ${approveLocked ? 'fa-lock text-[#EA4335]' : (risk.requires_critical_confirmation ? 'fa-shield-halved' : 'fa-check-circle')} text-sm"></i>
+              <span>${escapeHtml(approveLocked ? 'Acknowledge Irreversible Impact Above to Unlock' : (risk.requires_critical_confirmation ? criticalDispatchLabel : dispatchLabel))}</span>
             </button>
 
             <button id="btnSkipMain" onclick="skipIncident('${escapeHtml(inc.incident_id)}')"
@@ -5240,6 +5400,7 @@
             <div class="mt-2 p-3.5 rounded-2xl bg-slate-950/90 border border-slate-800 space-y-2 text-xs text-slate-300">
               <div class="text-[10px] text-slate-400">Primary CLI / API Command:</div>
               <input id="kubectl-${escapeHtml(inc.incident_id)}" type="text" value="${escapeHtml(impact.recommended_kubectl || '')}"
+                oninput="syncCriticalApproveButton('${escapeHtml(inc.incident_id)}')"
                 class="w-full bg-slate-900 border border-slate-800 rounded-xl px-3 py-1.5 text-[11px] mono text-slate-200" />
               ${tfBundle && tfBundle.hcl_code ? `
                 <div class="text-[10px] text-[#4285F4] font-semibold pt-1">Active Multi-Service Terraform Bundle (.tf):</div>
@@ -5631,12 +5792,103 @@
       `;
     }
 
+    function renderRolledBackCard(inc) {
+      const copy = getCustomerCopy(inc);
+      const spec = inc.specialist_worker || { name: 'Specialist Agent' };
+      const snap = inc.rollback_snapshot || (inc.execution_result && inc.execution_result.rollback_snapshot) || {};
+      const rbRes = inc.rollback_result || {};
+      const verifyRes = inc.verification_result || {};
+      const qRec = inc.poison_pill_quarantine || rbRes.poison_pill_quarantine || null;
+      const autoTriggered = Boolean(inc.rollback_auto_triggered);
+      const collateralSvcs = verifyRes.affected_collateral_services || [];
+      const revertCmd = rbRes.revert_command || snap.revert_command || 'git revert HEAD --no-edit';
+      const baselineLabel = snap.baseline_label || snap.snapshot_id || 'Pre-Execution Stable Baseline';
+      const uname = getCurrentUserName();
+
+      return `
+        <div class="glass g-card-yellow border border-[#FBBC04]/50 rounded-3xl p-6 text-center space-y-4">
+          <div class="w-12 h-12 rounded-2xl g-badge-yellow flex items-center justify-center text-xl mx-auto">
+            <i class="fa-solid fa-rotate-left"></i>
+          </div>
+          <div class="space-y-1">
+            <span class="text-[11px] font-bold uppercase tracking-wider text-[#FBBC04]">
+              ${autoTriggered ? '45s Watchdog Auto-Rollback • Cascading Failure Prevented' : 'Reverted to Stable Baseline Snapshot'}
+            </span>
+            <h2 class="text-lg font-bold text-white">${escapeHtml(copy.headline)} — Reverted to Stable Version</h2>
+            <p class="text-xs text-slate-300 max-w-lg mx-auto leading-relaxed">
+              ${autoTriggered
+                ? `Heads-up, ${escapeHtml(uname)}: after applying the fix, <strong>Heartbeat &amp; Telemetry</strong> detected post-fix errors, so <strong>Atlas</strong> automatically restored the pre-execution stable snapshot via <strong>${escapeHtml(spec.name)}</strong>.`
+                : `Done, ${escapeHtml(uname)}! <strong>Atlas</strong> minted a single-use Rollback JIT token and reverted <strong>${escapeHtml(inc.workload || 'this service')}</strong> back to its pre-execution stable snapshot.`}
+            </p>
+          </div>
+
+          ${collateralSvcs.length ? `
+            <div class="p-3.5 rounded-2xl bg-[#EA4335]/10 border border-[#EA4335]/40 text-left space-y-1">
+              <div class="text-[11px] font-bold text-[#EA4335] flex items-center gap-1.5">
+                <i class="fa-solid fa-diagram-project"></i>
+                <span>Cross-Service Cascading Failure Detected &amp; Escalated</span>
+              </div>
+              <p class="text-[11px] text-slate-200">
+                Impacted downstream/peer service(s): <code class="text-[#FBBC04]">${escapeHtml(collateralSvcs.join(', '))}</code>. Dedicated incident card(s) were automatically queued for triage.
+              </p>
+            </div>
+          ` : ''}
+
+          <div class="p-3.5 rounded-2xl bg-slate-950/90 border border-[#FBBC04]/35 text-left space-y-2">
+            <div class="flex flex-wrap items-center justify-between gap-2">
+              <span class="text-[11px] font-bold text-[#FBBC04] flex items-center gap-1.5">
+                <i class="fa-solid fa-clock-rotate-left"></i>
+                <span>Restored Snapshot: ${escapeHtml(baselineLabel)}</span>
+              </span>
+              ${qRec && qRec.signature_hash ? `
+                <span class="g-badge-red px-2.5 py-0.5 rounded-full text-[10px] font-semibold" title="OPA blocks re-applying this command for 7 days">
+                  <i class="fa-solid fa-ban mr-1 text-[9px]"></i>7-Day Poison-Pill (${escapeHtml(qRec.signature_hash)})
+                </span>
+              ` : ''}
+            </div>
+            <div class="mono text-[11px] text-slate-200 break-all bg-slate-900/90 border border-slate-800 rounded-xl px-3 py-2">
+              ${escapeHtml(revertCmd)}
+            </div>
+            ${inc.rollback_reason ? `<div class="text-[11px] text-slate-400"><strong>Reason:</strong> ${escapeHtml(inc.rollback_reason)}</div>` : ''}
+          </div>
+
+          <div class="flex flex-wrap items-center justify-center gap-2.5">
+            <button type="button" onclick="reopenIncident('${escapeHtml(inc.incident_id)}')"
+              class="g-btn-blue px-4 py-2 rounded-full text-xs font-semibold cursor-pointer inline-flex items-center gap-1.5">
+              <i class="fa-solid fa-rotate-right text-[10px]"></i>
+              <span>Reopen With Alternative Fix</span>
+            </button>
+            <button type="button" onclick="switchView('audit')"
+              class="px-4 py-2 rounded-full bg-slate-900 hover:bg-slate-800 border border-slate-700 text-xs font-medium text-slate-200 cursor-pointer inline-flex items-center gap-1.5">
+              <i class="fa-solid fa-clipboard-check text-[#34A853] text-[10px]"></i>
+              <span>View Rollback Audit Record</span>
+            </button>
+          </div>
+
+          ${renderPhase4IntelligencePanels(inc)}
+
+          <details class="text-left pt-2 border-t border-slate-800">
+            <summary class="text-xs text-slate-400 hover:text-slate-200 cursor-pointer flex items-center justify-center gap-1.5">
+              <span>View Rollback Execution Trace</span>
+              <i class="fa-solid fa-chevron-down text-[10px]"></i>
+            </summary>
+            <div class="mt-3 p-3.5 rounded-2xl bg-slate-950/90 border border-slate-800 space-y-1 text-xs text-slate-300">
+              ${(rbRes.steps || []).map(s => `<div class="text-[10px] mono text-slate-300">• ${escapeHtml(s)}</div>`).join('')}
+            </div>
+          </details>
+        </div>
+      `;
+    }
+
     function renderResolvedCard(inc) {
       const copy = getCustomerCopy(inc);
       const impact = inc.impact_analysis || {};
       const spec = inc.specialist_worker || { name: 'Serverless Agent' };
       const execRes = inc.execution_result || {};
       const harnessExec = execRes.agent_harness_execution || {};
+      const snap = inc.rollback_snapshot || execRes.rollback_snapshot || {};
+      const revertCmd = snap.revert_command || 'git revert HEAD --no-edit';
+      const baselineLabel = snap.baseline_label || snap.snapshot_id || 'Pre-Execution Stable Baseline';
       const uname = getCurrentUserName();
       const isScenario1 = inc.scenario_id === 'datastream_iam_drift' || Boolean(inc.iam_audit);
 
@@ -5651,6 +5903,24 @@
             <p class="text-xs text-slate-300 max-w-md mx-auto leading-relaxed">
               Thanks, ${escapeHtml(uname)}! Following your approval, <strong>Atlas (AaaS Lead)</strong> dispatched the <strong>${escapeHtml(spec.name)}</strong> harness, verified the 45s Telemetry Watchdog, and released the <code>.tflock</code> state lease.
             </p>
+          </div>
+
+          <div class="p-3 rounded-2xl bg-slate-950/85 border border-slate-800 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 text-left">
+            <div class="min-w-0 space-y-0.5">
+              <div class="text-[10px] font-bold uppercase tracking-wider text-[#4285F4] flex items-center gap-1.5">
+                <i class="fa-solid fa-shield-halved text-[#34A853]"></i>
+                <span>Stable Baseline Snapshot Armed (${escapeHtml(snap.snapshot_id || 'ready')})</span>
+              </div>
+              <div class="text-[11px] text-slate-300 truncate" title="${escapeHtml(revertCmd)}">
+                ${escapeHtml(baselineLabel)} — if any downstream service degrades, revert in 1 click.
+              </div>
+            </div>
+            <button id="btnRollbackSnapshotCard" type="button" onclick="rollbackIncident('${escapeHtml(inc.incident_id)}', this)"
+              title="Revert this remediation to the pre-execution stable snapshot and quarantine the command for 7 days"
+              class="px-3.5 py-2 rounded-full bg-slate-900 hover:bg-slate-800 border border-[#FBBC04]/60 text-[#FBBC04] text-xs font-semibold transition cursor-pointer inline-flex items-center gap-1.5 shrink-0">
+              <i class="fa-solid fa-rotate-left text-[11px]"></i>
+              <span>Revert to Stable Snapshot</span>
+            </button>
           </div>
 
           ${isScenario1 ? `
@@ -5885,6 +6155,16 @@
       const btn = document.getElementById('btnApproveMain');
       const kubectlInput = document.getElementById(`kubectl-${incidentId}`);
       const customKubectlVal = kubectlInput ? kubectlInput.value : null;
+      const chkEl = document.getElementById(`chkCriticalConfirm-${incidentId}`);
+      const incObj = ((latestState && latestState.incidents) || []).find(i => i.incident_id === incidentId);
+      const risk = evaluateClientChangeRisk(incObj, customKubectlVal !== null ? customKubectlVal : undefined);
+      const isCriticalConfirmed = Boolean((chkEl && chkEl.checked) || criticalConfirmAckByIncident[incidentId]);
+
+      if (risk.requires_critical_confirmation && !isCriticalConfirmed) {
+        syncCriticalApproveButton(incidentId);
+        return;
+      }
+
       if (btn) {
         btn.disabled = true;
         btn.innerHTML = `<i class="fa-solid fa-spinner fa-spin"></i><span>Dispatching Specialist Agent...</span>`;
@@ -5892,7 +6172,6 @@
 
       const gkeCard = document.getElementById('card-gke-assist-agent');
       if (gkeCard) gkeCard.classList.add('agent-active');
-      const incObj = ((latestState && latestState.incidents) || []).find(i => i.incident_id === incidentId);
       const startedAt = Date.now();
       startIncidentDispatchTracker(incObj || { incident_id: incidentId });
 
@@ -5903,9 +6182,11 @@
           body: JSON.stringify({
             approved_by: `${getCurrentUserName()} (${getCurrentUserEmail()})`,
             execution_mode: 'live',
-            custom_kubectl: customKubectlVal
+            custom_kubectl: customKubectlVal,
+            critical_change_confirmed: isCriticalConfirmed
           })
         });
+        delete criticalConfirmAckByIncident[incidentId];
         const remainingMs = Math.max(0, 750 - (Date.now() - startedAt));
         if (remainingMs > 0) await new Promise(r => setTimeout(r, remainingMs));
       } catch (err) {
@@ -5914,6 +6195,35 @@
         stopDispatchTracker();
         lastStageSignature = '';
         await fetchState(true);
+      }
+    }
+
+    async function rollbackIncident(incidentId, btnEl) {
+      const prevHtml = btnEl ? btnEl.innerHTML : '';
+      if (btnEl) {
+        btnEl.disabled = true;
+        btnEl.innerHTML = `<i class="fa-solid fa-spinner fa-spin text-[10px]"></i><span>Reverting Snapshot...</span>`;
+      }
+      try {
+        await fetch(`/api/incidents/${encodeURIComponent(incidentId)}/rollback`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            requested_by: `${getCurrentUserName()} (${getCurrentUserEmail()})`,
+            reason: 'Operator clicked Revert to Stable Snapshot in Command Center',
+            execution_mode: 'live',
+            quarantine_signature: true
+          })
+        });
+        lastStageSignature = '';
+        await fetchState(true);
+      } catch (err) {
+        console.error('Rollback failed:', err);
+      } finally {
+        if (btnEl) {
+          btnEl.disabled = false;
+          btnEl.innerHTML = prevHtml;
+        }
       }
     }
 

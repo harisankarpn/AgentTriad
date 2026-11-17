@@ -199,6 +199,10 @@ class TelemetryIngestionAdapter(ABC):
     ) -> Dict[str, Any]:
         """Records a watchdog verification or remediation system log entry."""
 
+    def record_anomaly_log(self, entry: Dict[str, Any]) -> Dict[str, Any]:
+        """Persists an ingested anomaly/ticket record (e.g. severity=ERROR) to the telemetry backend."""
+        return entry
+
     @abstractmethod
     def get_status(self) -> Dict[str, Any]:
         """Returns structured provider status metadata."""
