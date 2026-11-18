@@ -134,7 +134,7 @@ The GCP reference deployment is provisioned reproducibly in project **`agent-tri
 
 | Service / Resource | Type | Region / Zone | Live Endpoint / Identifier | Architectural Role |
 | :--- | :--- | :--- | :--- | :--- |
-| **`agent-triad-control-plane`** | Cloud Run v2 Service | `us-central1` | `https://agent-triad-control-plane-1041190629307.us-central1.run.app` | **AaaS Command Center UI + Atlas Root Orchestrator** (`poc/app.py`, `poc/agents/lead_orchestrator.py`) |
+| **`agent-triad-control-plane`** | Cloud Run v2 + Firebase Hosting | `us-central1` | **`https://agent-triad.web.app`**<br>*(Cloud Run: `https://agent-triad-control-plane-1041190629307.us-central1.run.app`)* | **AaaS Command Center UI + Atlas Root Orchestrator** (`poc/app.py`, `poc/agents/lead_orchestrator.py`) |
 | **`agent-triad-db-agent`** | Cloud Run v2 ADK Agent | `us-central1` | `https://agent-triad-db-agent-1041190629307.us-central1.run.app` | **Live ADK Database Specialist Agent** (`agents/database_agent/agent.py`) for Cloud SQL / RDS / Azure SQL & query introspection |
 | **`agent-triad-infra-agent`** | Cloud Run v2 ADK Agent | `us-central1` | `https://agent-triad-infra-agent-1041190629307.us-central1.run.app` | **Live ADK Infra Specialist Agent** (`agents/infra_agent/agent.py`) for Compute Engine / EC2 / Azure VMs, GKE, Terraform & GitOps correlation |
 | **Cloud Firestore `(default)`** | Cloud Firestore Database | `agent-triad` | `projects/agent-triad/databases/(default)` (`aaas_user_sessions`) | **Default Per-User Multi-Session Chat Persistence** (`GCPFirestoreSessionAdapter`; swappable with PostgreSQL or Redis) |
