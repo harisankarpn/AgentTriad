@@ -853,6 +853,7 @@
                 <select id="logSortField" onchange="onLogSortSelectChange()"
                   class="flex-1 bg-slate-900 border border-slate-800 focus:border-[#4285F4] rounded-full px-3 py-1.5 text-xs text-slate-200 focus:outline-none">
                   <option value="timestamp">Sort: Timestamp</option>
+                  <option value="priority">Sort: Priority (P1 First)</option>
                   <option value="severity">Sort: Severity</option>
                   <option value="workload">Sort: Service</option>
                   <option value="message">Sort: Message</option>
@@ -935,7 +936,7 @@
                   </label>
                   <label class="inline-flex items-center gap-1.5 text-slate-300 cursor-pointer select-none"
                     title="When marking Safe to Ignore, automatically suppress sibling alerts with the exact same service &amp; error signature">
-                    <input type="checkbox" id="logIgnoreSimilarCheckbox"
+                    <input type="checkbox" id="logIgnoreSimilarCheckbox" checked
                       class="w-3.5 h-3.5 rounded border-slate-600 bg-slate-950 accent-[#34A853] cursor-pointer" />
                     <span>Also ignore similar alerts (same service/signature)</span>
                   </label>
@@ -2015,6 +2016,11 @@
     }
 
     function focusActiveCloudIssue() {
+      const queue = getPrioritizedOpenIssueQueue(latestState || {});
+      if (queue.length > 0) {
+        pickTopPrioritizedIssue();
+        return;
+      }
       const incidents = (latestState && latestState.incidents) || [];
       const actionable = incidents.find(
         i => i.status === 'BLOCKED_PROVIDER_OUTAGE' || i.status === 'AWAITING_HITL_APPROVAL'
@@ -2024,19 +2030,6 @@
         directChatMode = false;
         switchView('command');
         renderDashboard(latestState || {}, true);
-        return;
-      }
-      const logs = (latestState && latestState.logs) || [];
-      const hasAnomalyLogs = logs.some(
-        l => l && l.is_anomaly && !l.ignored && l.triage_status !== 'IGNORED'
-      );
-      if (hasAnomalyLogs) {
-        const sevFilter = document.getElementById('logSeverityFilter');
-        const triageFilter = document.getElementById('logTriageFilter');
-        if (sevFilter) sevFilter.value = 'ALL';
-        if (triageFilter) triageFilter.value = 'ACTIVE_ALERTS';
-        switchView('logs');
-        applyLogAndA2AFilters();
         return;
       }
       switchView('logs');
@@ -2362,6 +2355,22 @@
         risk_badge: "Low Risk • Worker Restart",
         downtime_badge: "Zero Downtime",
         safety_badge: "State Preserved"
+      },
+      cloudsql_pg_permission_denied: {
+        headline: "PostgreSQL Table Permission Denied on Cloud SQL",
+        what_happened: "Real GCP Log Detected: A PostgreSQL role or IAM database user was denied table-level SQL privileges (GRANT) on Cloud SQL.",
+        why_approve: "Applies an additive PostgreSQL GRANT statement (plus ALTER DEFAULT PRIVILEGES) with zero downtime.",
+        risk_badge: "Low Risk • Additive SQL GRANT",
+        downtime_badge: "Zero Downtime",
+        safety_badge: "SQL REVOKE Snapshot Armed"
+      },
+      cloudsql_conn_probe: {
+        headline: "External Non-Postgres Connection Probe Rejected (Safe to Ignore)",
+        what_happened: "Real GCP Log Detected: Cloud SQL rejected an unauthenticated external scanner or non-Postgres TCP probe before login.",
+        why_approve: "No Cloud SQL change needed — click Safe to Ignore to permanently hide this benign probe signature.",
+        risk_badge: "Benign Probe • Safe to Ignore",
+        downtime_badge: "Zero Downtime",
+        safety_badge: "No DB Mutation Needed"
       },
       real_gcp_anomaly: {
         headline: "Cloud Service Issue Detected in Live Logs",
@@ -3248,39 +3257,178 @@
     function selectIncidentById(incId) {
       selectedIncidentId = incId;
       directChatMode = false;
+      lastStageSignature = '';
       if (latestState) {
         renderDashboard(latestState, true);
+      }
+    }
+
+    function getPriorityBadgeClass(tier) {
+      const t = String(tier || '').toUpperCase();
+      if (t === 'P1') return 'g-badge-red';
+      if (t === 'P2') return 'g-badge-yellow';
+      if (t === 'P3') return 'g-badge-blue';
+      return 'bg-slate-800 text-slate-300 border border-slate-700';
+    }
+
+    function getPrioritizedOpenIssueQueue(data) {
+      const d = data || {};
+      const incidents = Array.isArray(d.incidents) ? d.incidents : [];
+      const openIssues = Array.isArray(d.prioritized_open_issues) ? d.prioritized_open_issues : [];
+      const byKey = new Map();
+
+      incidents.forEach(inc => {
+        if (!inc || inc.ignored || inc.status === 'IGNORED') return;
+        const actionable = inc.status === 'AWAITING_HITL_APPROVAL' || inc.status === 'BLOCKED_PROVIDER_OUTAGE' || inc.status === 'REMEDIATION_FAILED';
+        if (!actionable) return;
+        const id = String(inc.incident_id || '');
+        if (!id) return;
+        byKey.set(id, {
+          key: id,
+          incident_id: id,
+          log_id: id,
+          is_escalated: true,
+          status: inc.status,
+          priority_tier: inc.priority_tier || 'P2',
+          priority_score: Number(inc.priority_score) || 78,
+          priority_label: inc.priority_label || 'High • Active Service Anomaly',
+          label: inc.service_label || inc.workload || id,
+          title: (inc.impact_analysis && inc.impact_analysis.customer_headline) || (inc.log_entry && inc.log_entry.title) || inc.workload || id,
+          timestamp: (inc.log_entry && inc.log_entry.timestamp) || inc.created_at || ''
+        });
+      });
+
+      openIssues.forEach(item => {
+        if (!item || item.ignored || item.triage_status === 'IGNORED' || item.triage_status === 'RESOLVED') return;
+        const lid = String(item.log_id || '');
+        const linkedId = String(item.linked_incident_id || '');
+        const key = linkedId && byKey.has(linkedId) ? linkedId : lid;
+        if (!key || byKey.has(key)) return;
+        const matchingInc = incidents.find(i => i && i.incident_id === (linkedId || lid) && i.status !== 'IGNORED');
+        byKey.set(key, {
+          key,
+          incident_id: matchingInc ? matchingInc.incident_id : null,
+          log_id: lid,
+          is_escalated: Boolean(matchingInc),
+          status: matchingInc ? matchingInc.status : 'OPEN_LOG',
+          priority_tier: item.priority_tier || 'P2',
+          priority_score: Number(item.priority_score) || 78,
+          priority_label: item.priority_label || 'High • Active Service Anomaly',
+          label: item.workload || item.title || lid,
+          title: item.title || item.message || item.workload || lid,
+          timestamp: item.timestamp || ''
+        });
+      });
+
+      return Array.from(byKey.values()).sort((a, b) => {
+        if (b.priority_score !== a.priority_score) return b.priority_score - a.priority_score;
+        return (new Date(b.timestamp || 0).getTime() || 0) - (new Date(a.timestamp || 0).getTime() || 0);
+      });
+    }
+
+    async function pickTopPrioritizedIssue(btnEl) {
+      const queue = getPrioritizedOpenIssueQueue(latestState || {});
+      if (!queue.length) {
+        switchView('command');
+        return pollLiveCloudLogging();
+      }
+      const top = queue[0];
+      if (top.is_escalated && top.incident_id) {
+        selectedIncidentId = top.incident_id;
+        directChatMode = false;
+        lastStageSignature = '';
+        switchView('command');
+        renderDashboard(latestState || {}, true);
+        return;
+      }
+      if (top.log_id) {
+        const prevHtml = btnEl ? btnEl.innerHTML : '';
+        if (btnEl) {
+          btnEl.disabled = true;
+          btnEl.innerHTML = `<i class="fa-solid fa-spinner fa-spin text-[10px]"></i><span>Opening ${escapeHtml(top.priority_tier)} Issue...</span>`;
+        }
+        try {
+          await fixLogsViaAaaSChat([top.log_id], 'auto');
+        } finally {
+          if (btnEl) {
+            btnEl.disabled = false;
+            btnEl.innerHTML = prevHtml;
+          }
+        }
       }
     }
 
     function renderIncidentSwitcherBar(incidents, activeInc) {
       const barEl = document.getElementById('incidentSwitcherBar');
       if (!barEl) return;
-      if (!incidents || incidents.length <= 1) {
+      const visibleIncidents = (incidents || []).filter(i => i && !i.ignored && i.status !== 'IGNORED');
+      const openQueue = getPrioritizedOpenIssueQueue(latestState || { incidents: visibleIncidents });
+      if (visibleIncidents.length === 0 && openQueue.length === 0) {
         barEl.classList.add('hidden');
         barEl.innerHTML = '';
         return;
       }
+      if (visibleIncidents.length === 1 && openQueue.length <= 1 && openQueue[0] && activeInc && openQueue[0].incident_id === activeInc.incident_id) {
+        // Still show compact priority badge & picker bar when open issues exist so P1 priority is transparent
+      }
       barEl.classList.remove('hidden');
-      const activeId = activeInc ? activeInc.incident_id : '';
+      const activeId = (!directChatMode && activeInc) ? activeInc.incident_id : '';
+      const topIssue = openQueue[0] || null;
+      const topNotFocused = Boolean(topIssue && (!activeId || topIssue.incident_id !== activeId));
+
+      // Combine open prioritized queue with any recently resolved/skipped incidents so operator can switch freely
+      const pillItems = [...openQueue];
+      visibleIncidents.forEach(inc => {
+        if (!pillItems.some(p => p.incident_id === inc.incident_id || p.log_id === inc.incident_id)) {
+          pillItems.push({
+            key: inc.incident_id,
+            incident_id: inc.incident_id,
+            log_id: inc.incident_id,
+            is_escalated: true,
+            status: inc.status,
+            priority_tier: inc.priority_tier || 'P2',
+            priority_score: Number(inc.priority_score) || 50,
+            priority_label: inc.priority_label || '',
+            label: inc.service_label || inc.workload || inc.incident_id,
+            title: (inc.log_entry && inc.log_entry.title) || inc.workload || inc.incident_id
+          });
+        }
+      });
+
       barEl.innerHTML = `
         <div class="glass border border-slate-800 rounded-2xl px-4 py-2.5 flex flex-wrap items-center justify-between gap-2 text-xs">
-          <span class="text-[11px] font-bold text-slate-300 flex items-center gap-1.5">
-            <i class="fa-solid fa-layer-group text-[#4285F4]"></i>
-            <span>Polled Incidents (${incidents.length}):</span>
-          </span>
+          <div class="flex flex-wrap items-center gap-2">
+            <span class="text-[11px] font-bold text-slate-200 flex items-center gap-1.5">
+              <i class="fa-solid fa-arrow-up-wide-short text-[#4285F4]"></i>
+              <span>Prioritized Issues (${openQueue.length} open):</span>
+            </span>
+            ${topIssue ? `
+              <button id="btnPickPrioritizedIssue" type="button" onclick="pickTopPrioritizedIssue(this)"
+                title="Focus or escalate the highest-priority (${escapeHtml(topIssue.priority_tier)}) open issue first: ${escapeHtml(topIssue.title)}"
+                class="${topNotFocused ? 'g-btn-blue' : 'bg-slate-900 hover:bg-slate-800 text-[#4285F4] border border-[#4285F4]/50'} px-3 py-1 rounded-full text-[11px] font-semibold inline-flex items-center gap-1.5 transition cursor-pointer">
+                <i class="fa-solid fa-bolt text-[10px]"></i>
+                <span>Pick Prioritized Issue (${escapeHtml(topIssue.priority_tier)} First)</span>
+              </button>
+            ` : ''}
+          </div>
           <div class="flex flex-wrap items-center gap-1.5">
-            ${incidents.map((inc, idx) => {
-              const isCurrent = !directChatMode && inc.incident_id === activeId;
-              const statusDot = inc.status === 'RESOLVED'
+            ${pillItems.slice(0, 6).map((item, idx) => {
+              const isCurrent = Boolean(item.incident_id && item.incident_id === activeId);
+              const statusDot = item.status === 'RESOLVED'
                 ? 'bg-[#34A853]'
-                : ((inc.status === 'SKIPPED_MANUAL' || inc.status === 'ROLLED_BACK') ? 'bg-[#FBBC04]' : 'bg-[#EA4335]');
-              const label = inc.service_label || inc.workload || `Incident #${idx + 1}`;
+                : ((item.status === 'SKIPPED_MANUAL' || item.status === 'ROLLED_BACK') ? 'bg-[#FBBC04]' : 'bg-[#EA4335]');
+              const shortLabel = String(item.label || `Issue #${idx + 1}`).slice(0, 34);
+              const clickExpr = item.is_escalated && item.incident_id
+                ? `selectIncidentById('${escapeHtml(item.incident_id)}')`
+                : `fixSingleLogViaChat('${encodeURIComponent(item.log_id || '')}')`;
+              const tierClass = getPriorityBadgeClass(item.priority_tier);
               return `
-                <button type="button" onclick="selectIncidentById('${escapeHtml(inc.incident_id)}')"
-                  class="${isCurrent ? 'g-badge-blue font-semibold' : 'bg-slate-900 hover:bg-slate-800 text-slate-300 border border-slate-800'} px-3 py-1 rounded-full text-[11px] inline-flex items-center gap-1.5 transition cursor-pointer">
+                <button type="button" onclick="${clickExpr}"
+                  title="${escapeHtml(item.priority_tier + ' • ' + (item.title || item.label || ''))}"
+                  class="${isCurrent ? 'g-badge-blue font-semibold' : 'bg-slate-900 hover:bg-slate-800 text-slate-300 border border-slate-800'} px-2.5 py-1 rounded-full text-[11px] inline-flex items-center gap-1.5 transition cursor-pointer">
                   <span class="w-1.5 h-1.5 rounded-full ${statusDot}"></span>
-                  <span>${escapeHtml(label)}</span>
+                  <span class="${tierClass} px-1.5 py-0.2 rounded-full mono text-[9px] font-bold">${escapeHtml(item.priority_tier)}</span>
+                  <span>${escapeHtml(shortLabel)}</span>
                 </button>
               `;
             }).join('')}
@@ -3911,7 +4059,7 @@
     function markSingleLogSafeToIgnore(encodedLogId) {
       const lid = decodeURIComponent(encodedLogId || '');
       if (!lid) return;
-      return markLogsSafeToIgnore([lid], { ignoreSimilar: false });
+      return markLogsSafeToIgnore([lid], { ignoreSimilar: true });
     }
 
     async function restoreIgnoredLogs(logIds) {
@@ -4076,6 +4224,12 @@
         let cmp = 0;
         if (logSortFieldState === 'timestamp') {
           cmp = (new Date(a.timestamp || 0).getTime() || 0) - (new Date(b.timestamp || 0).getTime() || 0);
+        } else if (logSortFieldState === 'priority') {
+          const pA = a.is_anomaly ? (Number(a.priority_score) || 50) : 0;
+          const pB = b.is_anomaly ? (Number(b.priority_score) || 50) : 0;
+          cmp = pA !== pB
+            ? (pA - pB)
+            : ((new Date(a.timestamp || 0).getTime() || 0) - (new Date(b.timestamp || 0).getTime() || 0));
         } else if (logSortFieldState === 'severity') {
           const rA = sevRank[String(a.severity || 'INFO').toUpperCase()] || 0;
           const rB = sevRank[String(b.severity || 'INFO').toUpperCase()] || 0;
@@ -4224,9 +4378,16 @@
                     class="w-3.5 h-3.5 rounded border-slate-600 bg-slate-900 accent-[#4285F4] cursor-pointer mt-0.5" />
                 </td>
                 <td class="py-2.5 pr-2">
-                  <span class="${sevClass} inline-flex items-center px-2 py-0.5 rounded-full mono text-[10px] font-semibold">
-                    ${highlightSearchMatch(sev, searchQuery)}
-                  </span>
+                  <div class="flex flex-wrap items-center gap-1">
+                    <span class="${sevClass} inline-flex items-center px-2 py-0.5 rounded-full mono text-[10px] font-semibold">
+                      ${highlightSearchMatch(sev, searchQuery)}
+                    </span>
+                    ${log.is_anomaly && log.priority_tier ? `
+                      <span title="${escapeHtml(log.priority_label || '')}" class="${getPriorityBadgeClass(log.priority_tier)} inline-flex items-center px-1.5 py-0.5 rounded-full mono text-[9px] font-bold">
+                        ${escapeHtml(log.priority_tier)}
+                      </span>
+                    ` : ''}
+                  </div>
                   ${triageBadgeHtml}
                 </td>
                 <td class="py-2.5 px-2 mono text-[10px] text-[#4285F4] break-all">
@@ -5894,6 +6055,12 @@
               <i class="fa-regular fa-clock"></i>
               <span>Skip (Manual)</span>
             </button>
+            <button type="button" onclick="ignoreIncidentPermanently('${escapeHtml(inc.incident_id)}', this)"
+              title="Permanently hide this alert and its recurring log signature from Atlas"
+              class="py-3 px-4 rounded-full bg-slate-900 hover:bg-slate-800 text-slate-200 border border-slate-800 font-medium text-xs transition cursor-pointer flex items-center justify-center gap-2">
+              <i class="fa-solid fa-eye-slash text-[#34A853]"></i>
+              <span>Safe to Ignore</span>
+            </button>
             <button type="button" onclick="openDirectAtlasChat()"
               class="py-3 px-4 rounded-full bg-slate-900 hover:bg-slate-800 text-slate-200 border border-slate-800 font-medium text-xs transition cursor-pointer flex items-center justify-center gap-2">
               <i class="fa-regular fa-comment-dots text-[#4285F4]"></i>
@@ -5953,6 +6120,11 @@
               <div>
                 <div class="flex items-center gap-1.5 flex-wrap">
                   <span class="text-sm sm:text-base font-bold text-white">Atlas • AaaS Lead</span>
+                  ${inc.priority_tier ? `
+                    <span title="${escapeHtml(inc.priority_label || '')}" class="${getPriorityBadgeClass(inc.priority_tier)} px-2 py-0.5 rounded-full mono text-[10px] font-bold">
+                      ${escapeHtml(inc.priority_tier)}
+                    </span>
+                  ` : ''}
                   <span class="g-badge-red px-2.5 py-0.5 rounded-full text-[10px] font-semibold">
                     ${escapeHtml(inc.severity || 'ERROR')}
                   </span>
@@ -6062,6 +6234,13 @@
               class="py-3 px-5 rounded-full bg-slate-900 hover:bg-slate-800 text-slate-200 border border-slate-800 font-medium text-xs transition cursor-pointer flex items-center justify-center gap-2">
               <i class="fa-regular fa-clock"></i>
               <span>Skip (Fix Manually)</span>
+            </button>
+
+            <button id="btnIgnoreIncidentMain" type="button" onclick="ignoreIncidentPermanently('${escapeHtml(inc.incident_id)}', this)"
+              title="Permanently hide this alert and its recurring log signature from Atlas (persisted in Cloud Firestore)"
+              class="py-3 px-5 rounded-full bg-slate-900 hover:bg-slate-800 text-slate-200 border border-slate-800 font-medium text-xs transition cursor-pointer flex items-center justify-center gap-2">
+              <i class="fa-solid fa-eye-slash text-[#34A853]"></i>
+              <span>Safe to Ignore</span>
             </button>
           </div>
 
@@ -6384,11 +6563,17 @@
             </p>
           </div>
 
-          <div class="pt-1 flex justify-center">
+          <div class="pt-1 flex flex-wrap items-center justify-center gap-2.5">
             <button onclick="reopenIncident('${escapeHtml(inc.incident_id)}')"
               class="g-btn-blue inline-flex items-center gap-2 px-4 py-2 rounded-full text-xs font-semibold transition cursor-pointer">
               <i class="fa-regular fa-comment-dots"></i>
               <span>Reopen Incident Chat &amp; Let AI Fix It</span>
+            </button>
+            <button type="button" onclick="ignoreIncidentPermanently('${escapeHtml(inc.incident_id)}', this)"
+              title="Permanently hide this alert and its recurring log signature from Atlas"
+              class="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-slate-900 hover:bg-slate-800 border border-slate-700 text-slate-200 text-xs font-medium transition cursor-pointer">
+              <i class="fa-solid fa-eye-slash text-[#34A853]"></i>
+              <span>Safe to Ignore</span>
             </button>
           </div>
 
@@ -6442,6 +6627,12 @@
               class="g-btn-blue px-4 py-2 rounded-full text-xs font-semibold cursor-pointer inline-flex items-center gap-1.5">
               <i class="fa-solid fa-rotate-right text-[10px]"></i>
               <span>Reopen &amp; Retry</span>
+            </button>
+            <button type="button" onclick="ignoreIncidentPermanently('${escapeHtml(inc.incident_id)}', this)"
+              title="Permanently hide this alert and its recurring log signature from Atlas"
+              class="px-4 py-2 rounded-full bg-slate-900 hover:bg-slate-800 border border-slate-700 text-xs font-medium text-slate-200 cursor-pointer inline-flex items-center gap-1.5">
+              <i class="fa-solid fa-eye-slash text-[#34A853] text-[10px]"></i>
+              <span>Safe to Ignore</span>
             </button>
             <button type="button" onclick="switchView('logs')"
               class="px-4 py-2 rounded-full bg-slate-900 hover:bg-slate-800 border border-slate-700 text-xs font-medium text-slate-200 cursor-pointer inline-flex items-center gap-1.5">
@@ -6635,20 +6826,28 @@
     function renderHealthyCard() {
       const uname = getCurrentUserName();
       const cloudProfile = getCloudProfile(activeTargetCloud);
+      const openQueue = getPrioritizedOpenIssueQueue(latestState || {});
+      const topOpen = openQueue[0] || null;
       return `
         <div class="glass g-card-fourcolor border border-slate-800 rounded-3xl p-6 sm:p-7 text-center space-y-3">
           <div class="w-12 h-12 rounded-2xl bg-slate-900 border border-slate-800 flex items-center justify-center text-lg mx-auto p-1.5 shadow-sm">
             ${getAtlasGcpIconSvg()}
           </div>
-          <div class="inline-flex items-center gap-1.5 g-badge-green px-3 py-0.5 rounded-full text-[11px] font-semibold">
-            <i class="fa-solid fa-circle-check text-[10px]"></i>
-            <span>All Cloud Services Healthy • ${escapeHtml(cloudProfile.label)}</span>
+          <div class="inline-flex items-center gap-1.5 ${topOpen ? 'g-badge-yellow' : 'g-badge-green'} px-3 py-0.5 rounded-full text-[11px] font-semibold">
+            <i class="fa-solid ${topOpen ? 'fa-arrow-up-wide-short' : 'fa-circle-check'} text-[10px]"></i>
+            <span>${topOpen ? `${openQueue.length} Open Log ${openQueue.length === 1 ? 'Issue' : 'Issues'} • Top: ${escapeHtml(topOpen.priority_tier)}` : `All Cloud Services Healthy • ${escapeHtml(cloudProfile.label)}`}</span>
           </div>
           <h2 class="text-lg sm:text-xl font-bold text-white">Ready to Assist, ${escapeHtml(uname)}</h2>
           <p class="text-xs sm:text-sm text-slate-400 max-w-md mx-auto">
-            ${escapeHtml(cloudProfile.healthyPrompt)}
+            ${escapeHtml(topOpen ? `Top prioritized alert (${topOpen.priority_tier}): ${topOpen.title}` : cloudProfile.healthyPrompt)}
           </p>
           <div class="pt-1 flex flex-wrap items-center justify-center gap-2.5">
+            ${topOpen ? `
+              <button type="button" onclick="pickTopPrioritizedIssue(this)" class="g-btn-blue px-4 py-2 rounded-full text-xs font-semibold transition cursor-pointer inline-flex items-center gap-1.5">
+                <i class="fa-solid fa-bolt"></i>
+                <span>Pick Prioritized Issue (${escapeHtml(topOpen.priority_tier)} First)</span>
+              </button>
+            ` : ''}
             <button type="button" onclick="pollLiveCloudLogging()" class="px-4 py-2 rounded-full bg-slate-900 hover:bg-slate-800 border border-slate-700 text-xs font-semibold text-white transition cursor-pointer inline-flex items-center gap-1.5">
               <i class="fa-solid fa-satellite-dish text-[#4285F4]"></i>
               <span>Poll Live Logs</span>
@@ -6796,11 +6995,15 @@
       }
 
       try {
-        await fetch(`/api/incidents/${encodeURIComponent(incidentId)}/chat`, {
+        const res = await fetch(`/api/incidents/${encodeURIComponent(incidentId)}/chat`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ message: userText, user_name: getCurrentUserName() })
         });
+        const chatData = await res.json().catch(() => ({}));
+        if (chatData && chatData.action_taken === 'MARKED_SAFE_TO_IGNORE') {
+          selectedIncidentId = chatData.next_incident_id || null;
+        }
         if (isApprovalText) {
           const remainingMs = Math.max(0, 700 - (Date.now() - startedAt));
           if (remainingMs > 0) await new Promise(r => setTimeout(r, remainingMs));
@@ -6914,6 +7117,38 @@
         await fetchState(true);
       } catch (err) {
         console.error('Skip failed:', err);
+      }
+    }
+
+    async function ignoreIncidentPermanently(incidentId, btnEl) {
+      const btn = btnEl || document.getElementById('btnIgnoreIncidentMain');
+      const prevHtml = btn ? btn.innerHTML : '';
+      if (btn) {
+        btn.disabled = true;
+        btn.innerHTML = `<i class="fa-solid fa-spinner fa-spin"></i><span>Hiding Permanently...</span>`;
+      }
+      try {
+        const res = await fetch(`/api/incidents/${encodeURIComponent(incidentId)}/ignore`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            reason: 'Marked safe to ignore in Atlas',
+            user_name: getCurrentUserName(),
+            ignore_similar_signatures: true
+          })
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(data.detail || `HTTP ${res.status}`);
+        selectedIncidentId = data.next_incident_id || null;
+        directChatMode = false;
+        lastStageSignature = '';
+        await fetchState(true);
+      } catch (err) {
+        console.error('Safe to Ignore failed:', err);
+        if (btn) {
+          btn.disabled = false;
+          btn.innerHTML = prevHtml;
+        }
       }
     }
 

@@ -12,6 +12,7 @@ from __future__ import annotations
 import concurrent.futures
 import datetime
 import os
+import re
 import time
 import uuid
 from typing import Any, Dict, List, Optional
@@ -440,18 +441,118 @@ class GCPCloudLoggingAdapter(TelemetryIngestionAdapter):
             is_anom = (
                 severity in ("ERROR", "CRITICAL", "ALERT", "EMERGENCY")
                 or "FATAL:" in clean_msg
+                or "ERROR:" in clean_msg
                 or "Re-occured" in clean_msg
                 or "Connection Refused" in clean_msg
                 or "timeout expired" in clean_msg
             )
-            sig_suffix = clean_msg[:48] if is_proxy_log else "FATAL_OR_ERROR"
+            low_msg = clean_msg.lower()
+            ctx_m = re.search(r"db=([^,\s]+),user=([^,\s]+),host=([^\s]+)", clean_msg)
+            db_name = ctx_m.group(1) if ctx_m else "postgres"
+            db_user = ctx_m.group(2) if ctx_m else "unknown"
+            db_host = ctx_m.group(3) if ctx_m else "unknown"
+
+            perm_m = re.search(
+                r"ERROR:\s*permission denied for (table|schema|sequence|view|materialized view|function|relation)\s+([a-zA-Z0-9_.\"]+)",
+                clean_msg,
+                flags=re.IGNORECASE,
+            )
+            is_conn_probe = any(
+                frag in low_msg
+                for frag in (
+                    "unsupported frontend protocol",
+                    "no postgresql user name specified",
+                    "pg_hba.conf rejects connection",
+                    "canceling authentication due to timeout",
+                    "invalid length of startup packet",
+                )
+            )
+
+            metrics_snap: Dict[str, Any] = {
+                "database_id": db_id,
+                "region": region,
+                "log_source": log_name.split("/")[-1],
+                "db_name": db_name,
+                "db_user": db_user,
+                "db_host": db_host,
+            }
+            extra_attrs: Dict[str, Any] = {
+                "db.system": "postgresql",
+                "db.instance.id": db_id,
+                "db.name": db_name,
+                "db.user": db_user,
+            }
+            rec_action_type = "gcloud_patch"
+
+            if perm_m:
+                obj_kind = perm_m.group(1).lower()
+                raw_obj = perm_m.group(2).strip().strip('"').rstrip(";,.")
+                qualified_obj = (
+                    f"public.{raw_obj}"
+                    if ("." not in raw_obj and obj_kind in ("table", "view", "sequence", "relation"))
+                    else raw_obj
+                )
+                grant_target_kind = "TABLE" if obj_kind in ("table", "relation", "view") else obj_kind.upper()
+                grant_privs = (
+                    "USAGE"
+                    if obj_kind == "schema"
+                    else ("USAGE, SELECT" if obj_kind == "sequence" else "SELECT, INSERT, UPDATE, DELETE")
+                )
+                safe_user = db_user if db_user and db_user != "[unknown]" else "app_user"
+                sig_suffix = f"PG_PERM_DENIED:{db_name}:{safe_user}:{raw_obj}"
+                scen_id = "cloudsql_pg_permission_denied"
+                err_code = "CLOUDSQL_PG_OBJECT_PERMISSION_DENIED"
+                sql_title = (
+                    f"Cloud SQL ({instance_short}): Permission denied for {obj_kind} {raw_obj} "
+                    f"(db={db_name}, user={safe_user})"
+                )
+                rec_cmd = (
+                    f'psql "host=127.0.0.1 dbname={db_name} user=postgres" '
+                    f"-c 'GRANT {grant_privs} ON {grant_target_kind} {qualified_obj} TO \"{safe_user}\";'"
+                )
+                rec_action_type = "sql_grant_table_privileges"
+                metrics_snap["db_object_kind"] = obj_kind
+                metrics_snap["db_object_name"] = raw_obj
+                metrics_snap["db_qualified_object"] = qualified_obj
+                extra_attrs["db.sql.table"] = raw_obj
+            elif is_proxy_log:
+                sig_suffix = f"PROXY:{clean_msg[:48]}"
+                scen_id = "cloudsql_proxy_timeout" if is_anom else "info"
+                err_code = "CLOUDSQL_PROXY_CONNECTION_TIMEOUT"
+                sql_title = f"Cloud SQL ({instance_short}): {clean_msg[:65]}"
+                rec_cmd = (
+                    f"gcloud sql instances patch {instance_short} --activation-policy=ALWAYS --project={self.project_id}"
+                )
+            elif is_conn_probe:
+                sig_suffix = "EXTERNAL_CONN_PROBE"
+                scen_id = "cloudsql_conn_probe" if is_anom else "info"
+                err_code = "CLOUDSQL_EXTERNAL_CONN_REJECTED"
+                sql_title = f"Cloud SQL ({instance_short}): Rejected unauthenticated external port probe ({clean_msg[:45]})"
+                rec_cmd = (
+                    f"gcloud sql instances patch {instance_short} --require-ssl --project={self.project_id}"
+                )
+            else:
+                err_extract = re.search(r"(?:FATAL|ERROR):\s*([^\n;]+)", clean_msg)
+                err_slug = re.sub(
+                    r"[^a-zA-Z0-9_]+",
+                    "_",
+                    (err_extract.group(1)[:36] if err_extract else clean_msg[:36]),
+                ).strip("_").upper() or "FATAL_OR_ERROR"
+                sig_suffix = f"DB_ERR:{err_slug}"
+                scen_id = "cloudsql_anomaly" if is_anom else "info"
+                err_code = "CLOUDSQL_POSTGRES_FATAL" if is_anom else "POSTGRES_TELEMETRY"
+                sql_title = f"Cloud SQL ({instance_short}): {clean_msg[:65]}"
+                rec_cmd = (
+                    f"gcloud sql instances patch {instance_short} --activation-policy=ALWAYS --project={self.project_id}"
+                )
+
             return normalize_otel_anomaly(
                 log_id=f"gcp-sql-{entry.insert_id or uuid.uuid4().hex[:8]}",
                 signature_key=f"cloudsql:{db_id}:{sig_suffix}",
                 timestamp=ts_iso,
                 severity=severity if severity in ("ERROR", "CRITICAL", "ALERT") else "ERROR",
-                scenario_id="cloudsql_anomaly" if is_anom else "info",
-                title=f"Cloud SQL ({instance_short}): {clean_msg[:65]}",
+                scenario_id=scen_id,
+                title=sql_title,
                 source="gcp:cloudsql_database",
                 project_id=self.project_id,
                 cluster=region,
@@ -459,22 +560,17 @@ class GCPCloudLoggingAdapter(TelemetryIngestionAdapter):
                 workload=f"cloudsql/{instance_short}",
                 pod=instance_short,
                 container="cloud-sql-proxy" if is_proxy_log else "postgres",
-                error_code=(
-                    "CLOUDSQL_PROXY_CONNECTION_TIMEOUT"
-                    if is_proxy_log
-                    else ("CLOUDSQL_POSTGRES_FATAL" if is_anom else "POSTGRES_TELEMETRY")
-                ),
+                error_code=err_code,
                 message=clean_msg,
-                metrics_snapshot={"database_id": db_id, "region": region, "log_source": log_name.split("/")[-1]},
-                recommended_kubectl=(
-                    f"gcloud sql instances patch {instance_short} --activation-policy=ALWAYS --project={self.project_id}"
-                ),
+                metrics_snapshot=metrics_snap,
+                recommended_kubectl=rec_cmd,
+                recommended_action_type=rec_action_type,
                 is_anomaly=is_anom,
                 persisted_to_gcp=True,
                 cloud_provider="gcp",
                 trace_id=trace_id,
                 span_id=span_id,
-                extra_attributes={"db.system": "postgresql", "db.instance.id": db_id},
+                extra_attributes=extra_attrs,
             )
 
         # Real GCE / GKE / Other GCP resource logs

@@ -31,7 +31,7 @@ from agents.a2a_protocol import (
     AgentCard,
     AgentSkill,
 )
-from providers.cloud_factory import normalize_target_cloud
+from providers.cloud_factory import get_database_cloud_adapter, normalize_target_cloud
 from providers.model_router import (
     ModelAgnosticLLMClient,
     get_llm_provider_config,
@@ -174,6 +174,8 @@ class LeadOrchestratorAgent:
         self.incidents: Dict[str, Dict[str, Any]] = {}
         self.audit_events: Dict[str, Dict[str, Any]] = {}
         self.dispatch_history: List[Dict[str, Any]] = []
+        self.ignored_log_ids: set[str] = set()
+        self.ignored_signatures: set[str] = set()
         self.active_target_cloud: str = normalize_target_cloud(os.getenv("CLOUD_PROVIDER", "gcp"))
         self.active_user: Dict[str, str] = {
             "name": "Hari",
@@ -395,6 +397,16 @@ class LeadOrchestratorAgent:
             "https://agent-triad-db-agent-qq3mp7ftqq-uc.a.run.app",
         ).rstrip("/")
 
+        effective_prompt = prompt
+        if self.ignored_signatures:
+            ignored_list = ", ".join(sorted(self.ignored_signatures)[:8])
+            effective_prompt = (
+                f"{prompt}\n\n"
+                f"[Operator Triage Note: The operator marked these benign signatures Safe to Ignore "
+                f"({ignored_list}). Do NOT prioritize, raise, or force remediation on those ignored items; "
+                f"focus strictly on active unignored database errors such as PostgreSQL object permission denied.]"
+            )
+
         from services.auth_broker import auth_broker
 
         id_token_str = auth_broker.mint_oidc_id_token(db_agent_url)
@@ -407,7 +419,7 @@ class LeadOrchestratorAgent:
             "params": {
                 "skill_id": "diagnose_database_anomaly",
                 "data": {
-                    "prompt": prompt,
+                    "prompt": effective_prompt,
                     "instance_name": instance_name,
                     "target_cloud": resolved_cloud,
                 },
@@ -417,8 +429,9 @@ class LeadOrchestratorAgent:
         if id_token_str:
             headers["Authorization"] = f"Bearer {id_token_str}"
 
+        diagnosis: Optional[Dict[str, Any]] = None
+        a2a_timeout = int(os.getenv("AAAS_SPECIALIST_A2A_TIMEOUT", "20"))
         try:
-            a2a_timeout = int(os.getenv("AAAS_SPECIALIST_A2A_TIMEOUT", "20"))
             req = urllib.request.Request(
                 f"{db_agent_url}/a2a",
                 data=json.dumps(rpc_payload).encode("utf-8"),
@@ -428,25 +441,95 @@ class LeadOrchestratorAgent:
             with urllib.request.urlopen(req, timeout=a2a_timeout) as resp:
                 resp_json = json.loads(resp.read().decode("utf-8"))
             diagnosis = (resp_json.get("result") or {}).get("diagnosis")
-            if diagnosis:
-                self.a2a_hub.message_ledger.insert(
-                    0,
-                    {
-                        "id": rpc_id,
-                        "timestamp": datetime.datetime.now(datetime.timezone.utc).isoformat(),
-                        "sender": self.AGENT_ID,
-                        "recipient": "agent-triad-db-agent (Cloud Run ADK)",
-                        "skill_id": "diagnose_database_anomaly",
-                        "summary": (
-                            f"Atlas invoked live Cloud Run ADK Database Agent ({db_agent_url}/a2a) "
-                            f"for `{instance_name}` -> tools={diagnosis.get('tools_invoked', [])}"
-                        ),
-                        "status": "COMPLETED",
-                    },
-                )
-                return diagnosis
         except Exception:
-            pass
+            diagnosis = None
+
+        if not diagnosis:
+            try:
+                import concurrent.futures
+                import importlib.util
+                from pathlib import Path
+
+                _parents = Path(__file__).resolve().parents
+                agent_py = (_parents[2] / "agents" / "database_agent" / "agent.py") if len(_parents) > 2 else None
+                spec = (
+                    importlib.util.spec_from_file_location("aaas_database_agent_mod", str(agent_py))
+                    if agent_py and agent_py.exists()
+                    else None
+                )
+                if spec and spec.loader:
+                    mod = importlib.util.module_from_spec(spec)
+                    spec.loader.exec_module(mod)
+                    with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+                        diagnosis = pool.submit(
+                            lambda: asyncio.run(
+                                mod.run_diagnosis(
+                                    prompt=effective_prompt,
+                                    instance_name=instance_name,
+                                    target_cloud=resolved_cloud,
+                                )
+                            )
+                        ).result(timeout=a2a_timeout)
+            except Exception:
+                diagnosis = None
+
+        if diagnosis:
+            lower_prompt = prompt.lower()
+            if "ddl_privilege_audit" not in diagnosis and any(
+                k in lower_prompt
+                for k in ("permission denied", "ddl", "drop", "create", "grant", "revoke", "audit_logs", "table")
+            ):
+                try:
+                    db_adapter = get_database_cloud_adapter(resolved_cloud)
+                    resolved_inst = (
+                        (diagnosis.get("instance_inspection") or {}).get("instance_name")
+                        or (instance_name if instance_name and instance_name != "auto" else "testdbinstance1")
+                    )
+                    tbl_m = re.search(
+                        r"(?:permission denied for\s+(?:table|relation|view|sequence|schema)\s+|table\s+)([a-zA-Z0-9_.\"]+)",
+                        prompt,
+                        re.IGNORECASE,
+                    )
+                    hinted_tbl = tbl_m.group(1).strip('"') if tbl_m else ""
+                    ddl_audit = db_adapter.inspect_table_ddl_and_privilege_logs(
+                        table_or_object=hinted_tbl,
+                        instance_name=resolved_inst,
+                    )
+                    diagnosis["ddl_privilege_audit"] = ddl_audit
+                    tools_inv = list(diagnosis.get("tools_invoked") or [])
+                    if "inspect_table_ddl_and_privilege_logs" not in tools_inv:
+                        tools_inv.append("inspect_table_ddl_and_privilege_logs")
+                        diagnosis["tools_invoked"] = tools_inv
+                    if ddl_audit.get("permission_denied_events") or ddl_audit.get("permission_denied_count", 0) > 0:
+                        recomputed_prop = db_adapter.generate_remediation_proposal(
+                            issue_type="PG_OBJECT_PERMISSION_DENIED",
+                            instance_name=resolved_inst,
+                        )
+                        diagnosis["remediation_proposal"] = recomputed_prop
+                        log_anal = dict(diagnosis.get("log_analysis") or {})
+                        log_anal["primary_issue_type"] = "PG_OBJECT_PERMISSION_DENIED"
+                        log_anal["root_cause"] = ddl_audit.get("root_cause_summary") or log_anal.get("root_cause")
+                        log_anal["ddl_and_privilege_correlation"] = ddl_audit
+                        diagnosis["log_analysis"] = log_anal
+                except Exception:
+                    pass
+
+            self.a2a_hub.message_ledger.insert(
+                0,
+                {
+                    "id": rpc_id,
+                    "timestamp": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+                    "sender": self.AGENT_ID,
+                    "recipient": "agent-triad-db-agent (Cloud Run ADK)",
+                    "skill_id": "diagnose_database_anomaly",
+                    "summary": (
+                        f"Atlas invoked live Cloud Run ADK Database Agent ({db_agent_url}/a2a) "
+                        f"for `{instance_name}` -> tools={diagnosis.get('tools_invoked', [])}"
+                    ),
+                    "status": "COMPLETED",
+                },
+            )
+            return diagnosis
         return None
 
     def _invoke_live_infra_agent_a2a(
@@ -723,7 +806,7 @@ class LeadOrchestratorAgent:
 
         otel_attrs = ((log_entry.get("otel") or {}).get("attributes") or {})
         lock_recommended_cli = bool(
-            scenario_id == "datastream_iam_drift"
+            scenario_id in ("datastream_iam_drift", "cloudsql_pg_permission_denied", "cloudsql_conn_probe")
             or otel_attrs.get("lock_recommended_cli")
         )
         default_kubectl = (
@@ -842,10 +925,18 @@ class LeadOrchestratorAgent:
             return WORKER_AGENT_BOUTIQUE[5]  # Security Agent (with Infra Agent coordinated)
         if any(k in msg or k in source or k in workload for k in ("billing", "budget", "cost", "finops")):
             return WORKER_AGENT_BOUTIQUE[6]  # Billing Agent
+        if (
+            "testdbconnect" in workload
+            or "cloudsql" in source
+            or "cloudsql" in scen
+            or "sql" in workload
+            or "database" in msg
+            or "permission denied for " in msg
+            or ("db=" in msg and "user=" in msg)
+        ):
+            return WORKER_AGENT_BOUTIQUE[1]  # Database Agent
         if any(k in msg or k in source or k in workload for k in ("iam", "permission", "unauthorized", "forbidden", "secret", "armor")):
             return WORKER_AGENT_BOUTIQUE[5]  # Security Agent
-        if "testdbconnect" in workload or "cloudsql" in source or "sql" in workload or "database" in msg:
-            return WORKER_AGENT_BOUTIQUE[1]  # Database Agent
         if "reasoningengine" in source or "reasoning_engine" in scen or "bigquery" in source or "dataflow" in source:
             return WORKER_AGENT_BOUTIQUE[4]  # Data Analytics Agent
         if "vpc" in source or "network" in source or "loadbalancing" in source or "ingress" in workload:
@@ -1014,7 +1105,13 @@ resource "google_project_iam_member" "datastream_sa_network_admin" {{
     ) -> List[Dict[str, Any]]:
         uname = self.active_user.get("name", "Hari")
         iam_audit = impact.get("iam_audit")
-        if iam_audit:
+        is_datastream_iam = bool(iam_audit) and (
+            log_entry.get("scenario_id") == "datastream_iam_drift"
+            or "datastream" in str(log_entry.get("source") or "").lower()
+            or "datastream" in str(log_entry.get("workload") or "").lower()
+            or "gcp-sa-datastream" in str(log_entry.get("message") or "").lower()
+        )
+        if is_datastream_iam:
             opening_text = self._format_datastream_four_phase_rca(
                 uname=uname,
                 cloud_provider_status=impact.get("cloud_provider_status") or {"region": log_entry.get("cluster", "europe-west2"), "status": "OPERATIONAL", "mutations_allowed": True},
@@ -1041,6 +1138,21 @@ resource "google_project_iam_member" "datastream_sa_network_admin" {{
         lock_uri = (harness_bundle.get("lock") or {}).get("gcs_uri", "gs://agent-triad-tf-state/lock.tflock")
         rag_score = impact.get("rag_similarity_score", 0.94)
 
+        ddl_audit = impact.get("ddl_privilege_audit")
+        ddl_line = ""
+        if isinstance(ddl_audit, dict):
+            ddl_evts = ddl_audit.get("ddl_events") or ddl_audit.get("ddl_statements") or []
+            dcl_evts = ddl_audit.get("dcl_grant_revoke_events") or ddl_audit.get("privilege_statements") or []
+            ddl_bits: List[str] = []
+            for d_evt in ddl_evts[:2]:
+                stmt_short = str(d_evt.get("statement") or d_evt.get("verb") or "DDL")[:60]
+                ddl_bits.append(f"`{stmt_short}` at `{d_evt.get('timestamp', '')}`")
+            for g_evt in dcl_evts[:2]:
+                stmt_short = str(g_evt.get("statement") or g_evt.get("verb") or "GRANT/REVOKE")[:60]
+                ddl_bits.append(f"`{stmt_short}` at `{g_evt.get('timestamp', '')}`")
+            if ddl_bits:
+                ddl_line = f"• **Correlated Cloud SQL DDL / ACL Logs**: {', '.join(ddl_bits)}\n"
+
         w_spec = (harness_bundle.get("watchdog_spec") or {})
         rb_mode = (
             "Stateful Safe-Mode Isolation (`prevent_destroy=true`)"
@@ -1052,10 +1164,11 @@ resource "google_project_iam_member" "datastream_sa_network_admin" {{
             f"• **Classification**: `{impact.get('scenario_badge', 'Scenario 1 • 1-Line CLI/API Fix')}` (Playbook Match: `{int(rag_score * 100)}%`)\n"
             f"• **Severity**: `{severity}` — {blast}\n"
             f"• **What happened**: {what_happened}\n"
+            f"{ddl_line}"
             f"• **Delegation Plan**: {coord_names}\n"
             f"• **Safety Guardrails**: Verified Non-Destructive (`PASS`) • Resource Locked for 10m (`{lock_uri}`) • 45s Liveness + 3m Metric Verify ({rb_mode})\n"
             f"• **Next Steps**: {next_step}\n\n"
-            "Ask me anything about why this happened, whether there's any downtime, the rollback plan, "
+            "Ask me anything about why this happened, recent DDL/log changes, whether there's any downtime, the rollback plan, "
             "or the exact command/Terraform script. Whenever you're ready, type **'I accept'** or click **I accept** below!"
         )
         return [
@@ -1077,6 +1190,23 @@ resource "google_project_iam_member" "datastream_sa_network_admin" {{
             raw_entry = data.get("log_entry", {})
             log_entry = agent_harness.sanitize_telemetry_saif(raw_entry)
             incident_id = log_entry.get("log_id", f"inc-{len(self.incidents) + 1}")
+            sig_key = str(log_entry.get("signature_key") or "").strip()
+            wl_err_key = f"{log_entry.get('workload', '')}::{log_entry.get('error_code', '')}"
+            existing_inc = self.incidents.get(incident_id)
+            if (
+                incident_id in self.ignored_log_ids
+                or (sig_key and sig_key in self.ignored_signatures)
+                or wl_err_key in self.ignored_signatures
+                or (existing_inc and existing_inc.get("status") == "IGNORED")
+            ):
+                return A2ATaskResponse(
+                    id=request.id,
+                    result={
+                        "status": "IGNORED_BY_OPERATOR",
+                        "incident_id": incident_id,
+                        "signature_key": sig_key,
+                    },
+                )
             specialist = self._select_specialist_worker(log_entry)
 
             cluster = log_entry.get("cluster", "us-central1")
@@ -1226,7 +1356,7 @@ resource "google_project_iam_member" "datastream_sa_network_admin" {{
             if live_sec_diag:
                 impact_and_remedy["live_security_agent_diagnosis"] = live_sec_diag
 
-            if iam_audit:
+            if iam_audit and is_datastream_iam:
                 impact_and_remedy["iam_audit"] = iam_audit
                 impact_and_remedy["recommended_kubectl"] = iam_audit["recommended_cli"]
                 impact_and_remedy["terraform_code"] = self._build_datastream_iam_hcl(
@@ -1258,13 +1388,27 @@ resource "google_project_iam_member" "datastream_sa_network_admin" {{
                 impact_and_remedy["live_database_agent_diagnosis"] = live_db_diag
                 log_anal = live_db_diag.get("log_analysis") or {}
                 prop = live_db_diag.get("remediation_proposal") or {}
+                ddl_audit = live_db_diag.get("ddl_privilege_audit") or log_anal.get("ddl_and_privilege_correlation")
+                if isinstance(ddl_audit, dict):
+                    impact_and_remedy["ddl_privilege_audit"] = ddl_audit
                 if log_anal.get("root_cause"):
                     impact_and_remedy["root_cause"] = log_anal["root_cause"]
                     impact_and_remedy["customer_what_happened"] = log_anal["root_cause"]
+                has_ddl_perm_denied = isinstance(ddl_audit, dict) and bool(
+                    ddl_audit.get("permission_denied_events") or ddl_audit.get("permission_denied_count", 0) > 0
+                )
+                if has_ddl_perm_denied:
+                    if ddl_audit.get("root_cause_summary"):
+                        impact_and_remedy["root_cause"] = ddl_audit["root_cause_summary"]
+                        impact_and_remedy["customer_what_happened"] = ddl_audit["root_cause_summary"]
+                    if ddl_audit.get("recommended_cli"):
+                        impact_and_remedy["recommended_kubectl"] = ddl_audit["recommended_cli"]
                 if prop.get("remediation_summary"):
                     impact_and_remedy["remedy_summary"] = prop["remediation_summary"]
                     impact_and_remedy["customer_why_approve"] = prop["remediation_summary"]
-                if prop.get("recommended_cli"):
+                if prop.get("recommended_cli") and not (
+                    has_ddl_perm_denied and ddl_audit.get("recommended_cli")
+                ):
                     impact_and_remedy["recommended_kubectl"] = prop["recommended_cli"]
                 if prop.get("terraform_hcl"):
                     impact_and_remedy["terraform_code"] = prop["terraform_hcl"]
@@ -1707,7 +1851,20 @@ resource "google_project_iam_member" "datastream_sa_network_admin" {{
                 "incident": updated,
             }
 
-        # Check if user wants to skip / ignore / handle manually later
+        # Check if user explicitly marks this issue "Safe to Ignore" permanently via chat
+        if incident["status"] in ("AWAITING_HITL_APPROVAL", "SKIPPED_MANUAL") and "safe to ignore" in lower_msg and "?" not in lower_msg:
+            updated = self.dismiss_incident_ignored(
+                incident_id=incident_id,
+                ignored_by=f"{uname} (via Chat)",
+                reason="Marked Safe to Ignore via Atlas Chat",
+            )
+            return {
+                "action_taken": "IGNORED_SAFE_TO_IGNORE",
+                "reply": (updated or incident)["chat_messages"][-1]["text"],
+                "incident": updated or incident,
+            }
+
+        # Check if user wants to skip / handle manually later
         skip_phrases = ("skip", "ignore", "later", "fix manually", "do it myself", "not now", "hold off")
         if incident["status"] == "AWAITING_HITL_APPROVAL" and any(p in lower_msg for p in skip_phrases) and "?" not in lower_msg:
             updated = self.skip_incident_manual(incident_id=incident_id, skipped_by=f"{uname} (via Chat)")
@@ -1719,6 +1876,75 @@ resource "google_project_iam_member" "datastream_sa_network_admin" {{
 
         impact = incident.get("impact_analysis", {})
         log_entry = incident.get("log_entry", {})
+        raw_inc_cloud = str(
+            log_entry.get("cloud_provider")
+            or incident.get("target_cloud")
+            or self.active_target_cloud
+            or "gcp"
+        ).strip().lower()
+        inc_target_cloud = raw_inc_cloud if raw_inc_cloud in ("gcp", "aws", "azure") else "gcp"
+
+        asks_ddl_or_logs = any(
+            k in lower_msg
+            for k in ("ddl", "drop", "create", "alter", "grant", "revoke", "table", "audit_logs", "change", "log", "permission")
+        )
+        is_db_incident = (
+            (incident.get("specialist_worker") or {}).get("id") == "database-agent"
+            or "cloudsql" in str(log_entry.get("source") or "").lower()
+            or "cloudsql" in str(log_entry.get("scenario_id") or "").lower()
+            or "permission denied for " in str(log_entry.get("message") or "").lower()
+        )
+        ddl_audit = impact.get("ddl_privilege_audit")
+        if is_db_incident and (asks_ddl_or_logs or not isinstance(ddl_audit, dict)):
+            try:
+                inst_hint = str(log_entry.get("pod") or "testdbinstance1").split(":")[-1]
+                otel_attrs = ((log_entry.get("otel") or {}).get("attributes") or {})
+                tbl_match = re.search(
+                    r"(?:permission denied for\s+(?:table|relation|view|sequence|schema)\s+|table\s+)([a-zA-Z0-9_.\"]+)",
+                    f"{clean_msg} {log_entry.get('message', '')}",
+                    re.IGNORECASE,
+                )
+                tbl_hint = (
+                    (tbl_match.group(1).strip('"') if tbl_match else "")
+                    or str(otel_attrs.get("db.sql.table") or "")
+                )
+                db_adapter = get_database_cloud_adapter(inc_target_cloud)
+                ddl_audit = await asyncio.to_thread(
+                    db_adapter.inspect_table_ddl_and_privilege_logs,
+                    table_or_object=tbl_hint,
+                    instance_name=inst_hint,
+                )
+                if isinstance(ddl_audit, dict):
+                    impact["ddl_privilege_audit"] = ddl_audit
+                    if ddl_audit.get("permission_denied_events") or ddl_audit.get("permission_denied_count", 0) > 0:
+                        if ddl_audit.get("root_cause_summary"):
+                            impact["root_cause"] = ddl_audit["root_cause_summary"]
+                        if ddl_audit.get("recommended_cli") and log_entry.get("scenario_id") != "cloudsql_conn_probe":
+                            impact["recommended_kubectl"] = ddl_audit["recommended_cli"]
+                        if (incident.get("specialist_worker") or {}).get("id") != "database-agent":
+                            incident["specialist_worker"] = WORKER_AGENT_BOUTIQUE[1]
+            except Exception:
+                pass
+
+        ddl_timeline_context = ""
+        if isinstance(ddl_audit, dict):
+            ddl_evts = ddl_audit.get("ddl_events") or ddl_audit.get("ddl_statements") or []
+            perm_evts = ddl_audit.get("permission_denied_events") or []
+            dcl_evts = ddl_audit.get("dcl_grant_revoke_events") or ddl_audit.get("privilege_statements") or []
+            if perm_evts or ddl_evts or dcl_evts:
+                lines_ctx = [f"Cloud SQL Statement & Object ACL Correlation ({ddl_audit.get('instance_name', 'testdbinstance1')}):"]
+                lines_ctx.append(f"- Root Cause Correlation: {ddl_audit.get('root_cause_summary', '')}")
+                for d_evt in ddl_evts[:5]:
+                    lines_ctx.append(f"- DDL [{d_evt.get('timestamp')}]: {d_evt.get('statement')}")
+                for p_evt in perm_evts[:5]:
+                    lines_ctx.append(
+                        f"- ERROR [{p_evt.get('timestamp')}]: user={p_evt.get('db_user')} db={p_evt.get('db_name')} "
+                        f"permission denied for {p_evt.get('object_kind', 'table')} {p_evt.get('object_name')}"
+                    )
+                for g_evt in dcl_evts[:5]:
+                    lines_ctx.append(f"- DCL [{g_evt.get('timestamp')}]: {g_evt.get('statement')}")
+                ddl_timeline_context = "\n".join(lines_ctx) + "\n\n"
+
         history_text = "\n".join(
             f"{m.get('sender', m.get('role'))}: {m.get('text')}"
             for m in incident.get("chat_messages", [])[-6:]
@@ -1728,10 +1954,11 @@ resource "google_project_iam_member" "datastream_sa_network_admin" {{
         if self._llm_client.is_available:
             try:
                 prompt = (
-                    "You are Atlas, the Single Authorizing ADK Root Gemini Agent for Hari's Google Cloud project (`agent-triad`).\n"
-                    "Answer Hari's question clearly, warmly, and concisely (2-4 short bullet points or sentences) in plain English.\n"
-                    "Reassure him about safety, zero downtime, the `.tflock` state lease, OPA policy check, and automatic rollback where relevant, "
-                    "and remind him he can say 'I accept' or click 'I accept' whenever he feels comfortable.\n\n"
+                    f"You are Atlas, the Single Authorizing ADK Root Gemini Agent for {uname}'s Google Cloud project (`agent-triad`).\n"
+                    f"Answer {uname}'s question clearly, warmly, and concisely (2-5 short bullet points or sentences) in plain English.\n"
+                    "If Cloud SQL DDL/DCL statement logs (`DROP TABLE`, `CREATE TABLE`, `GRANT`, `REVOKE`) are provided below, cite their exact timestamps and SQL statements directly.\n"
+                    "Reassure the operator about safety, zero downtime, the `.tflock` state lease, OPA policy check, and automatic rollback where relevant, "
+                    "and remind them they can say 'I accept' or click 'I accept' whenever ready.\n\n"
                     f"Service: {incident.get('service_label')}\n"
                     f"Scenario Mode: {impact.get('scenario_badge')}\n"
                     f"Root Cause: {impact.get('root_cause')}\n"
@@ -1740,6 +1967,7 @@ resource "google_project_iam_member" "datastream_sa_network_admin" {{
                     f"Command: {impact.get('recommended_kubectl')}\n"
                     f"Rollback Plan: {impact.get('rollback_plan')}\n"
                     f"Raw Log Message: {log_entry.get('message')}\n\n"
+                    f"{ddl_timeline_context}"
                     f"Conversation so far:\n{history_text}\n"
                 )
                 generated = await asyncio.to_thread(self._llm_client.generate_text, prompt)
@@ -1749,9 +1977,26 @@ resource "google_project_iam_member" "datastream_sa_network_admin" {{
                 reply_text = ""
 
         if not reply_text:
-            if any(k in lower_msg for k in ("why", "cause", "happen", "reason", "detail")):
+            if ddl_timeline_context and asks_ddl_or_logs:
+                ddl_evts_fb = ((ddl_audit or {}).get("ddl_events") or (ddl_audit or {}).get("ddl_statements") or [])[:4]
+                dcl_evts_fb = ((ddl_audit or {}).get("dcl_grant_revoke_events") or (ddl_audit or {}).get("privilege_statements") or [])[:4]
+                ddl_bullets: List[str] = [
+                    f"I checked the live Cloud SQL statement logs on **`{(ddl_audit or {}).get('instance_name', 'testdbinstance1')}`**, {uname}:"
+                ]
+                for d_evt in ddl_evts_fb:
+                    ddl_bullets.append(f"• **DDL (`{d_evt.get('timestamp')}`)**: `{d_evt.get('statement')}`")
+                for p_evt in ((ddl_audit or {}).get("permission_denied_events") or [])[:3]:
+                    ddl_bullets.append(
+                        f"• **Permission Denied (`{p_evt.get('timestamp')}`)**: `user={p_evt.get('db_user')}` denied on `{p_evt.get('object_name')}`"
+                    )
+                for g_evt in dcl_evts_fb:
+                    ddl_bullets.append(f"• **Privilege DCL (`{g_evt.get('timestamp')}`)**: `{g_evt.get('statement')}`")
+                ddl_bullets.append(f"• **Correlation**: {(ddl_audit or {}).get('root_cause_summary') or impact.get('root_cause')}")
+                ddl_bullets.append(f"• **Proposed Fix**: `{impact.get('recommended_kubectl')}`")
+                reply_text = "\n".join(ddl_bullets)
+            elif any(k in lower_msg for k in ("why", "cause", "happen", "reason", "detail")):
                 reply_text = (
-                    f"Good question, Hari! Here's what happened under the hood:\n"
+                    f"Good question, {uname}! Here's what happened under the hood:\n"
                     f"• **Root Cause**: {impact.get('root_cause')}\n"
                     f"• **Impact**: {impact.get('business_impact')}\n"
                     f"• **Affected Services**: {', '.join(impact.get('affected_services', [incident.get('workload', '')]))}\n\n"
@@ -1759,7 +2004,7 @@ resource "google_project_iam_member" "datastream_sa_network_admin" {{
                 )
             elif any(k in lower_msg for k in ("safe", "downtime", "risk", "break", "rollback", "revert", "harness", "lock")):
                 reply_text = (
-                    f"It's completely safe and gated by the **Agent Harness**, Hari:\n"
+                    f"It's completely safe and gated by the **Agent Harness**, {uname}:\n"
                     f"• **Zero-Standing Privilege**: Only I (`Atlas`) can mint the single-use 15-minute JIT token scoped to `{incident.get('workload')}`.\n"
                     f"• **State Lock & OPA Gate**: `.tflock` lease is active and OPA blast-radius check passed.\n"
                     f"• **Auto-Rollback Plan**: {impact.get('rollback_plan')}\n\n"
@@ -1767,13 +2012,23 @@ resource "google_project_iam_member" "datastream_sa_network_admin" {{
                 )
             else:
                 reply_text = (
-                    f"Here's the full picture for **{incident.get('workload')}**, Hari:\n"
+                    f"Here's the full picture for **{incident.get('workload')}**, {uname}:\n"
                     f"• **Scenario**: `{impact.get('scenario_badge')}`\n"
                     f"• **Root Cause**: {impact.get('root_cause')}\n"
                     f"• **Proposed Fix**: {impact.get('remedy_summary')} (`{impact.get('recommended_kubectl')}`)\n"
                     f"• **Safety**: Zero downtime + automatic rollback ({impact.get('rollback_plan')}).\n\n"
                     "Whenever you're ready, say **'I accept'** or click the **I accept** button below!"
                 )
+
+        if (
+            log_entry.get("scenario_id") == "cloudsql_pg_permission_denied"
+            and impact.get("recommended_kubectl")
+            and "GRANT SELECT" not in reply_text.upper()
+        ):
+            reply_text = (
+                f"{reply_text.rstrip()}\n\n"
+                f"• **Proposed PostgreSQL Privilege Fix**: `{impact.get('recommended_kubectl')}`"
+            )
 
         reply_msg = {
             "role": "assistant",
@@ -2827,9 +3082,105 @@ resource "google_project_iam_member" "datastream_sa_network_admin" {{
             )
         return incident
 
-    def list_incidents(self) -> List[Dict[str, Any]]:
+    def dismiss_incident_ignored(
+        self,
+        incident_id: str,
+        ignored_by: Optional[str] = None,
+        reason: str = "Marked Safe to Ignore",
+        signature_key: str = "",
+    ) -> Optional[Dict[str, Any]]:
+        """
+        Permanently suppresses an incident marked 'Safe to Ignore' by the operator:
+          - Records `incident_id` and its `signature_key` / `workload::error_code` so recurring logs
+            are never re-escalated or forced in Atlas.
+          - Releases any active `.tflock` state lease.
+          - Transitions incident status to `IGNORED` (excluded from `list_incidents()`).
+        """
+        if incident_id:
+            self.ignored_log_ids.add(str(incident_id))
+        if signature_key:
+            self.ignored_signatures.add(str(signature_key))
+
+        incident = self.incidents.get(incident_id)
+        if not incident:
+            return None
+
+        uname = (ignored_by or self.active_user.get("name") or "Hari").strip()
+        now_iso = datetime.datetime.now(datetime.timezone.utc).isoformat()
+        log_entry = incident.get("log_entry") or {}
+        inc_sig = str(log_entry.get("signature_key") or "").strip()
+        if inc_sig:
+            self.ignored_signatures.add(inc_sig)
+        if log_entry.get("workload") and log_entry.get("error_code"):
+            self.ignored_signatures.add(f"{log_entry.get('workload')}::{log_entry.get('error_code')}")
+
+        incident["status"] = "IGNORED"
+        incident["ignored"] = True
+        incident["ignored_by"] = uname
+        incident["ignored_at"] = now_iso
+        incident["ignore_reason"] = reason
+        incident["approved_by"] = f"{uname} (Safe to Ignore)"
+        incident["updated_at"] = now_iso
+        agent_harness.release_state_lock(
+            cluster=incident.get("cluster", "us-central1"),
+            namespace=incident.get("namespace", "default"),
+            workload=incident.get("workload", "service"),
+        )
+        incident.setdefault("timeline", []).append(
+            {
+                "timestamp": now_iso,
+                "agent": "Atlas • Lead Orchestrator",
+                "event": (
+                    f"Operator ({uname}) marked `{incident.get('workload')}` Safe to Ignore ({reason}). "
+                    "Released `.tflock` lease and permanently suppressed recurring signature from Atlas."
+                ),
+            }
+        )
+        incident.setdefault("chat_messages", []).append(
+            {
+                "role": "assistant",
+                "sender": "Atlas • AaaS Lead",
+                "text": (
+                    f"Understood, {uname} — I've marked **`{incident.get('workload')}`** as **Safe to Ignore**, "
+                    "released `.tflock`, and suppressed its signature so it won't appear again in Atlas."
+                ),
+                "timestamp": now_iso,
+            }
+        )
+        self._upsert_audit_event(incident, event_type="SAFE_TO_IGNORE")
+        return incident
+
+    def restore_ignored_signatures(
+        self,
+        log_ids: Optional[List[str]] = None,
+        signature_keys: Optional[List[str]] = None,
+    ) -> None:
+        """Removes restored log IDs and signature keys from Atlas's permanent suppression set."""
+        for lid in log_ids or []:
+            self.ignored_log_ids.discard(str(lid))
+            inc = self.incidents.get(str(lid))
+            if inc and inc.get("status") == "IGNORED":
+                inc["status"] = "SKIPPED_MANUAL"
+                inc["ignored"] = False
+        for sig in signature_keys or []:
+            self.ignored_signatures.discard(str(sig))
+
+    def list_incidents(self, include_ignored: bool = False) -> List[Dict[str, Any]]:
+        visible: List[Dict[str, Any]] = []
+        for item in self.incidents.values():
+            if not include_ignored:
+                if item.get("status") == "IGNORED":
+                    continue
+                if item.get("incident_id") in self.ignored_log_ids:
+                    continue
+                le = item.get("log_entry") or {}
+                sig = str(le.get("signature_key") or "").strip()
+                wl_err = f"{le.get('workload', '')}::{le.get('error_code', '')}"
+                if (sig and sig in self.ignored_signatures) or wl_err in self.ignored_signatures:
+                    continue
+            visible.append(item)
         return sorted(
-            self.incidents.values(),
+            visible,
             key=lambda item: item.get("created_at", ""),
             reverse=True,
         )
@@ -2936,7 +3287,35 @@ resource "google_project_iam_member" "datastream_sa_network_admin" {{
         lower = query_text.lower()
         if any(k in lower for k in ("datastream", "gcp-sa-datastream", "failed_precondition")):
             return WORKER_AGENT_BOUTIQUE[5]  # Security Agent (paired with Infra Agent for Datastream IAM drift)
-        if any(k in lower for k in ("sql", "database", "db", "postgres", "alloydb", "spanner", "connection pool", "socket", "testdbinstance1", "telemetrics")):
+        if any(
+            k in lower
+            for k in (
+                "sql",
+                "database",
+                "db",
+                "postgres",
+                "alloydb",
+                "spanner",
+                "connection pool",
+                "socket",
+                "testdbinstance1",
+                "telemetrics",
+                "permission denied for table",
+                "permission denied for schema",
+                "permission denied for sequence",
+                "permission denied for relation",
+                "audit_logs",
+                "table ",
+                "ddl",
+                "grant ",
+                "revoke ",
+                "drop table",
+                "create table",
+                "pg_hba",
+                "psql",
+                "cloudsql",
+            )
+        ):
             return WORKER_AGENT_BOUTIQUE[1]  # Database Agent
         if any(k in lower for k in ("billing", "cost", "budget", "finops", "price", "spend", "invoice")):
             return WORKER_AGENT_BOUTIQUE[6]  # Billing Agent
@@ -2972,6 +3351,21 @@ resource "google_project_iam_member" "datastream_sa_network_admin" {{
         lower = query_text.lower()
 
         # Check Scenario 2: Multi-Service troubleshooting (IAM + VPC/Firewall + API/DB/Terraform)
+        is_pg_object_acl = any(
+            p in lower
+            for p in (
+                "permission denied for table",
+                "permission denied for schema",
+                "permission denied for sequence",
+                "permission denied for relation",
+                "permission denied for view",
+                "permission denied for function",
+            )
+        )
+        has_network_or_multiservice = any(
+            k in lower
+            for k in ("vpc", "firewall", "egress", "ingress", "subnet", "network", "multi-service", "cloud run")
+        )
         domain_hits = sum(
             1
             for group in (
@@ -2981,7 +3375,12 @@ resource "google_project_iam_member" "datastream_sa_network_admin" {{
             )
             if any(k in lower for k in group)
         )
-        if domain_hits >= 2 and any(k in lower for k in ("fix", "troubleshoot", "error", "block", "fail", "issue", "cannot", "multi-service")):
+        if (
+            not is_pg_object_acl
+            and has_network_or_multiservice
+            and domain_hits >= 2
+            and any(k in lower for k in ("fix", "troubleshoot", "error", "block", "fail", "issue", "cannot", "multi-service"))
+        ):
             rag_pb = playbook_rag_service.retrieve_playbook(query_text, scenario_hint="multi_service_iam_vpc_db")
             coord_specs = [
                 SPECIALIST_BY_ID[sid]
@@ -3031,6 +3430,14 @@ resource "google_project_iam_member" "datastream_sa_network_admin" {{
                 "testdbinstance1",
                 "health",
                 "diagnose",
+                "permission denied",
+                "audit_logs",
+                "ddl",
+                "drop table",
+                "create table",
+                "grant ",
+                "revoke ",
+                "check in the logs",
             )
         ) and not lower.startswith("how do i "):
             primary = self._select_specialist_for_query(query_text)
@@ -3883,6 +4290,7 @@ resource "google_project_iam_member" "datastream_sa_network_admin" {{
             insp = live_db_diagnosis.get("instance_inspection") or {}
             perf = (live_db_diagnosis.get("performance_metrics") or {}).get("metrics") or {}
             ident = live_db_diagnosis.get("runtime_identity") or {}
+            ddl_a = live_db_diagnosis.get("ddl_privilege_audit") or {}
             cpu_val = (perf.get("cpu_utilization_pct") or {}).get("latest")
             mem_val = (perf.get("memory_utilization_pct") or {}).get("latest")
             conn_val = (perf.get("active_connections") or {}).get("latest")
@@ -3903,7 +4311,31 @@ resource "google_project_iam_member" "datastream_sa_network_admin" {{
                 header_lines.append(
                     f"• **Active Runtime Identity**: `{ident.get('active_service_account')}`"
                 )
-            reply_text = "\n".join(header_lines) + "\n\n" + str(live_db_diagnosis["dba_reasoning_report"])
+            report_body = str(live_db_diagnosis["dba_reasoning_report"])
+            ddl_evts_chat = (ddl_a.get("ddl_events") or ddl_a.get("ddl_statements") or []) if isinstance(ddl_a, dict) else []
+            perm_evts_chat = (ddl_a.get("permission_denied_events") or []) if isinstance(ddl_a, dict) else []
+            dcl_evts_chat = (ddl_a.get("dcl_grant_revoke_events") or ddl_a.get("privilege_statements") or []) if isinstance(ddl_a, dict) else []
+            if (
+                isinstance(ddl_a, dict)
+                and (perm_evts_chat or ddl_evts_chat or dcl_evts_chat)
+                and "GRANT SELECT" not in report_body.upper()
+            ):
+                ddl_lines = [
+                    "🔍 **Correlated Cloud SQL DDL & Object ACL Audit (`inspect_table_ddl_and_privilege_logs`)**:",
+                    f"• **Root Cause**: {ddl_a.get('root_cause_summary')}",
+                ]
+                for d_evt in ddl_evts_chat[:3]:
+                    ddl_lines.append(f"• **DDL (`{d_evt.get('timestamp')}`)**: `{d_evt.get('statement')}`")
+                for p_evt in perm_evts_chat[:3]:
+                    ddl_lines.append(
+                        f"• **Permission Denied (`{p_evt.get('timestamp')}`)**: `user={p_evt.get('db_user')}` denied on `{p_evt.get('object_name')}`"
+                    )
+                for g_evt in dcl_evts_chat[:3]:
+                    ddl_lines.append(f"• **Privilege DCL (`{g_evt.get('timestamp')}`)**: `{g_evt.get('statement')}`")
+                if ddl_a.get("recommended_cli"):
+                    ddl_lines.append(f"• **PostgreSQL Remediation**: `{ddl_a.get('recommended_cli')}`")
+                report_body = "\n".join(ddl_lines) + "\n\n" + report_body
+            reply_text = "\n".join(header_lines) + "\n\n" + report_body
         elif live_infra_diagnosis and live_infra_diagnosis.get("infra_reasoning_report"):
             tools_used = ", ".join(live_infra_diagnosis.get("tools_invoked", []))
             insp = live_infra_diagnosis.get("instance_inspection") or {}
@@ -3936,10 +4368,17 @@ resource "google_project_iam_member" "datastream_sa_network_admin" {{
                 cloud_label = {"gcp": "Google Cloud (`agent-triad`)", "aws": "AWS", "azure": "Microsoft Azure"}.get(
                     resolved_cloud, "Google Cloud (`agent-triad`)"
                 )
+                ignore_clause = (
+                    f"Note: The operator marked these benign signatures Safe to Ignore ({', '.join(sorted(self.ignored_signatures)[:8])}); "
+                    "do NOT raise or force remediation on them.\n"
+                    if self.ignored_signatures
+                    else ""
+                )
                 prompt = (
                     f"You are Atlas, the Single Authorizing ADK Root Agent operating on {cloud_label} (active target cloud: {resolved_cloud.upper()}).\n"
                     f"Classified Scenario: {scenario_badge}\n"
                     f"Coordinated Domain Specialists: {coord_names}\n"
+                    f"{ignore_clause}"
                     f"Recent Conversation:\n{history_text}\n\n"
                     "Provide a clear, practical, and concise answer (3-5 bullet points) tailored to the operator's request. "
                     f"Include exact `{cloud_cli_hint}` commands or explain how the coordinated specialists and Agent Harness handle this."
@@ -4075,14 +4514,14 @@ resource "google_project_iam_member" "datastream_sa_network_admin" {{
                 "title": clean_msg[:88] + ("..." if len(clean_msg) > 88 else ""),
                 "scenario_badge": scenario_badge,
                 "workload": (
-                    (live_db_diagnosis or {}).get("instance_inspection", {}).get("instance_name")
-                    or (live_infra_diagnosis or {}).get("instance_inspection", {}).get("instance_name")
+                    ((live_db_diagnosis or {}).get("instance_inspection") or {}).get("instance_name")
+                    or ((live_infra_diagnosis or {}).get("instance_inspection") or {}).get("instance_name")
                     or "atlas-chat"
                 ),
                 "target_cloud": resolved_cloud,
                 "region": (
-                    (live_db_diagnosis or {}).get("instance_inspection", {}).get("region")
-                    or (live_infra_diagnosis or {}).get("instance_inspection", {}).get("zone")
+                    ((live_db_diagnosis or {}).get("instance_inspection") or {}).get("region")
+                    or ((live_infra_diagnosis or {}).get("instance_inspection") or {}).get("zone")
                     or ("us-central1" if resolved_cloud == "gcp" else ("us-east-1" if resolved_cloud == "aws" else "eastus"))
                 ),
                 "primary_specialist": specialist.get("name"),

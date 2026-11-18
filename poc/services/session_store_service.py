@@ -32,6 +32,8 @@ FIRESTORE_BASE_URL = (
 )
 LOCAL_CACHE_FILE = Path("/tmp/aaas_firestore_sessions_cache.json")
 MAX_SESSIONS_PER_USER = 25
+GLOBAL_TRIAGE_DOC_KEY = "__global_triage__"
+GLOBAL_TRIAGE_SESSION_ID = "global-triage-v1"
 
 
 def create_session_store_adapter(backend: Optional[str] = None) -> SessionStoreAdapter:
@@ -344,6 +346,57 @@ class SessionStoreService:
         }
         self._write_firestore_user_doc(user_key, record)
         return record
+
+    def get_global_triage_state(self, sync_from_firestore: bool = True) -> Dict[str, Dict[str, Any]]:
+        """
+        Loads globally persisted 'Safe to Ignore' log IDs and recurring signature suppressions
+        from Cloud Firestore (`aaas_user_sessions/__global_triage__`) or active `SessionStoreAdapter`.
+        """
+        record = self._memory_users.get(GLOBAL_TRIAGE_DOC_KEY)
+        if sync_from_firestore or not record:
+            remote_doc = self._read_firestore_user_doc(GLOBAL_TRIAGE_DOC_KEY)
+            if remote_doc and isinstance(remote_doc.get("sessions"), list):
+                record = remote_doc
+                self._memory_users[GLOBAL_TRIAGE_DOC_KEY] = record
+                self._save_local_cache()
+
+        sessions = (record or {}).get("sessions") or []
+        triage_doc = next(
+            (s for s in sessions if isinstance(s, dict) and s.get("session_id") == GLOBAL_TRIAGE_SESSION_ID),
+            sessions[0] if sessions and isinstance(sessions[0], dict) else {},
+        )
+        raw_logs = triage_doc.get("ignored_logs")
+        raw_sigs = triage_doc.get("ignored_signatures")
+        return {
+            "ignored_logs": dict(raw_logs) if isinstance(raw_logs, dict) else {},
+            "ignored_signatures": dict(raw_sigs) if isinstance(raw_sigs, dict) else {},
+        }
+
+    def save_global_triage_state(
+        self,
+        ignored_logs: Dict[str, Dict[str, Any]],
+        ignored_signatures: Dict[str, Dict[str, Any]],
+    ) -> bool:
+        """
+        Durably persists 'Safe to Ignore' log IDs and recurring signature suppressions
+        to Cloud Firestore (`aaas_user_sessions/__global_triage__`) and local cache.
+        """
+        now_iso = datetime.datetime.now(datetime.timezone.utc).isoformat()
+        payload_session = {
+            "session_id": GLOBAL_TRIAGE_SESSION_ID,
+            "title": "Global Safe-to-Ignore Suppression Registry",
+            "updated_at": now_iso,
+            "ignored_logs": dict(ignored_logs or {}),
+            "ignored_signatures": dict(ignored_signatures or {}),
+        }
+        record = {
+            "user_email": GLOBAL_TRIAGE_DOC_KEY,
+            "user_name": "Global Triage Suppression",
+            "active_session_id": GLOBAL_TRIAGE_SESSION_ID,
+            "updated_at": now_iso,
+            "sessions": [payload_session],
+        }
+        return self._write_firestore_user_doc(GLOBAL_TRIAGE_DOC_KEY, record)
 
     def get_status(self) -> Dict[str, Any]:
         return self.adapter.get_status()

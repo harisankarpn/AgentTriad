@@ -107,6 +107,28 @@ class DatabaseCloudAdapter(ABC):
             readonly_dsn=readonly_dsn,
         )
 
+    def inspect_table_ddl_and_privilege_logs(
+        self,
+        table_or_object: str = "",
+        db_user: str = "",
+        instance_name: str = "auto",
+        account_or_project_id: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """
+        Read-only correlation of database object permission-denied errors against recent
+        DDL (`DROP TABLE`, `CREATE TABLE`, `ALTER TABLE`) and DCL (`GRANT`, `REVOKE`) statement logs.
+        """
+        return {
+            "status": "DDL_LOG_CORRELATION_UNAVAILABLE_FOR_PROVIDER",
+            "target_cloud": self.cloud_provider,
+            "instance_name": instance_name,
+            "table_or_object": table_or_object,
+            "db_user": db_user,
+            "ddl_events": [],
+            "dcl_grant_revoke_events": [],
+            "permission_denied_events": [],
+        }
+
 
 class ComputeCloudAdapter(ABC):
     """Strategy interface for cloud-agnostic compute/VM diagnostics (`gcp` | `aws` | `azure`)."""

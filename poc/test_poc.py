@@ -1722,6 +1722,320 @@ def run_e2e_tests() -> None:
         "single Recreate Fault button inside Support Ticket modal, and blinking Live Health Watch post-fix verification!"
     )
 
+    # 16. PostgreSQL Table Permission Denied (`audit_logs_test`), Prioritized Issue Picker (P1..P4) & Permanent Safe-to-Ignore Suppression
+    import io as _io
+    import json as _json
+    import urllib.request as _urlreq
+    import app as _app_module
+    from providers.gcp.cloud_adapters import GCPDatabaseCloudAdapter
+    from services.session_store_service import session_store_service as _sess_store
+
+    class _FakeGcpEntry:
+        def __init__(self, payload, resource_type: str, labels: dict, severity: str, insert_id: str, ts_iso: str):
+            import datetime as _dt
+
+            self.payload = payload
+            self.resource = type("Res", (), {"type": resource_type, "labels": labels})()
+            self.severity = severity
+            self.insert_id = insert_id
+            self.log_name = "projects/agent-triad/logs/cloudsql.googleapis.com%2Fpostgres.log"
+            self.timestamp = _dt.datetime.fromisoformat(ts_iso)
+
+    # 16a. Normalize exact user PostgreSQL permission denied log & external port probe false positive
+    exact_pg_perm_msg = (
+        "2026-11-18 07:39:41.915 UTC [2377783]: [1-1] "
+        "db=postgres,user=sa-test-db-auth-obj-access@agent-triad.iam,host=[local] "
+        "ERROR: permission denied for table audit_logs_test"
+    )
+    norm_pg_perm = _app_log_svc.adapter._normalize_gcp_entry(
+        _FakeGcpEntry(
+            payload=exact_pg_perm_msg,
+            resource_type="cloudsql_database",
+            labels={"database_id": "agent-triad:testdbinstance1", "region": "us-central1"},
+            severity="ERROR",
+            insert_id="test16-pg-perm-1",
+            ts_iso="2026-11-18T07:39:41.915000+00:00",
+        )
+    )
+    assert norm_pg_perm is not None
+    assert norm_pg_perm["scenario_id"] == "cloudsql_pg_permission_denied", norm_pg_perm
+    assert norm_pg_perm["error_code"] == "CLOUDSQL_PG_OBJECT_PERMISSION_DENIED", norm_pg_perm
+    assert norm_pg_perm["metrics_snapshot"]["db_object_name"] == "audit_logs_test"
+    assert norm_pg_perm["metrics_snapshot"]["db_user"] == "sa-test-db-auth-obj-access@agent-triad.iam"
+    assert norm_pg_perm["metrics_snapshot"]["db_name"] == "postgres"
+    assert "GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE public.audit_logs_test" in norm_pg_perm["recommended_kubectl"]
+
+    norm_probe = _app_log_svc.adapter._normalize_gcp_entry(
+        _FakeGcpEntry(
+            payload="2026-11-18 08:10:12.000 UTC [2379001]: [1-1] db=[unknown],user=[unknown],host=203.0.113.42 FATAL: unsupported frontend protocol 1234.5679: server supports 2.0 to 3.0",
+            resource_type="cloudsql_database",
+            labels={"database_id": "agent-triad:testdbinstance1", "region": "us-central1"},
+            severity="ALERT",
+            insert_id="test16-probe-1",
+            ts_iso="2026-11-18T08:10:12+00:00",
+        )
+    )
+    assert norm_probe is not None
+    assert norm_probe["scenario_id"] == "cloudsql_conn_probe", norm_probe
+    assert norm_probe["error_code"] == "CLOUDSQL_EXTERNAL_CONN_REJECTED", norm_probe
+    assert norm_probe["signature_key"] == "cloudsql:agent-triad:testdbinstance1:EXTERNAL_CONN_PROBE"
+
+    # Verify Database Agent DDL & privilege correlation (`DROP TABLE` + `CREATE TABLE` wiping PostgreSQL grants)
+    sql_adapter = GCPDatabaseCloudAdapter(project_id="agent-triad", token_provider=lambda: "fake-token")
+    orig_urlopen = _urlreq.urlopen
+
+    class _FakeHttpResp:
+        def __init__(self, body_dict: dict):
+            self._raw = _io.BytesIO(_json.dumps(body_dict).encode("utf-8"))
+
+        def read(self) -> bytes:
+            return self._raw.read()
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return False
+
+    try:
+        _urlreq.urlopen = lambda req, timeout=12: _FakeHttpResp(
+            {
+                "entries": [
+                    {
+                        "timestamp": "2026-11-18T07:39:41.915000+00:00",
+                        "severity": "ERROR",
+                        "textPayload": exact_pg_perm_msg,
+                    },
+                    {
+                        "timestamp": "2026-11-18T07:38:10.100000+00:00",
+                        "severity": "INFO",
+                        "textPayload": "2026-11-18 07:38:10.100 UTC [2377500]: [2-1] db=postgres,user=postgres,host=[local] LOG:  statement: CREATE TABLE public.audit_logs_test (id serial PRIMARY KEY, payload jsonb);",
+                    },
+                    {
+                        "timestamp": "2026-11-18T07:38:09.900000+00:00",
+                        "severity": "INFO",
+                        "textPayload": "2026-11-18 07:38:09.900 UTC [2377500]: [1-1] db=postgres,user=postgres,host=[local] LOG:  statement: DROP TABLE IF EXISTS public.audit_logs_test;",
+                    },
+                ]
+            }
+        )
+        ddl_corr = sql_adapter.inspect_table_ddl_and_privilege_logs(
+            table_or_object="audit_logs_test",
+            db_user="sa-test-db-auth-obj-access@agent-triad.iam",
+            instance_name="testdbinstance1",
+            account_or_project_id="agent-triad",
+        )
+    finally:
+        _urlreq.urlopen = orig_urlopen
+
+    assert ddl_corr["status"] == "LIVE_CLOUDSQL_DDL_ACL_CORRELATION", ddl_corr
+    assert ddl_corr["ddl_recreation_detected"] is True, ddl_corr
+    assert len(ddl_corr["ddl_events"]) == 2
+    assert (
+        ddl_corr["recommended_grant_sql"]
+        == 'GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE public.audit_logs_test TO "sa-test-db-auth-obj-access@agent-triad.iam";'
+    )
+    assert "ALTER DEFAULT PRIVILEGES" in ddl_corr["recommended_default_privileges_sql"]
+
+    # 16b & 16c. Prioritized Issue Picker (P1 first over newer P3/P4) + Permanent Safe-to-Ignore across Atlas & Firestore
+    p1_id = "test16-p1-pg-perm-audit-logs"
+    p3_id = "test16-p3-mon-api-warn"
+    p4_id = "test16-p4-conn-probe-fp"
+    p4_recur_id = "test16-p4-conn-probe-recurring"
+
+    saved_local_logs = list(_app_log_svc._local_logs)
+    saved_incidents = dict(_app_orch.incidents)
+    saved_ignored_ids = dict(_app_module._ignored_log_ids)
+    saved_ignored_sigs = dict(_app_module._ignored_signatures)
+    saved_orch_ign_ids = set(_app_orch.ignored_log_ids)
+    saved_orch_ign_sigs = set(_app_orch.ignored_signatures)
+    saved_seen = set(_app_module._seen_anomaly_ids)
+    orig_fetch_fn = _app_log_svc.fetch_recent_logs
+
+    p1_entry = {
+        **norm_pg_perm,
+        "log_id": p1_id,
+        "timestamp": "2026-11-18T07:39:41.915000+00:00",  # Older than P3 & P4!
+    }
+    p3_entry = {
+        "log_id": p3_id,
+        "timestamp": "2026-11-18T08:05:00+00:00",
+        "severity": "WARNING",
+        "source": "gcp-cloud-logging-live",
+        "cluster": "gcp-project/agent-triad",
+        "namespace": "us-central1",
+        "workload": "gce-vm/demo-instance-1",
+        "pod": "demo-instance-1",
+        "error_code": "MonApiPermissionErr",
+        "signature_key": "gce:demo-instance-1:MonApiPermissionErr",
+        "scenario_id": "real_gcp_anomaly",
+        "title": "VM Monitoring agent MonApiPermissionErr warning",
+        "message": "MonApiPermissionErr: monitoring.timeSeries.create permission warning",
+        "is_anomaly": True,
+    }
+    p4_entry = {
+        **norm_probe,
+        "log_id": p4_id,
+        "timestamp": "2026-11-18T08:15:00+00:00",  # Newest timestamp, but P4 false positive!
+    }
+    p4_recurring_entry = {
+        **norm_probe,
+        "log_id": p4_recur_id,
+        "timestamp": "2026-11-18T08:25:00+00:00",  # Brand-new log_id with the exact same P4 signature_key!
+    }
+
+    try:
+        _app_orch.incidents.clear()
+        _app_module._ignored_log_ids.clear()
+        _app_module._ignored_signatures.clear()
+        _app_module._sync_orchestrator_ignore_sets()
+        _app_module._seen_anomaly_ids.clear()
+        _app_log_svc._local_logs[:] = [p4_entry, p3_entry, p1_entry]
+        _app_log_svc.fetch_recent_logs = lambda limit=25, poll_gcp=True, force=False: list(
+            _app_log_svc._local_logs[:limit]
+        )
+
+        # Verify GET /api/state ranks P1 (`audit_logs_test`) FIRST ahead of newer P3 and P4
+        st16 = client.get("/api/state").json()
+        prio_queue = st16["prioritized_open_issues"]
+        assert len(prio_queue) == 3, prio_queue
+        assert [item["log_id"] for item in prio_queue] == [p1_id, p3_id, p4_id], prio_queue
+        assert prio_queue[0]["priority_tier"] == "P1" and prio_queue[0]["priority_score"] == 95
+        assert prio_queue[1]["priority_tier"] == "P3"
+        assert prio_queue[2]["priority_tier"] == "P4" and prio_queue[2]["priority_score"] == 20
+
+        # Escalate P4 false positive first (simulating when user saw the DB port access false positive)
+        esc_p4 = client.post("/api/logs/fix-via-chat", json={"log_ids": [p4_id], "strategy": "auto"})
+        assert esc_p4.status_code == 200, esc_p4.text
+
+        # Poll Live Logs MUST pick P1 (`audit_logs_test`) FIRST even though P3 is newer!
+        poll_p1 = client.post("/api/poll-cloud-logging", json={"strategy": "prioritized"})
+        assert poll_p1.status_code == 200, poll_p1.text
+        poll_p1_body = poll_p1.json()
+        assert poll_p1_body["status"] == "REAL_GCP_INCIDENT_REPORTED_TO_ORCHESTRATOR", poll_p1_body
+        assert poll_p1_body["priority"]["priority_tier"] == "P1"
+        assert poll_p1_body["incident_id"] == p1_id
+        assert poll_p1_body["log_entry"]["log_id"] == p1_id
+
+        # Verify `/api/state["incidents"]` orders P1 incident ahead of P4 incident
+        st_incs = client.get("/api/state").json()["incidents"]
+        assert [i["incident_id"] for i in st_incs[:2]] == [p1_id, p4_id], [i["incident_id"] for i in st_incs]
+        p1_inc = st_incs[0]
+        assert p1_inc["specialist_worker"]["name"] == "Database Agent"
+        assert p1_inc["agent_harness"]["rag_playbook"]["playbook_id"] == "PB-SQL-425"
+
+        # Verify Incident Chat on `audit_logs_test` answers DDL/root-cause questions accurately with PostgreSQL GRANT
+        chat_ddl = client.post(
+            f"/api/incidents/{p1_id}/chat",
+            json={
+                "message": "Why did permission denied for table audit_logs_test happen? Do you see any DROP or CREATE TABLE DDL in the logs?",
+                "user_name": "Hari",
+            },
+        )
+        assert chat_ddl.status_code == 200, chat_ddl.text
+        reply_ddl = chat_ddl.json()["reply"]
+        assert "audit_logs_test" in reply_ddl
+        assert "GRANT SELECT" in reply_ddl
+        assert "sa-test-db-auth-obj-access@agent-triad.iam" in reply_ddl
+        assert "testdbconnect" not in reply_ddl.lower()
+
+        # Verify Direct Atlas Chat recognizes the exact pasted `audit_logs_test` log as PostgreSQL table ACL
+        direct_pg = client.post(
+            "/api/atlas/chat",
+            json={
+                "message": f'Please diagnose this Cloud SQL log: "{exact_pg_perm_msg}"',
+                "user_name": "Hari",
+            },
+        )
+        assert direct_pg.status_code == 200, direct_pg.text
+        direct_reply = direct_pg.json()["reply"]
+        assert "audit_logs_test" in direct_reply
+        assert "GRANT" in direct_reply
+        assert direct_pg.json()["specialist_worker"]["name"] == "Database Agent"
+
+        # Click "Safe to Ignore" directly on the P4 incident card in Atlas (`POST /api/incidents/{p4_id}/ignore`)
+        ign_p4 = client.post(
+            f"/api/incidents/{p4_id}/ignore",
+            json={"reason": "False positive external port scanner", "user_name": "Hari", "ignore_similar_signatures": True},
+        )
+        assert ign_p4.status_code == 200, ign_p4.text
+        ign_p4_body = ign_p4.json()
+        assert ign_p4_body["status"] == "INCIDENT_MARKED_SAFE_TO_IGNORE"
+        assert ign_p4_body["next_incident_id"] == p1_id
+        assert norm_probe["signature_key"] in ign_p4_body["ignored_signatures"]
+
+        # Also mark P3 warning Safe to Ignore via `/api/logs/ignore` (`ignore_similar_signatures=True`)
+        ign_p3 = client.post(
+            "/api/logs/ignore",
+            json={"log_ids": [p3_id], "reason": "Benign VM agent warning", "user_name": "Hari", "ignore_similar_signatures": True},
+        )
+        assert ign_p3.status_code == 200, ign_p3.text
+
+        # Verify neither P4 nor P3 appears in `/api/state["incidents"]` or `prioritized_open_issues`
+        st_after_ign = client.get("/api/state").json()
+        assert [i["incident_id"] for i in st_after_ign["incidents"]] == [p1_id], st_after_ign["incidents"]
+        assert [x["log_id"] for x in st_after_ign["prioritized_open_issues"]] == [p1_id], st_after_ign["prioritized_open_issues"]
+
+        # Verify durable persistence in `session_store_service` (`__global_triage__` in Cloud Firestore) across restart!
+        persisted_triage = _sess_store.get_global_triage_state(sync_from_firestore=True)
+        assert p4_id in persisted_triage["ignored_logs"]
+        assert norm_probe["signature_key"] in persisted_triage["ignored_signatures"]
+
+        # Simulate container cold start: wipe in-memory ignore dicts and reload from Firestore
+        _app_module._ignored_log_ids.clear()
+        _app_module._ignored_signatures.clear()
+        _app_module._load_persisted_triage_state(sync_from_firestore=True)
+        assert p4_id in _app_module._ignored_log_ids
+        assert norm_probe["signature_key"] in _app_module._ignored_signatures
+
+        # Inject brand-new recurring P4 log (`p4_recur_id`) with same signature -> MUST stay suppressed & NEVER re-appear in Atlas!
+        _app_orch.incidents.pop(p1_id, None)
+        _app_log_svc._local_logs[:] = [p4_recurring_entry, p3_entry]
+        st_recur = client.get("/api/state").json()
+        assert st_recur["incidents"] == [], st_recur["incidents"]
+        assert st_recur["prioritized_open_issues"] == [], st_recur["prioritized_open_issues"]
+        recur_row = next(l for l in st_recur["logs"] if l["log_id"] == p4_recur_id)
+        assert recur_row["ignored"] is True and recur_row["triage_status"] == "IGNORED"
+
+        poll_after_ign = client.post("/api/poll-cloud-logging")
+        assert poll_after_ign.status_code == 200
+        assert poll_after_ign.json()["status"] == "NO_UNIGNORED_ANOMALIES", poll_after_ign.json()
+
+        # 16d. Verify Dashboard UI markers for Prioritized Issue Picker & Permanent Safe-to-Ignore buttons
+        ui_html_16 = client.get("/").text
+        for marker16 in (
+            "btnPickPrioritizedIssue",
+            "pickTopPrioritizedIssue",
+            "getPrioritizedOpenIssueQueue",
+            "btnIgnoreIncidentMain",
+            "ignoreIncidentPermanently",
+            "cloudsql_pg_permission_denied",
+            "cloudsql_conn_probe",
+            "Sort: Priority (P1 First)",
+        ):
+            assert marker16 in ui_html_16, f"Missing Section 16 UI marker `{marker16}` in index.html"
+    finally:
+        _app_log_svc.fetch_recent_logs = orig_fetch_fn
+        _app_log_svc._local_logs[:] = saved_local_logs
+        _app_orch.incidents.clear()
+        _app_orch.incidents.update(saved_incidents)
+        _app_module._ignored_log_ids.clear()
+        _app_module._ignored_log_ids.update(saved_ignored_ids)
+        _app_module._ignored_signatures.clear()
+        _app_module._ignored_signatures.update(saved_ignored_sigs)
+        _app_orch.ignored_log_ids.clear()
+        _app_orch.ignored_log_ids.update(saved_orch_ign_ids)
+        _app_orch.ignored_signatures.clear()
+        _app_orch.ignored_signatures.update(saved_orch_ign_sigs)
+        _app_module._seen_anomaly_ids.clear()
+        _app_module._seen_anomaly_ids.update(saved_seen)
+        _app_module._persist_triage_state()
+
+    print(
+        "[PASS] PostgreSQL Table Permission Denied (`audit_logs_test` -> Database Agent PB-SQL-425 + DDL log correlation), "
+        "Prioritized Issue Picker (P1 first over P3/P4), and Permanent 'Safe to Ignore' Firestore signature suppression verified!"
+    )
+
 
 if __name__ == "__main__":
     run_e2e_tests()

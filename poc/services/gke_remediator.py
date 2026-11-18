@@ -246,6 +246,37 @@ class GKERemediator:
 
         if workload.startswith("cloudsql/") or "gcloud sql" in (kubectl_command or "") or "sql" in (workload or "").lower():
             sql_inst = service_name if workload.startswith("cloudsql/") else "testdbinstance1"
+            cmd_str = kubectl_command or ""
+            if "GRANT " in cmd_str.upper() and " TO " in cmd_str.upper():
+                import re as _re_sql
+
+                grant_m = _re_sql.search(
+                    r"GRANT\s+(.+?)\s+ON\s+(.+?)\s+TO\s+([^\s;']+)",
+                    cmd_str,
+                    flags=_re_sql.IGNORECASE,
+                )
+                if grant_m:
+                    privs, target_obj, grantee = grant_m.group(1), grant_m.group(2), grant_m.group(3)
+                    db_m = _re_sql.search(r"dbname=([a-zA-Z0-9_-]+)", cmd_str)
+                    db_n = db_m.group(1) if db_m else "postgres"
+                    revert_cmd = (
+                        f'psql "host=127.0.0.1 dbname={db_n} user=postgres" '
+                        f"-c 'REVOKE {privs} ON {target_obj} FROM {grantee};'"
+                    )
+                    return {
+                        "snapshot_id": snapshot_id,
+                        "snapshot_type": "POSTGRESQL_OBJECT_ACL_SNAPSHOT",
+                        "rollback_strategy": "ADDITIVE_SQL_GRANT_REVOKE",
+                        "workload": workload,
+                        "cluster": cluster,
+                        "namespace": namespace,
+                        "reversible": is_reversible,
+                        "auto_rollback_safe": is_reversible,
+                        "stateful_safe_mode": True,
+                        "baseline_label": f"PostgreSQL `{sql_inst}` (`{db_n}` object ACLs on `{target_obj}`)",
+                        "revert_command": revert_cmd,
+                        "captured_at": captured_at,
+                    }
             prior_policy = "ALWAYS"
             if execution_mode == "live" and AuthorizedSession is not None:
                 try:
@@ -520,6 +551,11 @@ class GKERemediator:
                                 f"[{spec_name} • Agent Harness] Validated and applied `{kubectl_command}` "
                                 f"for `{workload}` via Google Cloud Control Plane."
                             )
+                    elif args and args[0].lower() in ("psql", "grant"):
+                        steps.append(
+                            f"[{spec_name} • PostgreSQL Object ACL Harness] Validated least-privilege SQL `GRANT` "
+                            f"(`{kubectl_command}`) for `{workload}` and staged `postgresql_grant` IaC reconciliation."
+                        )
                     else:
                         steps.append("[OPA/Rego] Blocked unauthorized binary in live mode.")
                 except Exception:

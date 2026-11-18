@@ -77,6 +77,7 @@ async def get_agent_card() -> Dict[str, Any]:
             "connection-pool-exhaustion-analysis",
             "slow-query-log-triage",
             "pg-stat-activity-readonly-introspection",
+            "pg-ddl-and-object-acl-log-correlation",
             "slow-query-analysis",
             "runtime-service-account-introspection",
             "terraform-and-gcloud-proposal-generation",

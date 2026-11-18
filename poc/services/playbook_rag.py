@@ -36,7 +36,7 @@ RAG_PLAYBOOK_CATALOG: List[Dict[str, Any]] = [
         "scenario_type": "SCENARIO_1_CLI_FIX",
         "scenario_badge": "Scenario 1 • 1-Line CLI/API Fix",
         "title": "Cloud Run Container Port 8080 Startup Probe Remediation",
-        "keywords": ["port", "8080", "listen", "healthcheckcontainererror", "testdbconnect", "startup", "cloud run", "sql"],
+        "keywords": ["port", "8080", "listen", "healthcheckcontainererror", "testdbconnect", "startup", "cloud run"],
         "primary_specialist_id": "database-agent",
         "coordinated_specialist_ids": ["database-agent", "serverless-agent"],
         "blast_radius_tier": "HIGH (Database Connector Service Unavailable)",
@@ -399,6 +399,107 @@ resource "google_project_iam_member" "datastream_sa_network_admin" {{
         "downtime_badge": "Zero Downtime",
         "safety_badge": "15m JIT + Stateful Safe-Mode",
     },
+    {
+        "playbook_id": "PB-SQL-425",
+        "scenario_key": "cloudsql_pg_permission_denied",
+        "scenario_type": "SCENARIO_1_CLI_FIX",
+        "scenario_badge": "Scenario 1 • PostgreSQL Object ACL Grant",
+        "title": "Cloud SQL PostgreSQL Table/Object Permission Denied (In-Database GRANT & Default Privileges)",
+        "keywords": [
+            "permission denied for table",
+            "permission denied for schema",
+            "permission denied for sequence",
+            "permission denied for relation",
+            "audit_logs_test",
+            "cloudsql_pg_object_permission_denied",
+            "pg_perm_denied",
+            "grant select",
+            "default privileges",
+            "drop table",
+        ],
+        "primary_specialist_id": "database-agent",
+        "coordinated_specialist_ids": ["database-agent"],
+        "blast_radius_tier": "MEDIUM-HIGH (Database Queries Blocked by Missing Table ACL)",
+        "rollback_mode": "STATEFUL_SAFE_MODE_ISOLATION",
+        "affected_services": ["cloudsql/testdbinstance1", "postgres"],
+        "business_impact": (
+            "Application or IAM-authenticated database sessions can authenticate to PostgreSQL, "
+            "but queries (`SELECT` / `INSERT` / `UPDATE` / `DELETE`) against the target table fail immediately "
+            "with `ERROR: permission denied for table`."
+        ),
+        "root_cause": (
+            "PostgreSQL object-level privilege gap (NOT a GCP IAM role failure): Cloud SQL IAM authentication "
+            "(`roles/cloudsql.instanceUser`) grants database *login* only, whereas table access requires in-database "
+            "PostgreSQL `GRANT` privileges — which are wiped whenever a table is recreated (`DROP TABLE` + `CREATE TABLE`) "
+            "by `postgres` or another owner without `ALTER DEFAULT PRIVILEGES`."
+        ),
+        "remedy_summary": (
+            "Re-grant least-privilege PostgreSQL table permissions (`GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE ...`) "
+            "to the affected database/IAM user and configure `ALTER DEFAULT PRIVILEGES` so future DDL recreations preserve access."
+        ),
+        "recommended_cli": (
+            'psql "host=127.0.0.1 dbname=postgres user=postgres" '
+            "-c 'GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE public.audit_logs_test TO \"sa-test-db-auth-obj-access@agent-triad.iam\";'"
+        ),
+        "terraform_code": None,
+        "rollback_plan": (
+            "Stateful Safe-Mode Isolation: reversible via additive `REVOKE` snapshot command with zero instance restart or connection drops."
+        ),
+        "customer_headline": "PostgreSQL Table-Level Permission Denied (Missing Object GRANT)",
+        "customer_what_happened": (
+            "Real GCP Cloud SQL Log Detected: The IAM database user authenticated to PostgreSQL successfully, "
+            "but PostgreSQL rejected table access (`ERROR: permission denied for table`), typically caused by a recent "
+            "`DROP TABLE` / `CREATE TABLE` DDL recreation or missing in-database `GRANT`."
+        ),
+        "customer_why_approve": (
+            "Restores least-privilege PostgreSQL table `GRANT`s for the affected DB role with zero downtime or instance restart."
+        ),
+        "risk_badge": "Low Risk • Additive SQL GRANT",
+        "downtime_badge": "Zero Downtime",
+        "safety_badge": "Reversible SQL ACL Snapshot",
+    },
+    {
+        "playbook_id": "PB-SQL-404",
+        "scenario_key": "cloudsql_conn_probe",
+        "scenario_type": "SCENARIO_1_CLI_FIX",
+        "scenario_badge": "Scenario 1 • DB Edge Connection Hardening",
+        "title": "Cloud SQL Rejected Unauthenticated External Connection Probe",
+        "keywords": [
+            "unsupported frontend protocol",
+            "no postgresql user name specified",
+            "pg_hba.conf rejects connection",
+            "cloudsql_external_conn_rejected",
+            "external_conn_probe",
+        ],
+        "primary_specialist_id": "database-agent",
+        "coordinated_specialist_ids": ["database-agent"],
+        "blast_radius_tier": "LOW (Benign External Scanner Probe Rejected at DB Handshake)",
+        "rollback_mode": "STATEFUL_SAFE_MODE_ISOLATION",
+        "affected_services": ["cloudsql/testdbinstance1"],
+        "business_impact": (
+            "No authenticated workload impact: PostgreSQL rejected an unauthenticated external TCP/protocol probe "
+            "(`db=[unknown],user=[unknown]`) at the `pg_hba.conf` / SSL handshake boundary. Often safe to ignore."
+        ),
+        "root_cause": (
+            "Internet scanner or non-PostgreSQL TCP probe hit the Cloud SQL public IP endpoint and was blocked "
+            "by PostgreSQL protocol validation / `pg_hba.conf` SSL rules."
+        ),
+        "remedy_summary": (
+            "Mark benign scanner noise `Safe to Ignore`, or enforce `--require-ssl` / Cloud SQL Auth Proxy private connectivity."
+        ),
+        "recommended_cli": "gcloud sql instances patch testdbinstance1 --require-ssl --project=agent-triad",
+        "terraform_code": None,
+        "rollback_plan": "Stateful Safe-Mode config revert to prior `ipConfiguration.sslMode` snapshot.",
+        "customer_headline": "Cloud SQL Rejected Unauthenticated External Port Probe (Benign Noise)",
+        "customer_what_happened": (
+            "PostgreSQL rejected an unauthenticated external probe (`db=[unknown],user=[unknown]`). "
+            "Authenticated application traffic is unaffected — you can safely click 'Safe to Ignore' to silence this signature."
+        ),
+        "customer_why_approve": "Optionally enforces strict SSL-only handshakes (`--require-ssl`) on Cloud SQL.",
+        "risk_badge": "Benign Probe • Safe to Ignore",
+        "downtime_badge": "Zero Downtime",
+        "safety_badge": "Stateful Safe-Mode",
+    },
 ]
 
 
@@ -495,8 +596,31 @@ class PlaybookRAGService:
             tf_mod["rag_engine"] = "Vertex AI Playbook RAG (Terraform IaC Blueprint Index)"
             return tf_mod
 
+        is_pg_object_acl = any(
+            phrase in q_lower
+            for phrase in (
+                "permission denied for table",
+                "permission denied for schema",
+                "permission denied for sequence",
+                "permission denied for relation",
+                "permission denied for view",
+                "cloudsql_pg_object_permission_denied",
+                "audit_logs_test",
+            )
+        )
+        if is_pg_object_acl and not is_tf_deploy_request and "multi-service" not in q_lower:
+            pg_pb = dict(next(p for p in RAG_PLAYBOOK_CATALOG if p["playbook_id"] == "PB-SQL-425"))
+            pg_pb["rag_similarity_score"] = 0.97
+            pg_pb["rag_engine"] = "Vertex AI Playbook RAG (PostgreSQL Object ACL Signature Index)"
+            return pg_pb
+
+        has_network_boundary_kw = any(
+            net_kw in q_lower
+            for net_kw in ("firewall", "vpc", "egress", "connector", "multi-service", "peering")
+        )
         is_multi_service_issue = (
-            sum(
+            has_network_boundary_kw
+            and sum(
                 1
                 for domain_kw in ("iam", "firewall", "vpc", "permission", "sql", "api", "terraform")
                 if domain_kw in q_lower

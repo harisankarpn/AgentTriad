@@ -124,6 +124,17 @@ class LogTriageBatchRequest(BaseModel):
     ignore_similar_signatures: bool = False
 
 
+class PollCloudLoggingRequest(BaseModel):
+    strategy: str = "prioritized"
+    log_id: Optional[str] = None
+
+
+class IgnoreIncidentRequest(BaseModel):
+    reason: Optional[str] = "Marked safe to ignore in Atlas"
+    user_name: Optional[str] = None
+    ignore_similar_signatures: bool = True
+
+
 class CustomerTicketIngestRequest(BaseModel):
     customer_name: str = "HSBC Global Services (UK) Limited"
     project_id: str = os.getenv("GCP_PROJECT_ID", "agent-triad")
@@ -302,10 +313,160 @@ async def serve_dashboard() -> FileResponse:
 _last_watcher_sync_ts: float = 0.0
 _seen_anomaly_ids: set[str] = set()
 _ignored_log_ids: Dict[str, Dict[str, Any]] = {}
+_ignored_signatures: Dict[str, Dict[str, Any]] = {}
 _real_poll_cursor: int = 0
 _watcher_refresh_in_flight: bool = False
 _watcher_sync_lock = asyncio.Lock()
 _WATCHER_REFRESH_TTL_SECONDS: float = float(os.getenv("AAAS_WATCHER_REFRESH_TTL_SECONDS", "30.0"))
+
+
+def _entry_signature_tokens(entry: Dict[str, Any], include_pair: bool = True) -> List[str]:
+    """Returns canonical suppression signature keys for a normalized log entry."""
+    tokens: List[str] = []
+    sig = str(entry.get("signature_key") or "").strip()
+    if sig:
+        tokens.append(sig)
+    if include_pair:
+        wl = str(entry.get("workload") or "").strip()
+        err = str(entry.get("error_code") or "").strip()
+        if wl and err:
+            pair_tok = f"{wl}::{err}"
+            if pair_tok not in tokens:
+                tokens.append(pair_tok)
+    return tokens
+
+
+def _sync_orchestrator_ignore_sets() -> None:
+    """Keeps Atlas's in-memory suppression sets synchronized with persisted triage state."""
+    lead_orchestrator.ignored_log_ids = set(_ignored_log_ids.keys())
+    lead_orchestrator.ignored_signatures = set(_ignored_signatures.keys())
+
+
+def _load_persisted_triage_state(sync_from_firestore: bool = True) -> None:
+    """Hydrates durable 'Safe to Ignore' state from Cloud Firestore / active session store."""
+    try:
+        persisted = session_store_service.get_global_triage_state(
+            sync_from_firestore=sync_from_firestore
+        )
+        for lid, meta in (persisted.get("ignored_logs") or {}).items():
+            if lid and isinstance(meta, dict):
+                _ignored_log_ids[str(lid)] = dict(meta)
+                _seen_anomaly_ids.add(str(lid))
+        for sig, meta in (persisted.get("ignored_signatures") or {}).items():
+            if sig and isinstance(meta, dict):
+                _ignored_signatures[str(sig)] = dict(meta)
+        _sync_orchestrator_ignore_sets()
+    except Exception:
+        pass
+
+
+def _persist_triage_state() -> bool:
+    """Persists `_ignored_log_ids` and `_ignored_signatures` to Cloud Firestore / active session store."""
+    _sync_orchestrator_ignore_sets()
+    try:
+        return session_store_service.save_global_triage_state(
+            ignored_logs=_ignored_log_ids,
+            ignored_signatures=_ignored_signatures,
+        )
+    except Exception:
+        return False
+
+
+_load_persisted_triage_state(sync_from_firestore=False)
+
+
+def _lookup_ignored_meta(entry: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    """
+    Returns ignore metadata if `entry` was explicitly marked Safe to Ignore by `log_id`
+    OR matches a permanently suppressed recurring signature (`_ignored_signatures`).
+    """
+    lid = str(entry.get("log_id") or "").strip()
+    if lid and lid in _ignored_log_ids:
+        return _ignored_log_ids[lid]
+    for tok in _entry_signature_tokens(entry):
+        if tok in _ignored_signatures:
+            sig_meta = dict(_ignored_signatures[tok])
+            if lid:
+                hydrated = {
+                    **sig_meta,
+                    "log_id": lid,
+                    "matched_signature": tok,
+                }
+                _ignored_log_ids[lid] = hydrated
+                _seen_anomaly_ids.add(lid)
+                lead_orchestrator.ignored_log_ids.add(lid)
+                return hydrated
+            return sig_meta
+    return None
+
+
+def _compute_issue_priority(entry: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Deterministic SRE priority ranking (P1..P4) so critical data-plane / permission / outage
+    failures are surfaced ahead of operational warnings and benign external port probes.
+    """
+    if not entry.get("is_anomaly"):
+        return {
+            "priority_tier": "INFO",
+            "priority_rank": 5,
+            "priority_score": 0,
+            "priority_label": "Informational Telemetry",
+        }
+    sev = str(entry.get("severity") or "ERROR").upper()
+    err_code = str(entry.get("error_code") or "").strip().upper()
+    scen = str(entry.get("scenario_id") or "").strip().lower()
+    msg_lower = f"{entry.get('title') or ''} {entry.get('message') or ''}".lower()
+
+    if (
+        err_code == "CLOUDSQL_EXTERNAL_CONN_REJECTED"
+        or scen == "cloudsql_conn_probe"
+        or "invalid length of startup packet" in msg_lower
+        or "unsupported frontend protocol" in msg_lower
+        or sev in ("NOTICE", "INFO", "DEBUG", "OK")
+    ):
+        return {
+            "priority_tier": "P4",
+            "priority_rank": 4,
+            "priority_score": 20,
+            "priority_label": "P4 • Benign Probe / Low-Impact Noise",
+        }
+
+    if (
+        sev in ("CRITICAL", "ALERT", "EMERGENCY")
+        or err_code in (
+            "CLOUDSQL_PG_OBJECT_PERMISSION_DENIED",
+            "DATASTREAM_FAILED_PRECONDITION_IAM",
+            "CONNECTION_POOL_EXHAUSTION",
+            "HTTP_503_UPSTREAM",
+            "HTTP_503_CASCADING_PEER_FAILURE",
+            "DEADLOCK_DETECTED",
+        )
+        or scen in ("cloudsql_pg_permission_denied", "datastream_iam_drift", "cloud_run_5xx")
+        or "permission denied for " in msg_lower
+        or "deadlock detected" in msg_lower
+        or "remaining connection slots are reserved" in msg_lower
+    ):
+        return {
+            "priority_tier": "P1",
+            "priority_rank": 1,
+            "priority_score": 95,
+            "priority_label": "P1 • Critical Service / Data Access Failure",
+        }
+
+    if sev == "ERROR":
+        return {
+            "priority_tier": "P2",
+            "priority_rank": 2,
+            "priority_score": 78,
+            "priority_label": "P2 • Service Runtime Error",
+        }
+
+    return {
+        "priority_tier": "P3",
+        "priority_rank": 3,
+        "priority_score": 50,
+        "priority_label": "P3 • Operational Warning",
+    }
 
 
 def _find_logs_by_ids(log_ids: List[str]) -> List[Dict[str, Any]]:
@@ -322,22 +483,40 @@ def _find_logs_by_ids(log_ids: List[str]) -> List[Dict[str, Any]]:
 
 
 def _annotate_logs_with_triage(logs: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-    """Returns shallow copies of log entries enriched with live operator triage metadata."""
+    """Returns shallow copies of log entries enriched with live operator triage and priority metadata."""
     enriched: List[Dict[str, Any]] = []
     for entry in logs:
         item = dict(entry)
         lid = str(item.get("log_id") or "")
-        ignored_meta = _ignored_log_ids.get(lid)
+        ignored_meta = _lookup_ignored_meta(item)
         linked_inc = lead_orchestrator.incidents.get(lid)
-        item["ignored"] = ignored_meta is not None
-        item["ignored_by"] = ignored_meta.get("ignored_by") if ignored_meta else None
-        item["ignored_at"] = ignored_meta.get("ignored_at") if ignored_meta else None
-        item["ignored_reason"] = ignored_meta.get("reason") if ignored_meta else None
-        item["linked_incident_id"] = linked_inc.get("incident_id") if linked_inc else None
-        if ignored_meta is not None:
+        inc_status = str(linked_inc.get("status") or "") if linked_inc else ""
+        is_ignored = ignored_meta is not None or inc_status == "IGNORED"
+
+        prio = _compute_issue_priority(item)
+        item.update(prio)
+        item["ignored"] = is_ignored
+        item["ignored_by"] = (
+            ignored_meta.get("ignored_by")
+            if ignored_meta
+            else (linked_inc.get("ignored_by") if linked_inc and inc_status == "IGNORED" else None)
+        )
+        item["ignored_at"] = (
+            ignored_meta.get("ignored_at")
+            if ignored_meta
+            else (linked_inc.get("ignored_at") if linked_inc and inc_status == "IGNORED" else None)
+        )
+        item["ignored_reason"] = (
+            ignored_meta.get("reason")
+            if ignored_meta
+            else (linked_inc.get("ignore_reason") if linked_inc and inc_status == "IGNORED" else None)
+        )
+        item["linked_incident_id"] = (
+            linked_inc.get("incident_id") if linked_inc and inc_status != "IGNORED" else None
+        )
+        if is_ignored:
             item["triage_status"] = "IGNORED"
         elif linked_inc is not None:
-            inc_status = str(linked_inc.get("status") or "")
             if inc_status == "RESOLVED":
                 item["triage_status"] = "RESOLVED"
             elif inc_status == "ROLLED_BACK":
@@ -351,6 +530,62 @@ def _annotate_logs_with_triage(logs: List[Dict[str, Any]]) -> List[Dict[str, Any
         else:
             item["triage_status"] = "INFO"
         enriched.append(item)
+    return enriched
+
+
+def _build_prioritized_open_issues(annotated_logs: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """
+    Returns unignored, unresolved anomaly issues ranked strictly by priority (P1 -> P4)
+    and newest timestamp within each priority tier so operators can pick the top issue first.
+    """
+    candidates = [
+        item
+        for item in annotated_logs
+        if item.get("is_anomaly")
+        and not item.get("ignored")
+        and item.get("triage_status") not in ("IGNORED", "RESOLVED", "ROLLED_BACK")
+    ]
+    candidates.sort(
+        key=lambda x: (
+            int(x.get("priority_score") or 0),
+            str(x.get("timestamp") or "").replace(" ", "T"),
+        ),
+        reverse=True,
+    )
+    return candidates
+
+
+def _enrich_and_sort_incidents(incidents: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """
+    Attaches `priority_tier`/`priority_rank`/`priority_score` to visible incidents, excludes
+    any incident whose log or signature was marked Safe to Ignore, and orders actionable
+    incidents highest-priority-first (`P1` -> `P4`).
+    """
+    enriched: List[Dict[str, Any]] = []
+    for inc in incidents:
+        if not isinstance(inc, dict) or inc.get("status") == "IGNORED":
+            continue
+        log_entry = inc.get("log_entry") or {}
+        if _lookup_ignored_meta({"log_id": inc.get("incident_id"), **log_entry}) is not None:
+            continue
+        copy_inc = dict(inc)
+        prio = _compute_issue_priority({**log_entry, "is_anomaly": True})
+        copy_inc.setdefault("priority_tier", prio["priority_tier"])
+        copy_inc.setdefault("priority_rank", prio["priority_rank"])
+        copy_inc.setdefault("priority_score", prio["priority_score"])
+        copy_inc.setdefault("priority_label", prio["priority_label"])
+        enriched.append(copy_inc)
+
+    def _inc_sort_key(item: Dict[str, Any]) -> Any:
+        st = str(item.get("status") or "")
+        actionable = 1 if st in ("AWAITING_HITL_APPROVAL", "BLOCKED_PROVIDER_OUTAGE") else 0
+        return (
+            actionable,
+            int(item.get("priority_score") or 0),
+            str(item.get("created_at") or "").replace(" ", "T"),
+        )
+
+    enriched.sort(key=_inc_sort_key, reverse=True)
     return enriched
 
 
@@ -410,7 +645,8 @@ async def _background_log_refresh(force: bool = False) -> None:
 
 @app.on_event("startup")
 async def _startup_warm_caches() -> None:
-    """Warm Cloud Logging cache in the background immediately after Uvicorn binds port 8080."""
+    """Warm Cloud Firestore triage state and Cloud Logging cache in the background after Uvicorn binds port 8080."""
+    await asyncio.to_thread(_load_persisted_triage_state, True)
     asyncio.create_task(_background_log_refresh(force=False))
 
 
@@ -438,9 +674,17 @@ async def sync_real_logs_from_watcher(
 
     if auto_escalate:
         escalated = 0
-        for entry in logs:
+        prioritized_candidates = sorted(
+            [e for e in logs if e.get("is_anomaly") and _lookup_ignored_meta(e) is None],
+            key=lambda e: (
+                _compute_issue_priority(e)["priority_score"],
+                str(e.get("timestamp") or "").replace(" ", "T"),
+            ),
+            reverse=True,
+        )
+        for entry in prioritized_candidates:
             lid = entry.get("log_id", "")
-            if entry.get("is_anomaly") and lid and lid not in _seen_anomaly_ids and lid not in lead_orchestrator.incidents:
+            if lid and lid not in _seen_anomaly_ids and lid not in lead_orchestrator.incidents:
                 _seen_anomaly_ids.add(lid)
                 await watcher_agent.detect_and_report_anomaly(entry)
                 escalated += 1
@@ -484,6 +728,8 @@ async def get_system_state() -> Dict[str, Any]:
     """Returns real-time state of all 3 agents, live GCP Cloud Logging stream, incidents, audit tracker, and A2A traces."""
     logs = await sync_real_logs_from_watcher(force=False, auto_escalate=False)
     annotated_logs = _annotate_logs_with_triage(logs)
+    prioritized_open_issues = _build_prioritized_open_issues(annotated_logs)
+    visible_incidents = _enrich_and_sort_incidents(lead_orchestrator.list_incidents())
     platform_runtime = await asyncio.to_thread(_build_platform_runtime)
     return {
         "gcp_status": {
@@ -499,8 +745,10 @@ async def get_system_state() -> Dict[str, Any]:
         "worker_boutique": WORKER_AGENT_BOUTIQUE,
         "agent_harness_status": agent_harness.get_global_harness_status(),
         "logs": annotated_logs,
+        "prioritized_open_issues": prioritized_open_issues,
         "ignored_log_ids": list(_ignored_log_ids.keys()),
-        "incidents": lead_orchestrator.list_incidents(),
+        "ignored_signatures": list(_ignored_signatures.keys()),
+        "incidents": visible_incidents,
         "audit_events": lead_orchestrator.list_audit_events(),
         "dispatch_history": lead_orchestrator.list_dispatch_history(),
         "general_chat_messages": lead_orchestrator.list_general_chat_messages(),
@@ -560,64 +808,117 @@ async def get_audit_events() -> Dict[str, Any]:
 
 
 @app.post("/api/poll-cloud-logging")
-async def poll_cloud_logging() -> Dict[str, Any]:
+async def poll_cloud_logging(req: Optional[PollCloudLoggingRequest] = None) -> Dict[str, Any]:
     """
     Dedicated Live GCP Log Poll endpoint:
       1. Queries `log-watcher-agent` (`agent-triad-watcher`) over A2A (`scan_cloud_logging`, `force=True`).
-      2. Finds the next real GCP error log (`gcp-...`) from project `agent-triad` and escalates it
-         over A2A (`ingest_anomaly_alert`) to `lead-orchestrator-agent`.
+      2. Filters out all logs/signatures marked `Safe to Ignore` (`_lookup_ignored_meta`).
+      3. Ranks remaining real GCP anomalies highest-priority-first (`P1` -> `P4`, then newest timestamp)
+         so critical table/service failures are picked ahead of low-impact port/probe false positives,
+         and escalates the selected alert over A2A (`ingest_anomaly_alert`) to `lead-orchestrator-agent`.
     """
     global _real_poll_cursor
+    payload = req or PollCloudLoggingRequest()
+    strategy = (payload.strategy or "prioritized").strip().lower()
+    requested_log_id = (payload.log_id or "").strip()
+
     logs = await sync_real_logs_from_watcher(force=True, auto_escalate=False)
+
+    def _eligible_for_poll(entry: Dict[str, Any]) -> bool:
+        if not entry.get("is_anomaly"):
+            return False
+        if _lookup_ignored_meta(entry) is not None:
+            return False
+        lid = str(entry.get("log_id") or "")
+        existing_inc = lead_orchestrator.incidents.get(lid)
+        if existing_inc and existing_inc.get("status") == "IGNORED":
+            return False
+        return True
+
     real_anomalies = [
         entry
         for entry in logs
-        if entry.get("is_anomaly")
-        and str(entry.get("log_id", "")).startswith("gcp-")
-        and str(entry.get("log_id", "")) not in _ignored_log_ids
+        if _eligible_for_poll(entry) and str(entry.get("log_id", "")).startswith("gcp-")
     ]
     if not real_anomalies:
-        real_anomalies = [
-            entry
-            for entry in logs
-            if entry.get("is_anomaly") and str(entry.get("log_id", "")) not in _ignored_log_ids
-        ]
+        real_anomalies = [entry for entry in logs if _eligible_for_poll(entry)]
 
-    # Sort real GCP anomalies by newest timestamp descending so newly occurring live errors are surfaced immediately
-    real_anomalies.sort(
-        key=lambda e: (
-            str(e.get("timestamp", "")),
-            1 if str(e.get("log_id", "")).startswith(("gcp-ds-", "gcp-sql-")) else 0,
-        ),
-        reverse=True,
-    )
+    if strategy == "newest":
+        real_anomalies.sort(
+            key=lambda e: (
+                str(e.get("timestamp", "")).replace(" ", "T"),
+                _compute_issue_priority(e)["priority_score"],
+            ),
+            reverse=True,
+        )
+    else:
+        # Default `prioritized`: rank P1 -> P2 -> P3 -> P4 first, then newest timestamp within tier
+        real_anomalies.sort(
+            key=lambda e: (
+                _compute_issue_priority(e)["priority_score"],
+                str(e.get("timestamp", "")).replace(" ", "T"),
+                1 if str(e.get("log_id", "")).startswith(("gcp-ds-", "gcp-sql-")) else 0,
+            ),
+            reverse=True,
+        )
 
     target_entry = None
-    for entry in real_anomalies:
-        lid = entry.get("log_id")
-        existing = lead_orchestrator.incidents.get(lid)
-        if not existing:
-            target_entry = entry
-            break
+    if requested_log_id:
+        target_entry = next(
+            (e for e in logs if str(e.get("log_id") or "") == requested_log_id and _eligible_for_poll(e)),
+            None,
+        )
+
+    if target_entry is None:
+        for entry in real_anomalies:
+            lid = entry.get("log_id")
+            existing = lead_orchestrator.incidents.get(lid)
+            if not existing:
+                target_entry = entry
+                break
 
     if target_entry is None and real_anomalies:
-        target_entry = real_anomalies[_real_poll_cursor % len(real_anomalies)]
-        _real_poll_cursor += 1
+        actionable_existing = [
+            entry
+            for entry in real_anomalies
+            if (lead_orchestrator.incidents.get(str(entry.get("log_id") or "")) or {}).get("status")
+            in ("AWAITING_HITL_APPROVAL", "BLOCKED_PROVIDER_OUTAGE")
+        ]
+        if actionable_existing:
+            if strategy == "cycle":
+                target_entry = actionable_existing[_real_poll_cursor % len(actionable_existing)]
+                _real_poll_cursor += 1
+            else:
+                target_entry = actionable_existing[0]
 
     newly_reported = []
     orchestrator_result = None
     incident_id = None
     if target_entry is not None:
-        _seen_anomaly_ids.add(target_entry["log_id"])
-        orchestrator_result = await watcher_agent.detect_and_report_anomaly(target_entry)
-        incident_id = orchestrator_result.get("incident_id", target_entry["log_id"])
-        newly_reported.append(incident_id)
+        lid = target_entry["log_id"]
+        _seen_anomaly_ids.add(lid)
+        existing_inc = lead_orchestrator.incidents.get(lid)
+        if existing_inc and existing_inc.get("status") in ("AWAITING_HITL_APPROVAL", "BLOCKED_PROVIDER_OUTAGE"):
+            incident_id = lid
+        else:
+            orchestrator_result = await watcher_agent.detect_and_report_anomaly(target_entry)
+            incident_id = orchestrator_result.get("incident_id", lid)
+            newly_reported.append(incident_id)
 
+    annotated_after = _annotate_logs_with_triage(logs)
+    prioritized_queue = _build_prioritized_open_issues(annotated_after)
     return {
-        "status": "REAL_GCP_INCIDENT_REPORTED_TO_ORCHESTRATOR",
+        "status": (
+            "REAL_GCP_INCIDENT_REPORTED_TO_ORCHESTRATOR"
+            if incident_id is not None
+            else "NO_UNIGNORED_ANOMALIES"
+        ),
+        "strategy": strategy,
         "gcp_connected": logging_service.gcp_connected,
         "incident_id": incident_id,
         "log_entry": target_entry,
+        "priority": _compute_issue_priority(target_entry) if target_entry else None,
+        "prioritized_open_issues": prioritized_queue,
         "orchestrator_result": orchestrator_result,
         "incident": lead_orchestrator.incidents.get(incident_id) if incident_id else None,
         "newly_reported_incidents": newly_reported,
@@ -774,8 +1075,9 @@ async def recreate_scenario1_datastream_iam_drift(
 async def mark_logs_safe_to_ignore(req: LogTriageBatchRequest) -> Dict[str, Any]:
     """
     Marks one or more live Cloud Logging alerts as 'Safe to Ignore'.
-    Updates the live Cloud Health alert count, suppresses re-escalation on subsequent polls,
-    closes any open HITL incident for those log IDs as SKIPPED_MANUAL, and writes an audit record.
+    Updates the live Cloud Health alert count, durably persists log IDs + recurring signatures
+    to Cloud Firestore so they never appear again in Atlas, dismisses any open incident as IGNORED,
+    and writes an audit record.
     """
     cleaned_ids = [str(lid).strip() for lid in (req.log_ids or []) if str(lid or "").strip()]
     if not cleaned_ids:
@@ -785,10 +1087,16 @@ async def mark_logs_safe_to_ignore(req: LogTriageBatchRequest) -> Dict[str, Any]
     reason = (req.reason or "Marked safe to ignore by operator").strip()
     now_iso = datetime.datetime.now(datetime.timezone.utc).isoformat()
     matched_entries = {str(e.get("log_id") or ""): e for e in _find_logs_by_ids(cleaned_ids)}
+    for lid in cleaned_ids:
+        if lid not in matched_entries and lid in lead_orchestrator.incidents:
+            inc_log = (lead_orchestrator.incidents[lid] or {}).get("log_entry")
+            if isinstance(inc_log, dict):
+                matched_entries[lid] = {"log_id": lid, **inc_log}
 
-    # Optional storm suppression: also ignore sibling logs sharing the exact same signature_key or (workload, error_code)
+    # Optional storm & recurring-signature suppression: suppress sibling logs & future polls sharing signature_key or (workload, error_code)
     target_ids: List[str] = list(dict.fromkeys(cleaned_ids))
     similar_expanded_count = 0
+    suppressed_sig_tokens: List[str] = []
     if req.ignore_similar_signatures and matched_entries:
         sig_keys = {
             str(e.get("signature_key") or "").strip()
@@ -800,6 +1108,19 @@ async def mark_logs_safe_to_ignore(req: LogTriageBatchRequest) -> Dict[str, Any]
             for e in matched_entries.values()
             if str(e.get("workload") or "").strip()
         }
+        for entry in matched_entries.values():
+            for tok in _entry_signature_tokens(entry):
+                if tok not in _ignored_signatures:
+                    suppressed_sig_tokens.append(tok)
+                _ignored_signatures[tok] = {
+                    "signature": tok,
+                    "ignored_by": uname,
+                    "ignored_at": now_iso,
+                    "reason": reason,
+                    "workload": entry.get("workload", ""),
+                    "title": entry.get("title", ""),
+                }
+
         existing_set = set(target_ids)
         for cand in logging_service._local_logs:
             cid = str(cand.get("log_id") or "").strip()
@@ -813,9 +1134,21 @@ async def mark_logs_safe_to_ignore(req: LogTriageBatchRequest) -> Dict[str, Any]
                 matched_entries[cid] = cand
                 similar_expanded_count += 1
 
+        for inc_id, inc_obj in list(lead_orchestrator.incidents.items()):
+            if inc_id in existing_set or not isinstance(inc_obj, dict):
+                continue
+            inc_entry = inc_obj.get("log_entry") or {}
+            cand_sig = str(inc_entry.get("signature_key") or "").strip()
+            cand_pair = (str(inc_entry.get("workload") or "").strip(), str(inc_entry.get("error_code") or "").strip())
+            if (cand_sig and cand_sig in sig_keys) or (cand_pair[0] and cand_pair in wl_err_pairs):
+                target_ids.append(inc_id)
+                existing_set.add(inc_id)
+                matched_entries[inc_id] = {"log_id": inc_id, **inc_entry}
+
     ignored_now: List[str] = []
     for lid in target_ids:
         entry = matched_entries.get(lid) or {}
+        entry_tokens = _entry_signature_tokens(entry) if req.ignore_similar_signatures else []
         _ignored_log_ids[lid] = {
             "log_id": lid,
             "ignored_by": uname,
@@ -823,16 +1156,21 @@ async def mark_logs_safe_to_ignore(req: LogTriageBatchRequest) -> Dict[str, Any]
             "reason": reason,
             "workload": entry.get("workload", ""),
             "title": entry.get("title", ""),
+            "signature_tokens": entry_tokens,
         }
         _seen_anomaly_ids.add(lid)
         ignored_now.append(lid)
 
         existing_inc = lead_orchestrator.incidents.get(lid)
-        if existing_inc and existing_inc.get("status") in ("AWAITING_HITL_APPROVAL", "BLOCKED_PROVIDER_OUTAGE"):
-            lead_orchestrator.skip_incident_manual(
+        if existing_inc and existing_inc.get("status") not in ("RESOLVED", "ROLLED_BACK", "IGNORED"):
+            lead_orchestrator.dismiss_incident_ignored(
                 incident_id=lid,
-                skipped_by=f"{uname} (Marked Safe to Ignore: {reason})",
+                ignored_by=uname,
+                reason=reason,
+                signature_key=str(entry.get("signature_key") or "") if req.ignore_similar_signatures else "",
             )
+        else:
+            lead_orchestrator.ignored_log_ids.add(lid)
 
         if entry:
             try:
@@ -850,9 +1188,12 @@ async def mark_logs_safe_to_ignore(req: LogTriageBatchRequest) -> Dict[str, Any]
             except Exception:
                 pass
 
+    await asyncio.to_thread(_persist_triage_state)
     return {
         "status": "LOGS_MARKED_SAFE_TO_IGNORE",
         "ignored_ids": ignored_now,
+        "ignored_signatures": list(_ignored_signatures.keys()),
+        "suppressed_signature_count": len(suppressed_sig_tokens),
         "similar_expanded_count": similar_expanded_count,
         "reason": reason,
         "ignored_by": uname,
@@ -863,24 +1204,55 @@ async def mark_logs_safe_to_ignore(req: LogTriageBatchRequest) -> Dict[str, Any]
 
 @app.post("/api/logs/unignore")
 async def restore_ignored_logs(req: LogTriageBatchRequest) -> Dict[str, Any]:
-    """Restores one or more previously ignored Cloud Logging alerts back to active triage."""
+    """Restores one or more previously ignored Cloud Logging alerts (and their signatures) back to active triage."""
     cleaned_ids = [str(lid).strip() for lid in (req.log_ids or []) if str(lid or "").strip()]
     if not cleaned_ids:
         raise HTTPException(status_code=400, detail="At least one log_id is required")
 
+    matched_entries = {str(e.get("log_id") or ""): e for e in _find_logs_by_ids(cleaned_ids)}
     restored: List[str] = []
+    restored_sigs: set[str] = set()
+
     for lid in cleaned_ids:
-        if lid in _ignored_log_ids:
-            _ignored_log_ids.pop(lid, None)
+        prev_meta = _ignored_log_ids.pop(lid, None)
+        if prev_meta is not None:
             restored.append(lid)
+            for tok in prev_meta.get("signature_tokens") or []:
+                if tok:
+                    restored_sigs.add(str(tok))
+            if prev_meta.get("matched_signature"):
+                restored_sigs.add(str(prev_meta["matched_signature"]))
+        entry = matched_entries.get(lid) or ((lead_orchestrator.incidents.get(lid) or {}).get("log_entry") or {})
+        for tok in _entry_signature_tokens(entry):
+            restored_sigs.add(tok)
         _seen_anomaly_ids.discard(lid)
+
+    for sig in restored_sigs:
+        _ignored_signatures.pop(sig, None)
+
+    if restored_sigs:
+        for extra_lid, extra_meta in list(_ignored_log_ids.items()):
+            if extra_meta.get("matched_signature") in restored_sigs:
+                _ignored_log_ids.pop(extra_lid, None)
+                _seen_anomaly_ids.discard(extra_lid)
+                if extra_lid not in restored:
+                    restored.append(extra_lid)
+
+    lead_orchestrator.restore_ignored_signatures(
+        log_ids=list(dict.fromkeys(cleaned_ids + restored)),
+        signature_keys=list(restored_sigs),
+    )
+    for lid in cleaned_ids:
         existing_inc = lead_orchestrator.incidents.get(lid)
-        if existing_inc and existing_inc.get("status") == "SKIPPED_MANUAL":
+        if existing_inc and existing_inc.get("status") in ("SKIPPED_MANUAL", "IGNORED"):
+            existing_inc["ignored"] = False
             lead_orchestrator.reopen_incident(incident_id=lid)
 
+    await asyncio.to_thread(_persist_triage_state)
     return {
         "status": "LOGS_RESTORED",
         "restored_ids": restored,
+        "restored_signatures": sorted(restored_sigs),
         "total_ignored": len(_ignored_log_ids),
     }
 
@@ -902,9 +1274,18 @@ async def fix_selected_logs_via_chat(req: LogTriageBatchRequest) -> Dict[str, An
     if not selected_entries:
         raise HTTPException(status_code=404, detail="None of the selected log IDs were found in the live log buffer")
 
+    cleared_any_ignore = False
     for entry in selected_entries:
         lid = str(entry.get("log_id") or "")
-        _ignored_log_ids.pop(lid, None)
+        if _ignored_log_ids.pop(lid, None) is not None:
+            cleared_any_ignore = True
+        entry_sigs = _entry_signature_tokens(entry)
+        for sig in entry_sigs:
+            if _ignored_signatures.pop(sig, None) is not None:
+                cleared_any_ignore = True
+        lead_orchestrator.restore_ignored_signatures(log_ids=[lid], signature_keys=entry_sigs)
+    if cleared_any_ignore:
+        await asyncio.to_thread(_persist_triage_state)
 
     uname = (req.user_name or lead_orchestrator.active_user.get("name") or "Hari").strip()
     active_cloud = req.target_cloud or lead_orchestrator.active_target_cloud
@@ -914,7 +1295,8 @@ async def fix_selected_logs_via_chat(req: LogTriageBatchRequest) -> Dict[str, An
         lid = str(entry.get("log_id") or "")
         existing = lead_orchestrator.incidents.get(lid)
         if existing:
-            if existing.get("status") == "SKIPPED_MANUAL":
+            if existing.get("status") in ("SKIPPED_MANUAL", "IGNORED"):
+                existing["ignored"] = False
                 existing = lead_orchestrator.reopen_incident(incident_id=lid)
             return {
                 "incident_id": lid,
@@ -1161,7 +1543,7 @@ async def verify_platform_service_health() -> Dict[str, Any]:
 
 @app.post("/api/incidents/{incident_id}/skip")
 async def skip_incident_remedy(incident_id: str) -> Dict[str, Any]:
-    """User chooses Later / Ignore (handle manually). Worker Agent stands down."""
+    """User chooses Later / Fix Manually. Worker Agent stands down while keeping incident visible."""
     if incident_id not in lead_orchestrator.incidents:
         raise HTTPException(status_code=404, detail=f"Incident {incident_id} not found")
     updated = lead_orchestrator.skip_incident_manual(incident_id=incident_id)
@@ -1171,11 +1553,49 @@ async def skip_incident_remedy(incident_id: str) -> Dict[str, Any]:
     }
 
 
-@app.post("/api/incidents/{incident_id}/reopen")
-async def reopen_incident_remedy(incident_id: str) -> Dict[str, Any]:
-    """Re-opens a previously skipped incident back to awaiting approval."""
+@app.post("/api/incidents/{incident_id}/ignore")
+async def ignore_incident_permanently(
+    incident_id: str,
+    req: Optional[IgnoreIncidentRequest] = None,
+) -> Dict[str, Any]:
+    """
+    Permanently marks an Atlas incident (and its recurring log signature) as 'Safe to Ignore'.
+    Persists to Cloud Firestore so it never reappears in Atlas unless explicitly restored.
+    """
     if incident_id not in lead_orchestrator.incidents:
         raise HTTPException(status_code=404, detail=f"Incident {incident_id} not found")
+    payload = req or IgnoreIncidentRequest()
+    triage_res = await mark_logs_safe_to_ignore(
+        LogTriageBatchRequest(
+            log_ids=[incident_id],
+            reason=payload.reason or "Marked safe to ignore in Atlas",
+            user_name=payload.user_name,
+            ignore_similar_signatures=bool(payload.ignore_similar_signatures),
+        )
+    )
+    remaining_incidents = _enrich_and_sort_incidents(lead_orchestrator.list_incidents())
+    annotated_after = _annotate_logs_with_triage(
+        logging_service.fetch_recent_logs(limit=25, poll_gcp=False)
+    )
+    prioritized_queue = _build_prioritized_open_issues(annotated_after)
+    return {
+        "status": "INCIDENT_MARKED_SAFE_TO_IGNORE",
+        "incident_id": incident_id,
+        "ignored_ids": triage_res["ignored_ids"],
+        "ignored_signatures": triage_res["ignored_signatures"],
+        "next_incident_id": remaining_incidents[0]["incident_id"] if remaining_incidents else None,
+        "next_prioritized_issue": prioritized_queue[0] if prioritized_queue else None,
+    }
+
+
+@app.post("/api/incidents/{incident_id}/reopen")
+async def reopen_incident_remedy(incident_id: str) -> Dict[str, Any]:
+    """Re-opens a previously skipped or ignored incident back to awaiting approval."""
+    if incident_id not in lead_orchestrator.incidents:
+        raise HTTPException(status_code=404, detail=f"Incident {incident_id} not found")
+    inc_obj = lead_orchestrator.incidents[incident_id]
+    if incident_id in _ignored_log_ids or inc_obj.get("status") == "IGNORED" or inc_obj.get("ignored"):
+        await restore_ignored_logs(LogTriageBatchRequest(log_ids=[incident_id]))
     updated = lead_orchestrator.reopen_incident(incident_id=incident_id)
     return {
         "status": "AWAITING_HITL_APPROVAL",
@@ -1213,9 +1633,23 @@ async def chat_about_incident(incident_id: str, req: IncidentChatRequest) -> Dic
         user_message=req.message,
         user_name=req.user_name,
     )
+    inc_after = lead_orchestrator.incidents.get(incident_id) or {}
+    next_incident_id: Optional[str] = None
+    if result.get("action_taken") == "MARKED_SAFE_TO_IGNORE" or inc_after.get("status") == "IGNORED":
+        await mark_logs_safe_to_ignore(
+            LogTriageBatchRequest(
+                log_ids=[incident_id],
+                reason="Marked safe to ignore via Atlas chat",
+                user_name=req.user_name,
+                ignore_similar_signatures=True,
+            )
+        )
+        remaining_incidents = _enrich_and_sort_incidents(lead_orchestrator.list_incidents())
+        next_incident_id = remaining_incidents[0]["incident_id"] if remaining_incidents else None
     return {
         "status": "CHAT_UPDATED",
         **result,
+        **({"next_incident_id": next_incident_id} if result.get("action_taken") == "MARKED_SAFE_TO_IGNORE" else {}),
     }
 
 

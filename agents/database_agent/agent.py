@@ -16,6 +16,7 @@ import contextvars
 import json
 import logging
 import os
+import re
 import subprocess
 import sys
 import urllib.request
@@ -26,8 +27,9 @@ from typing import Any, Dict, List, Optional
 logging.getLogger("google_genai.types").setLevel(logging.ERROR)
 
 # Expose monorepo `poc/` provider adapters when running in monorepo (graceful fallback in minimal Docker builds)
-_MONOREPO_POC_DIR = Path(__file__).resolve().parents[2] / "poc"
-if _MONOREPO_POC_DIR.exists() and str(_MONOREPO_POC_DIR) not in sys.path:
+_HERE_PARENTS = Path(__file__).resolve().parents
+_MONOREPO_POC_DIR = (_HERE_PARENTS[2] / "poc") if len(_HERE_PARENTS) > 2 else None
+if _MONOREPO_POC_DIR is not None and _MONOREPO_POC_DIR.exists() and str(_MONOREPO_POC_DIR) not in sys.path:
     sys.path.append(str(_MONOREPO_POC_DIR))
 
 PROJECT_ID = os.getenv("GCP_PROJECT_ID", "agent-triad")
@@ -477,20 +479,50 @@ def analyze_db_logs_and_connections(
 
     # Dynamically classify the actual live logs returned by Cloud Logging
     categories: Dict[str, int] = {
+        "pg_object_permission_denied": 0,
         "direct_ip_or_proxy_connection_timeouts": 0,
         "unencrypted_ssl_rejections": 0,
+        "external_connection_probes": 0,
         "password_auth_failures": 0,
         "connection_pool_exhaustion": 0,
         "admin_shutdown_events": 0,
         "slow_query_warnings": 0,
         "other_errors": 0,
     }
+    detected_perm_object = ""
+    detected_perm_user = ""
     for line in live_log_messages:
         low = line.lower()
-        if "re-occured" in low or "connection refused" in low or "timeout expired" in low or "port 3306" in low:
+        if "permission denied for " in low:
+            categories["pg_object_permission_denied"] += 1
+            if not detected_perm_object:
+                pm = re.search(
+                    r"permission denied for (?:table|schema|sequence|view|materialized view|function|relation)\s+([a-zA-Z0-9_.\"]+)",
+                    line,
+                    flags=re.IGNORECASE,
+                )
+                if pm:
+                    detected_perm_object = pm.group(1).strip().strip('"').rstrip(";,.")
+            if not detected_perm_user:
+                um = re.search(r"user=([^,\s]+)", line)
+                if um:
+                    detected_perm_user = um.group(1).strip()
+        elif any(
+            probe_kw in low
+            for probe_kw in (
+                "unsupported frontend protocol",
+                "no postgresql user name specified",
+                "canceling authentication due to timeout",
+                "invalid length of startup packet",
+            )
+        ):
+            categories["external_connection_probes"] += 1
+        elif "re-occured" in low or "connection refused" in low or "timeout expired" in low or "port 3306" in low:
             categories["direct_ip_or_proxy_connection_timeouts"] += 1
         elif "pg_hba.conf rejects connection" in low and "no encryption" in low:
             categories["unencrypted_ssl_rejections"] += 1
+        elif "pg_hba.conf rejects connection" in low:
+            categories["external_connection_probes"] += 1
         elif "password authentication failed" in low:
             categories["password_auth_failures"] += 1
         elif "remaining connection slots" in low or "too many clients" in low:
@@ -503,9 +535,44 @@ def analyze_db_logs_and_connections(
             categories["other_errors"] += 1
 
     active_categories = {k: v for k, v in categories.items() if v > 0}
-    primary_finding = max(active_categories, key=active_categories.get).upper() if active_categories else "GENERAL_LOG_EVENTS"
+    symptom_low = (symptom or "").lower()
+    if categories["pg_object_permission_denied"] > 0 and not any(
+        k in symptom_low for k in ("ssl", "pg_hba", "3306", "max_connections", "pool")
+    ):
+        primary_finding = "PG_OBJECT_PERMISSION_DENIED"
+    elif active_categories:
+        non_noise = {
+            k: v
+            for k, v in active_categories.items()
+            if k not in ("external_connection_probes", "unencrypted_ssl_rejections")
+        }
+        chosen_pool = non_noise if (non_noise and "ssl" not in symptom_low and "pg_hba" not in symptom_low) else active_categories
+        primary_finding = max(chosen_pool, key=chosen_pool.get).upper()
+    else:
+        primary_finding = "GENERAL_LOG_EVENTS"
 
-    return {
+    ddl_correlation: Optional[Dict[str, Any]] = None
+    table_hint_m = re.search(r"\btable\s+([a-zA-Z0-9_.\"]+)", symptom or "", flags=re.IGNORECASE)
+    table_hint = (
+        (table_hint_m.group(1).strip().strip('"').rstrip(";,.") if table_hint_m else "")
+        or detected_perm_object
+    )
+    if (
+        primary_finding == "PG_OBJECT_PERMISSION_DENIED"
+        or table_hint
+        or any(k in symptom_low for k in ("permission denied", "ddl", "drop", "create table", "grant", "audit_logs"))
+    ):
+        ddl_correlation = inspect_table_ddl_and_privilege_logs(
+            table_or_object=table_hint,
+            db_user=detected_perm_user,
+            instance_name=instance_name,
+            project_id=project_id,
+            target_cloud=cloud,
+        )
+        if ddl_correlation.get("permission_denied_events") and primary_finding != "PG_OBJECT_PERMISSION_DENIED":
+            primary_finding = "PG_OBJECT_PERMISSION_DENIED"
+
+    out_payload: Dict[str, Any] = {
         "status": "LIVE_GCP_CLOUD_LOGGING",
         "finding": primary_finding,
         "instance_name": instance_name,
@@ -514,6 +581,251 @@ def analyze_db_logs_and_connections(
         "categories": active_categories,
         "evidence": live_log_messages[:6],
         "summary_evidence": " | ".join(live_log_messages[:4]),
+    }
+    if ddl_correlation is not None:
+        out_payload["ddl_and_privilege_correlation"] = ddl_correlation
+    return out_payload
+
+
+def inspect_table_ddl_and_privilege_logs(
+    table_or_object: str = "",
+    db_user: str = "",
+    instance_name: str = "testdbinstance1",
+    project_id: str = PROJECT_ID,
+    target_cloud: Optional[str] = None,
+) -> Dict[str, Any]:
+    """
+    Read-only ADK tool: Correlates PostgreSQL object `permission denied` errors against recent
+    Cloud SQL DDL (`DROP TABLE`, `CREATE TABLE`, `ALTER TABLE`) and DCL (`GRANT`, `REVOKE`)
+    statement logs in Cloud Logging (`resource.type="cloudsql_database"`).
+
+    Use this tool whenever an incident or user asks about `ERROR: permission denied for table/schema/sequence`,
+    table access issues for an IAM DB user (`@<project>.iam`), or whether recent `DROP` / `CREATE` DDL changes occurred.
+    """
+    cloud = _resolve_target_cloud(target_cloud)
+    if _get_database_cloud_adapter is not None:
+        return _get_database_cloud_adapter(cloud).inspect_table_ddl_and_privilege_logs(
+            table_or_object=table_or_object,
+            db_user=db_user,
+            instance_name=instance_name,
+            account_or_project_id=project_id,
+        )
+    if not instance_name or instance_name.lower() == "auto":
+        inv = inspect_cloudsql_instance(instance_name="auto", project_id=project_id, target_cloud=cloud)
+        instance_name = inv.get("instance_name") or "testdbinstance1"
+    token = _get_gcp_access_token()
+    if not token:
+        return {
+            "status": "AUTH_TOKEN_UNAVAILABLE",
+            "target_cloud": cloud,
+            "instance_name": instance_name,
+            "project_id": project_id,
+            "ddl_events": [],
+            "dcl_grant_revoke_events": [],
+            "permission_denied_events": [],
+        }
+
+    database_id = f"{project_id}:{instance_name}"
+    clean_obj = re.sub(r"[^a-zA-Z0-9_.]", "", (table_or_object or "").strip())
+    short_obj = clean_obj.split(".")[-1] if clean_obj else ""
+    clause_terms = [
+        'textPayload:"permission denied"',
+        'textPayload:"DROP TABLE"',
+        'textPayload:"CREATE TABLE"',
+        'textPayload:"ALTER TABLE"',
+        'textPayload:"GRANT "',
+        'textPayload:"REVOKE "',
+    ]
+    if short_obj:
+        clause_terms.insert(0, f'textPayload:"{short_obj}"')
+    flt = (
+        f'resource.type="cloudsql_database" AND resource.labels.database_id="{database_id}" '
+        f'AND ({" OR ".join(clause_terms)})'
+    )
+    raw_entries: List[Dict[str, Any]] = []
+    try:
+        body = json.dumps(
+            {
+                "resourceNames": [f"projects/{project_id}"],
+                "filter": flt,
+                "orderBy": "timestamp desc",
+                "pageSize": 35,
+            }
+        ).encode("utf-8")
+        req = urllib.request.Request(
+            "https://logging.googleapis.com/v2/entries:list",
+            data=body,
+            headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
+            method="POST",
+        )
+        with urllib.request.urlopen(req, timeout=12) as resp:
+            data = json.loads(resp.read().decode("utf-8"))
+        raw_entries = list(data.get("entries") or [])
+    except Exception as exc:
+        return {
+            "status": "CLOUD_LOGGING_API_ERROR",
+            "target_cloud": cloud,
+            "instance_name": instance_name,
+            "project_id": project_id,
+            "error": str(exc),
+            "ddl_events": [],
+            "dcl_grant_revoke_events": [],
+            "permission_denied_events": [],
+        }
+
+    permission_denied_events: List[Dict[str, Any]] = []
+    ddl_events: List[Dict[str, Any]] = []
+    dcl_events: List[Dict[str, Any]] = []
+
+    for entry in raw_entries:
+        txt = " ".join(str(entry.get("textPayload") or "").strip().split())
+        if not txt:
+            continue
+        ts = str(entry.get("timestamp") or "")
+        sev = str(entry.get("severity") or "INFO")
+        ctx_m = re.search(r"db=([^,\s]+),user=([^,\s]+),host=([^\s]+)", txt)
+        e_db = ctx_m.group(1) if ctx_m else "postgres"
+        e_user = ctx_m.group(2) if ctx_m else "unknown"
+        e_host = ctx_m.group(3) if ctx_m else "unknown"
+
+        pm = re.search(
+            r"ERROR:\s*permission denied for (table|schema|sequence|view|materialized view|function|relation)\s+([a-zA-Z0-9_.\"]+)",
+            txt,
+            flags=re.IGNORECASE,
+        )
+        if pm:
+            obj_kind = pm.group(1).lower()
+            obj_name = pm.group(2).strip().strip('"').rstrip(";,.")
+            if not short_obj or short_obj.lower() in obj_name.lower():
+                permission_denied_events.append(
+                    {
+                        "timestamp": ts,
+                        "severity": sev,
+                        "db_name": e_db,
+                        "db_user": e_user,
+                        "host": e_host,
+                        "object_kind": obj_kind,
+                        "object_name": obj_name,
+                        "message": txt,
+                    }
+                )
+            continue
+
+        stmt_m = re.search(r"LOG:\s*statement:\s*(.+)$", txt, flags=re.IGNORECASE)
+        stmt_sql = stmt_m.group(1).strip() if stmt_m else ""
+        if not stmt_sql:
+            continue
+        up_sql = stmt_sql.upper()
+        target_check = short_obj or (
+            permission_denied_events[0]["object_name"].split(".")[-1] if permission_denied_events else ""
+        )
+        if any(op in up_sql for op in ("DROP TABLE", "CREATE TABLE", "ALTER TABLE", "TRUNCATE")):
+            if not target_check or target_check.lower() in stmt_sql.lower():
+                ddl_events.append(
+                    {
+                        "timestamp": ts,
+                        "db_name": e_db,
+                        "executed_by": e_user,
+                        "host": e_host,
+                        "statement": stmt_sql,
+                    }
+                )
+        elif up_sql.startswith("GRANT ") or up_sql.startswith("REVOKE ") or " GRANT " in up_sql or " REVOKE " in up_sql:
+            if not target_check or target_check.lower() in stmt_sql.lower():
+                dcl_events.append(
+                    {
+                        "timestamp": ts,
+                        "db_name": e_db,
+                        "executed_by": e_user,
+                        "host": e_host,
+                        "statement": stmt_sql,
+                    }
+                )
+
+    latest_err = permission_denied_events[0] if permission_denied_events else None
+    resolved_table = (
+        short_obj
+        or (latest_err["object_name"].split(".")[-1] if latest_err else "audit_logs_test")
+    )
+    resolved_db = latest_err["db_name"] if latest_err else "postgres"
+    resolved_user = (
+        db_user
+        or (latest_err["db_user"] if latest_err else f"sa-test-db-auth-obj-access@{project_id}.iam")
+    )
+    err_ts = latest_err["timestamp"] if latest_err else ""
+
+    prior_ddl = [d for d in ddl_events if (not err_ts or d["timestamp"] <= err_ts)]
+    post_grants = [
+        g
+        for g in dcl_events
+        if err_ts and g["timestamp"] > err_ts and "GRANT" in g["statement"].upper()
+    ]
+    ddl_wiped_grants = any(
+        "DROP TABLE" in d["statement"].upper() or "CREATE TABLE" in d["statement"].upper()
+        for d in prior_ddl
+    )
+
+    grant_sql = (
+        f'GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE public.{resolved_table} TO "{resolved_user}";'
+    )
+    default_priv_sql = (
+        f"ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA public "
+        f'GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO "{resolved_user}";'
+    )
+    if ddl_wiped_grants and latest_err:
+        ddl_summary = "; ".join(
+            f"[{d['timestamp']}] user={d['executed_by']}: `{d['statement'][:110]}`"
+            for d in reversed(prior_ddl[:3])
+        )
+        root_cause_summary = (
+            f"PostgreSQL table-level object ACL loss (NOT a GCP IAM role failure): IAM database user "
+            f"`{resolved_user}` authenticated to `db={resolved_db}` successfully via `roles/cloudsql.instanceUser`, "
+            f"but prior DDL statements ({ddl_summary}) dropped and recreated `public.{resolved_table}`, "
+            f"wiping all existing PostgreSQL `GRANT` entries on that table prior to `{err_ts}`."
+        )
+    elif latest_err:
+        root_cause_summary = (
+            f"PostgreSQL object-level privilege denial on `public.{resolved_table}` for authenticated IAM user "
+            f"`{resolved_user}` in `db={resolved_db}` (Cloud SQL IAM DB Auth grants login only, not table `GRANT`s)."
+        )
+    else:
+        root_cause_summary = (
+            f"Inspected Cloud SQL statement & error logs for `{resolved_table}` on `{instance_name}`."
+        )
+
+    if post_grants:
+        latest_grant = post_grants[0]
+        grant_status = "POST_INCIDENT_GRANT_OBSERVED_IN_LOGS"
+        root_cause_summary += (
+            f" Note: A subsequent `GRANT` was logged at `{latest_grant['timestamp']}` by "
+            f"`user={latest_grant['executed_by']}` (`{latest_grant['statement']}`). Configure "
+            f"`ALTER DEFAULT PRIVILEGES` so future `DROP`/`CREATE` migrations preserve access automatically."
+        )
+    else:
+        grant_status = "MISSING_TABLE_GRANT"
+
+    return {
+        "status": "LIVE_CLOUDSQL_DDL_ACL_CORRELATION",
+        "target_cloud": cloud,
+        "instance_name": instance_name,
+        "database_id": database_id,
+        "db_name": resolved_db,
+        "affected_db_user": resolved_user,
+        "target_table": f"public.{resolved_table}",
+        "ddl_recreation_detected": ddl_wiped_grants,
+        "grant_status": grant_status,
+        "permission_denied_events": permission_denied_events[:5],
+        "ddl_events": ddl_events[:6],
+        "dcl_grant_revoke_events": dcl_events[:6],
+        "prior_ddl_before_error": prior_ddl[:4],
+        "post_error_grants": post_grants[:4],
+        "root_cause_summary": root_cause_summary,
+        "recommended_grant_sql": grant_sql,
+        "recommended_default_privileges_sql": default_priv_sql,
+        "recommended_cli": (
+            f'psql "host=127.0.0.1 dbname={resolved_db} user=postgres" '
+            f"-c '{grant_sql} {default_priv_sql}'"
+        ),
     }
 
 
@@ -741,7 +1053,50 @@ def generate_remediation_proposal(
     prevent_destroy = true
   }}
 }}"""
-    # Case 2: Instance is RUNNABLE, but `0.0.0.0/0` is open and logs show external unencrypted / brute-force rejections
+    # Case 2: PostgreSQL in-database table/object permission denied (`ERROR: permission denied for table ...`)
+    elif any(
+        kw in issue_upper
+        for kw in ("PERMISSION_DENIED", "PG_OBJECT", "PG_PERM_DENIED", "AUDIT_LOGS", "GRANT")
+    ):
+        ddl_audit = inspect_table_ddl_and_privilege_logs(
+            instance_name=instance_name,
+            project_id=project_id,
+            target_cloud=cloud,
+        )
+        db_name = ddl_audit.get("db_name") or "postgres"
+        db_user = ddl_audit.get("affected_db_user") or f"sa-test-db-auth-obj-access@{project_id}.iam"
+        target_tbl = (ddl_audit.get("target_table") or "public.audit_logs_test").split(".")[-1]
+        cli_cmd = ddl_audit.get("recommended_cli") or (
+            f'psql "host=127.0.0.1 dbname={db_name} user=postgres" '
+            f"-c 'GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE public.{target_tbl} TO \"{db_user}\"; "
+            f"ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA public "
+            f"GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO \"{db_user}\";'"
+        )
+        reason = ddl_audit.get("root_cause_summary") or (
+            f"Restore PostgreSQL table `GRANT`s on `public.{target_tbl}` for IAM database user `{db_user}` "
+            f"on `{instance_name}` (`db={db_name}`) and set `ALTER DEFAULT PRIVILEGES` to survive future DDL recreations."
+        )
+        safe_res = re.sub(r"[^a-zA-Z0-9_]", "_", target_tbl)
+        terraform_hcl = f"""resource "google_sql_user" "iam_db_app_user" {{
+  name     = "{db_user}"
+  instance = "{instance_name}"
+  project  = "{project_id}"
+  type     = "CLOUD_IAM_SERVICE_ACCOUNT"
+
+  lifecycle {{
+    prevent_destroy = true
+  }}
+}}
+
+resource "postgresql_grant" "{safe_res}_table_acl" {{
+  database    = "{db_name}"
+  role        = google_sql_user.iam_db_app_user.name
+  schema      = "public"
+  object_type = "table"
+  objects     = ["{target_tbl}"]
+  privileges  = ["SELECT", "INSERT", "UPDATE", "DELETE"]
+}}"""
+    # Case 2b: Instance is RUNNABLE, `0.0.0.0/0` is open and logs show external unencrypted / brute-force rejections
     elif "UNENCRYPTED" in issue_upper or "SSL" in issue_upper or "PG_HBA" in issue_upper or has_open_world_cidr:
         cli_cmd = (
             f"gcloud sql instances patch {instance_name} "
@@ -849,6 +1204,11 @@ STRICT ANTI-HALLUCINATION & GROUNDING RULES:
 2. NEVER claim an instance is `STOPPED` if `inspect_cloudsql_instance` returns `state: "RUNNABLE"`.
 3. NEVER propose `--activation-policy=ALWAYS` if `inspect_cloudsql_instance` shows `activation_policy` is already `"ALWAYS"`.
 4. Tailor your tool calls and response directly to what the user is asking:
+   - **PostgreSQL Table / Object Permission Denied (`ERROR: permission denied for table/schema/sequence ...`) or DDL History Questions**:
+     ALWAYS call `inspect_table_ddl_and_privilege_logs` (passing the table name and DB user if known), `analyze_db_logs_and_connections`, and `generate_remediation_proposal("PG_OBJECT_PERMISSION_DENIED", ...)`.
+     • Clearly distinguish **Cloud SQL IAM Database Authentication** (`roles/cloudsql.instanceUser` — which grants *login* only, proven by `user=<sa>@<project>.iam` reaching `db=postgres`) from **in-database PostgreSQL object privileges** (`GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE ...`).
+     • Report exact timestamps of any `DROP TABLE` / `CREATE TABLE` DDL statements in `ddl_events` that recreated the table and wiped prior `pg_class` object `GRANT`s, as well as any post-error `GRANT` statements in `dcl_grant_revoke_events`.
+     • NEVER distract or force the user to fix benign background external port-probe / `0.0.0.0/0` scanner noise when they are investigating a PostgreSQL table permission issue.
    - **Performance / Health / Troubleshooting Questions**:
      Call `inspect_cloudsql_instance`, `get_cloudsql_performance_metrics`, `analyze_db_logs_and_connections`, and `introspect_db_query_activity` (when slow queries, lock contention, high CPU, or `pg_stat_activity` analysis is relevant).
      Report the exact live Cloud Monitoring numbers (CPU utilization %, Memory utilization %, Disk utilization %, Active PostgreSQL connections `num_backends`, Disk Read/Write Ops, and Transaction count), the live SQL Admin configuration (`state`, `tier`, `region`, `ssl_mode`, `authorized_networks`), and any real Cloud Logging errors.
@@ -875,6 +1235,7 @@ root_agent = Agent(
         inspect_cloudsql_instance,
         get_cloudsql_performance_metrics,
         analyze_db_logs_and_connections,
+        inspect_table_ddl_and_privilege_logs,
         introspect_db_query_activity,
         inspect_agent_runtime_identity,
         generate_remediation_proposal,
@@ -951,15 +1312,21 @@ async def run_diagnosis(
         insp_data: Optional[Dict[str, Any]] = tool_outputs.get("inspect_cloudsql_instance")
         perf_data: Optional[Dict[str, Any]] = tool_outputs.get("get_cloudsql_performance_metrics")
         diag_data: Optional[Dict[str, Any]] = tool_outputs.get("analyze_db_logs_and_connections")
+        ddl_audit_data: Optional[Dict[str, Any]] = tool_outputs.get("inspect_table_ddl_and_privilege_logs")
         query_introspection_data: Optional[Dict[str, Any]] = tool_outputs.get("introspect_db_query_activity")
         identity_data: Optional[Dict[str, Any]] = tool_outputs.get("inspect_agent_runtime_identity")
         prop_data: Optional[Dict[str, Any]] = tool_outputs.get("generate_remediation_proposal")
+
+        if ddl_audit_data is None and isinstance(diag_data, dict) and diag_data.get("ddl_and_privilege_correlation"):
+            ddl_audit_data = diag_data["ddl_and_privilege_correlation"]
 
         if not final_text:
             insp_data = insp_data or inspect_cloudsql_instance(instance_name, target_cloud=resolved_cloud)
             resolved_instance = insp_data.get("instance_name") or instance_name
             perf_data = perf_data or get_cloudsql_performance_metrics(resolved_instance, target_cloud=resolved_cloud)
             diag_data = diag_data or analyze_db_logs_and_connections(prompt, resolved_instance, target_cloud=resolved_cloud)
+            if ddl_audit_data is None and isinstance(diag_data, dict) and diag_data.get("ddl_and_privilege_correlation"):
+                ddl_audit_data = diag_data["ddl_and_privilege_correlation"]
             identity_data = identity_data or inspect_agent_runtime_identity(target_cloud=resolved_cloud)
             prop_data = prop_data or generate_remediation_proposal(
                 diag_data.get("finding", ""), resolved_instance, target_cloud=resolved_cloud
@@ -969,14 +1336,22 @@ async def run_diagnosis(
                 "get_cloudsql_performance_metrics",
                 "analyze_db_logs_and_connections",
             ]
+            if ddl_audit_data is not None and "inspect_table_ddl_and_privilege_logs" not in tool_trace:
+                tool_trace.append("inspect_table_ddl_and_privilege_logs")
             cpu_m = (perf_data.get("metrics", {}).get("cpu_utilization_pct") or {}).get("latest")
             mem_m = (perf_data.get("metrics", {}).get("memory_utilization_pct") or {}).get("latest")
             conn_m = (perf_data.get("metrics", {}).get("active_connections") or {}).get("latest")
+            ddl_line = (
+                f"- **DDL & Table Privilege Correlation**: {ddl_audit_data.get('root_cause_summary')}\n"
+                if isinstance(ddl_audit_data, dict) and ddl_audit_data.get("root_cause_summary")
+                else ""
+            )
             final_text = (
                 f"### Live DBA Root Cause & Performance Analysis (`{resolved_instance}` on `{resolved_cloud.upper()}` / `{insp_data.get('region')}`)\n"
                 f"- **Live Database State**: `{insp_data.get('database_version')}` • State: **`{insp_data.get('state')}`** (Tier: `{insp_data.get('tier')}`)\n"
                 f"- **Live Monitoring Metrics**: CPU: `{cpu_m}%` • Memory: `{mem_m}%` • Active Connections: `{conn_m}` • Health: `{perf_data.get('performance_health_verdict')}`\n"
                 f"- **Real Log Evidence ({diag_data.get('live_log_count', 0)} logs)**: `{diag_data.get('evidence', ['None'])[0] if diag_data.get('evidence') else 'None'}`\n"
+                f"{ddl_line}"
                 f"- **Active Runtime Identity**: `{identity_data.get('active_service_account')}`\n"
                 f"- **Proposed CLI Fix**: `{prop_data.get('recommended_cli')}`"
             )
@@ -990,6 +1365,7 @@ async def run_diagnosis(
             "instance_inspection": insp_data,
             "performance_metrics": perf_data,
             "log_analysis": diag_data,
+            "ddl_privilege_audit": ddl_audit_data,
             "query_introspection": query_introspection_data,
             "runtime_identity": identity_data,
             "remediation_proposal": prop_data,
